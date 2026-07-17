@@ -11,7 +11,7 @@ from shared.models.vouchers import ConsumptionItem as ConsItem, ScrapItem, Stock
 from shared.ledger_utils import post_journal_entry, reverse_journal_entry, posting_account, party_account
 from shared.models.ledger import ChartOfAccount
 from shared.models.company_settings import CompanyInfo, ReportSettings
-from shared.models.invoice_template import InvoiceTemplate, render_invoice_template
+from shared.models.invoice_template import InvoiceTemplate, render_invoice_template, build_totals_table
 from shared.permissions import deny_json
 from shared.costing import record_in, reverse_voucher_stock
 
@@ -70,30 +70,138 @@ def invoice_form(id):
             invoice_template_obj = InvoiceTemplate.get_default("purchase")
 
     if invoice_template_obj and invoice:
+        topts = invoice_template_obj.options
+
+        if invoice.discount_mode == "individual":
+            show_disc_col = topts.get("discount_display") == "per_line"
+        else:
+            show_disc_col = False
+
+        if invoice.tax_mode == "individual":
+            show_tax_col = topts.get("tax_display") == "per_line"
+        else:
+            show_tax_col = False
+
+        if invoice.expenses_mode == "individual":
+            show_chg_col = topts.get("charges_display") == "per_line"
+        else:
+            show_chg_col = False
+
+        # Auto-size font when extra columns are shown, so the table fits A4
+        extra = (1 if show_disc_col else 0) + (1 if show_tax_col else 0) + (1 if show_chg_col else 0)
+        fs = max(9, 12 - extra)
+        tds = f"padding:6px 8px;border:1px solid #e2e8f0;font-size:{fs}px;"
+        tdc = tds + "text-align:center;"
+        tdr = tds + "text-align:right;"
+
+        tot_qty = 0
+        tot_disc_amt = 0.0
+        tot_excl = 0.0
+        tot_comm = 0.0
+        tot_freight = 0.0
+        tot_ld = 0.0
+        tot_tax_amt = 0.0
+        tot_incl = 0.0
+        tot_line = 0.0
+
         items_rows = ""
         for i, it in enumerate(invoice.items.all(), start=1):
-            items_rows += (
-                f"<tr>"
-                f"<td style='padding:6px 8px;border:1px solid #e2e8f0;text-align:center;'>{i}</td>"
-                f"<td style='padding:6px 8px;border:1px solid #e2e8f0;'>{it.product.sku if it.product else ''}</td>"
-                f"<td style='padding:6px 8px;border:1px solid #e2e8f0;'>{it.description or ''}</td>"
-                f"<td style='padding:6px 8px;border:1px solid #e2e8f0;text-align:center;'>{it.quantity}</td>"
-                f"<td style='padding:6px 8px;border:1px solid #e2e8f0;text-align:right;'>{it.unit or ''}</td>"
-                f"<td style='padding:6px 8px;border:1px solid #e2e8f0;text-align:right;'>{it.unit_price:.2f}</td>"
-                f"<td style='padding:6px 8px;border:1px solid #e2e8f0;text-align:right;'>{it.total_before_discount:.2f}</td>"
-                f"</tr>"
-            )
+            da = it.discount_amount or 0
+            tp = it.sales_tax_pct or 0
+            line_total = it.total_before_discount or 0
+            amt_excl = line_total - da
+            tax_amt = amt_excl * tp / 100
+            amt_incl = amt_excl + tax_amt
+
+            tot_qty += it.quantity or 0
+            tot_disc_amt += da
+            tot_excl += amt_excl
+            tot_comm += it.commission or 0
+            tot_freight += it.freight or 0
+            tot_ld += it.loading_unloading or 0
+            tot_tax_amt += tax_amt
+            tot_incl += amt_incl
+            tot_line += line_total
+
+            cells = (
+                f"<td style='{tdc}'>{i}</td>"
+                f"<td style='{tds}'>{it.product.sku if it.product else ''}</td>"
+                f"<td style='{tds}'>{it.description or ''}</td>"
+                f"<td style='{tdc}'>{it.quantity}</td>"
+                f"<td style='{tdc}'>{it.unit or ''}</td>"
+                f"<td style='{tdr}'>{it.unit_price:.2f}</td>")
+            if show_disc_col:
+                cells += f"<td style='{tdr}'>{it.discount_pct:.1f}%</td>"
+                cells += f"<td style='{tdr}'>{da:.2f}</td>"
+            cells += f"<td style='{tdr}'>{amt_excl:.2f}</td>"
+            if show_tax_col:
+                cells += f"<td style='{tdr}'>{tp:.1f}%</td>"
+                cells += f"<td style='{tdr}'>{tax_amt:.2f}</td>"
+            if show_chg_col:
+                cells += f"<td style='{tdr}'>{it.commission:.2f}</td>"
+                cells += f"<td style='{tdr}'>{it.freight:.2f}</td>"
+                cells += f"<td style='{tdr}'>{it.loading_unloading:.2f}</td>"
+            cells += f"<td style='{tdr}'>{tax_amt:.2f}</td>"
+            cells += f"<td style='{tdr}'>{amt_incl:.2f}</td>"
+            cells += f"<td style='{tdr}'>{line_total:.2f}</td>"
+            items_rows += "<tr>" + cells + "</tr>"
+
+        tds_b = f"padding:6px 8px;border:1px solid #e2e8f0;font-weight:700;background:#f1f5f9;font-size:{fs}px;"
+        tdr_b = tds_b + "text-align:right;"
+        foot = (
+            f"<td style='{tds_b};text-align:center;'></td>"
+            f"<td style='{tds_b}'></td>"
+            f"<td style='{tds_b}'>Total</td>"
+            f"<td style='{tds_b};text-align:center;'>{tot_qty}</td>"
+            f"<td style='{tds_b}'></td>"
+            f"<td style='{tdr_b}'></td>")
+        if show_disc_col:
+            foot += f"<td style='{tdr_b}'></td>"
+            foot += f"<td style='{tdr_b}'>{tot_disc_amt:.2f}</td>"
+        foot += f"<td style='{tdr_b}'>{tot_excl:.2f}</td>"
+        if show_tax_col:
+            foot += f"<td style='{tdr_b}'></td>"
+            foot += f"<td style='{tdr_b}'>{tot_tax_amt:.2f}</td>"
+        if show_chg_col:
+            foot += f"<td style='{tdr_b}'>{tot_comm:.2f}</td>"
+            foot += f"<td style='{tdr_b}'>{tot_freight:.2f}</td>"
+            foot += f"<td style='{tdr_b}'>{tot_ld:.2f}</td>"
+        foot += f"<td style='{tdr_b}'>{tot_tax_amt:.2f}</td>"
+        foot += f"<td style='{tdr_b}'>{tot_incl:.2f}</td>"
+        foot += f"<td style='{tdr_b}'>{tot_line:.2f}</td>"
+
+        hds = "padding:8px;border:1px solid #1e293b;"
+        hdr = hds + "text-align:right;"
+        hdl = hds + "text-align:left;"
+        hdc = hds + "text-align:center;"
+
+        head = (
+            f"<th style='{hdc}'>#</th>"
+            f"<th style='{hdl}'>SKU</th>"
+            f"<th style='{hdl}'>Description</th>"
+            f"<th style='{hdc}'>Qty</th>"
+            f"<th style='{hdc}'>Unit</th>"
+            f"<th style='{hdr}'>Per Unit Price</th>")
+        if show_disc_col:
+            head += f"<th style='{hdr}'>Discount %</th>"
+            head += f"<th style='{hdr}'>Discount allowed</th>"
+        head += f"<th style='{hdr}'>Amount Excl. of Sales Tax</th>"
+        if show_tax_col:
+            head += f"<th style='{hdr}'>Sales Tax %</th>"
+            head += f"<th style='{hdr}'>Sales Tax Amount per Unit</th>"
+        if show_chg_col:
+            head += f"<th style='{hdr}'>Commission</th>"
+            head += f"<th style='{hdr}'>Freight</th>"
+            head += f"<th style='{hdr}'>Ld/Unld</th>"
+        head += f"<th style='{hdr}'>Total Sales Tax</th>"
+        head += f"<th style='{hdr}'>Amount Incl. of Sales Tax</th>"
+        head += f"<th style='{hdr}'>Total</th>"
+
         items_table = (
-            '<table style="width:100%;border-collapse:collapse;font-size:12px;">'
-            '<thead><tr style="background:#1e293b;color:#fff;">'
-            '<th style="padding:8px;border:1px solid #1e293b;text-align:center;">#</th>'
-            '<th style="padding:8px;border:1px solid #1e293b;text-align:left;">SKU</th>'
-            '<th style="padding:8px;border:1px solid #1e293b;text-align:left;">Description</th>'
-            '<th style="padding:8px;border:1px solid #1e293b;text-align:center;">Qty</th>'
-            '<th style="padding:8px;border:1px solid #1e293b;text-align:center;">Unit</th>'
-            '<th style="padding:8px;border:1px solid #1e293b;text-align:right;">Price</th>'
-            '<th style="padding:8px;border:1px solid #1e293b;text-align:right;">Total</th>'
-            '</tr></thead><tbody>' + items_rows + '</tbody></table>'
+            '<table style="width:100%;border-collapse:collapse;table-layout:fixed;font-size:12px;">'
+            '<thead><tr style="background:#1e293b;color:#fff;">' + head +
+            '</tr></thead><tbody>' + items_rows +
+            '<tr>' + foot + '</tr></tbody></table>'
         )
 
         party = invoice.supplier
@@ -116,6 +224,7 @@ def invoice_form(id):
             "party_email": party.email if party and party.email else "",
             "party_tax_id": party.tax_id if party and party.tax_id else "",
             "items_table": items_table,
+            "totals_table": "",
             "subtotal": f"{invoice.subtotal:.2f}" if invoice.subtotal else "0.00",
             "discount": f"{invoice.total_discount:.2f}" if invoice.total_discount else "0.00",
             "tax": f"{invoice.total_tax:.2f}" if invoice.total_tax else "0.00",
@@ -128,6 +237,22 @@ def invoice_form(id):
             "installation_charges": "0.00",
             "notes": invoice.notes or "",
         }
+        # Build totals table — respect invoice mode per section
+        display_opts = dict(topts)
+        if invoice.discount_mode == "individual":
+            if topts.get("discount_display") == "per_line":
+                display_opts["show_discount"] = False
+        if invoice.tax_mode == "individual":
+            if topts.get("tax_display") == "per_line":
+                display_opts["show_tax"] = False
+        if invoice.expenses_mode == "individual":
+            if topts.get("charges_display") == "per_line":
+                display_opts["show_commission"] = False
+                display_opts["show_freight"] = False
+                display_opts["show_loading"] = False
+                display_opts["show_withholding"] = False
+        ctx["totals_table"] = build_totals_table("purchase", display_opts,
+                                                  invoice_template_obj.accent_color or "#0f766e")
         net = (invoice.subtotal or 0) - (invoice.total_discount or 0) + (invoice.total_tax or 0) + (invoice.total_commission or 0) + (invoice.total_freight or 0) + (invoice.total_loading_unloading or 0) - (invoice.total_withholding_tax or 0)
         ctx["grand_total"] = f"{net:.2f}"
         rendered_template = render_invoice_template(invoice_template_obj.body_html, ctx)

@@ -22,7 +22,7 @@ def rendered(design="classic", doc_type="sales", accent="#0f766e", **overrides):
     opts = default_options(doc_type)
     opts.update(overrides)
     return render_invoice_template(build_body(design, doc_type, accent, opts),
-                                   sample_context(doc_type))
+                                   sample_context(doc_type, opts=opts))
 
 
 # ─────────────────────────────────────────────
@@ -196,9 +196,12 @@ def test_seed_defaults_is_idempotent_and_gives_each_type_a_default(app):
     InvoiceTemplate.seed_defaults()
     for doc_type in DOC_TYPES:
         rows = InvoiceTemplate.query.filter_by(type=doc_type).all()
-        assert len(rows) == 1, "seeding twice must not duplicate"
-        assert rows[0].is_default is True
-        assert InvoiceTemplate.get_default(doc_type) is rows[0]
+        assert len(rows) == 2, "seeding twice must not duplicate"
+        combined = next(r for r in rows if r.is_default)
+        perline = next(r for r in rows if not r.is_default)
+        assert combined.name.startswith("Standard")
+        assert "Item Wise" in perline.name
+        assert InvoiceTemplate.get_default(doc_type) is combined
     db.session.rollback()
 
 

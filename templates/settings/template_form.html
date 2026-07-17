@@ -151,17 +151,22 @@
         </div>
       </div>
 
-      <div class="tf-panel" style="margin-top:14px;">
+        <div class="tf-panel" style="margin-top:14px;">
         <div class="tf-panel-h">
           <span class="tf-step"><span class="tf-step-n">3</span>
             Choose what {{ 'the customer sees' if is_sales else 'appears' }}</span>
         </div>
         <div class="tf-panel-b">
-          <p class="tf-lead">Untick anything you would rather leave off the printed page.{% if is_sales %} This is your customer's copy.{% endif %}</p>
+          <p class="tf-lead">The common sections apply to every print. Use the toggle below to switch between Combined and Item-wise settings for columns and amount lines.{% if is_sales %} This is your customer's copy.{% endif %}</p>
+
+          {# ── Common groups (always visible) ─────────────────── #}
+          {% set _common_groups = ('Header', 'Customer details', 'Supplier details', 'Footer') %}
           {% for group_name, fields in option_groups %}
+          {% if group_name in _common_groups %}
           <div class="tf-group">
             <div class="tf-group-n">{{ group_name }}</div>
-            {% for key, label, help in fields %}
+            {% for f in fields %}
+            {% set key, label, help = f[0], f[1], f[2] %}
             <label class="tf-opt">
               <input type="checkbox" name="{{ key }}" class="tf-toggle" {% if options.get(key) %}checked{% endif %}>
               <span>
@@ -171,6 +176,63 @@
             </label>
             {% endfor %}
           </div>
+          {% endif %}
+          {% endfor %}
+
+          {# ── Mode toggle ─────────────────────────────────────── #}
+          <div style="display:flex;gap:0;margin:16px 0 14px;border:1px solid #e2e8f0;border-radius:6px;overflow:hidden;">
+            <label style="flex:1;text-align:center;padding:8px 0;font-size:13px;font-weight:600;cursor:pointer;
+                         background:#0f172a;color:#fff;border-right:1px solid #e2e8f0;"
+                   id="modeCombinedLbl">
+              <input type="radio" name="_mode_view" value="combined" checked style="display:none;">
+              Combined
+            </label>
+            <label style="flex:1;text-align:center;padding:8px 0;font-size:13px;font-weight:600;cursor:pointer;
+                         background:#fff;color:#64748b;"
+                   id="modeItemwiseLbl">
+              <input type="radio" name="_mode_view" value="itemwise" style="display:none;">
+              Item wise
+            </label>
+          </div>
+
+          {# ── Mode-specific groups (Amounts + Columns, visible in both modes) ── #}
+          {% set _mode_groups = ('Amounts', 'Columns') %}
+          {% for group_name, fields in option_groups %}
+          {% if group_name in _mode_groups %}
+          <div class="tf-group tf-mode-both">
+            <div class="tf-group-n">{{ group_name }}</div>
+            {% for f in fields %}
+            {% set key, label, help = f[0], f[1], f[2] %}
+            {% if key in string_options %}
+            {% set cur = options.get(key, 'combined') %}
+            {% set choices = display_choices.get(key, []) %}
+            <div class="tf-opt" style="flex-wrap:wrap;">
+              <span style="flex:1;">
+                <span class="tf-opt-l">{{ label }}</span>
+                {% if help %}<span class="tf-opt-h" style="display:block;">{{ help }}</span>{% endif %}
+              </span>
+              <div style="display:flex;gap:14px;margin-top:4px;width:100%;padding-left:24px;">
+                {% for val, lbl in choices %}
+                <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:12.5px;">
+                  <input type="radio" name="{{ key }}" value="{{ val }}"
+                         class="tf-toggle" {{ 'checked' if cur == val else '' }}>
+                  {{ lbl }}
+                </label>
+                {% endfor %}
+              </div>
+            </div>
+            {% else %}
+            <label class="tf-opt">
+              <input type="checkbox" name="{{ key }}" class="tf-toggle" {% if options.get(key) %}checked{% endif %}>
+              <span>
+                <span class="tf-opt-l">{{ label }}</span>
+                {% if help %}<span class="tf-opt-h" style="display:block;">{{ help }}</span>{% endif %}
+              </span>
+            </label>
+            {% endif %}
+            {% endfor %}
+          </div>
+          {% endif %}
           {% endfor %}
 
           <details class="tf-adv" {% if template and template.is_custom %}open{% endif %}>
@@ -291,6 +353,21 @@
   document.querySelectorAll('.tf-toggle').forEach(function (el) {
     el.addEventListener('change', refreshSoon);
   });
+
+  // Mode toggle (Combined / Item wise)
+  var modeCombinedLbl = document.getElementById('modeCombinedLbl');
+  var modeItemwiseLbl = document.getElementById('modeItemwiseLbl');
+  function switchMode(mode) {
+    var showCombined = mode === 'combined';
+    modeCombinedLbl.style.background = showCombined ? '#0f172a' : '#fff';
+    modeCombinedLbl.style.color = showCombined ? '#fff' : '#64748b';
+    modeItemwiseLbl.style.background = showCombined ? '#fff' : '#0f172a';
+    modeItemwiseLbl.style.color = showCombined ? '#64748b' : '#fff';
+    // Mode-specific groups are always visible — the toggle just indicates
+    // which mode's settings you are reviewing. Both sets are saved.
+  }
+  modeCombinedLbl.addEventListener('click', function () { switchMode('combined'); });
+  modeItemwiseLbl.addEventListener('click', function () { switchMode('itemwise'); });
 
   function syncCustom() {
     var on = customToggle.checked;

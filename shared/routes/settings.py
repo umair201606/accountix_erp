@@ -30,7 +30,7 @@ from shared.models.inventory_settings import InventorySettings
 from shared.models.invoice_template import (
     InvoiceTemplate, DESIGNS, DESIGN_KEYS, ACCENT_PRESETS, PLACEHOLDER_HELP,
     option_groups, default_options, build_body, render_invoice_template,
-    sample_context)
+    sample_context, _STRING_OPTIONS, DISPLAY_CHOICES)
 from shared.models.ledger import ChartOfAccount
 from shared.permissions import MODULES, ACTIONS
 
@@ -416,6 +416,8 @@ def _template_ctx(template, doc_type):
         "accents": ACCENT_PRESETS,
         "option_groups": option_groups(doc_type),
         "options": (template.options if template else default_options(doc_type)),
+        "string_options": _STRING_OPTIONS,
+        "display_choices": DISPLAY_CHOICES,
         "placeholders": PLACEHOLDER_HELP,
         "default_body": InvoiceTemplate.default_body(doc_type),
     }
@@ -432,7 +434,10 @@ def _read_template_form(doc_type):
     opts = {}
     for _group, fields in option_groups(doc_type):
         for key, _label, _help in fields:
-            opts[key] = request.form.get(key) == "on"
+            if key in _STRING_OPTIONS:
+                opts[key] = request.form.get(key, "combined")
+            else:
+                opts[key] = request.form.get(key) == "on"
     return (request.form.get("name", "").strip(), design, accent, opts,
             request.form.get("body_html", "").strip(),
             request.form.get("is_default") == "on")
@@ -453,7 +458,7 @@ def preview_template():
     doc_type = "sales" if request.form.get("type") == "sales" else "purchase"
     _name, design, accent, opts, custom_body, _default = _read_template_form(doc_type)
     body = custom_body if design == "custom" else build_body(design, doc_type, accent, opts)
-    return render_invoice_template(body, sample_context(doc_type, CompanyInfo.get()))
+    return render_invoice_template(body, sample_context(doc_type, CompanyInfo.get(), opts))
 
 
 @settings_bp.route("/templates/create", methods=["GET", "POST"])
