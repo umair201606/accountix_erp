@@ -356,3 +356,174 @@ WHT Receivable is an **asset** account. Customer withholds tax from their paymen
 | Purchase Invoice missing pay route | Added `pay_invoice` with GL posting | `purchase_invoice.py` |
 | Sales Order/Purchase Order delete as GET | Changed to POST with confirmation | Both list templates |
 | Syntax error in Sales Invoice form JS | Fixed extra closing paren in recalc() call | `invoices/form_inv.html` |
+
+---
+
+## 14. FBR Digital Invoicing Module
+
+**New package:** `fbr_app/`
+
+| Change | Detail |
+|---|---|
+| **New module** | FBR Digital Invoicing — dashboard, settings, and services for DI submission |
+| Dashboard | `fbr_dashboard.dashboard` route with status overview |
+| Settings | FBR configuration panel (credentials, endpoints, options) |
+| FBR Client | `services/fbr_client.py` — HTTP client for FBR API communication |
+| FBR Mapper | `services/fbr_mapper.py` — maps internal invoice data to FBR DI schema |
+| Permission | `has_fbr_access` column on `User` model |
+| Navigation | FBR entry in `MODULE_META` (gold brand `#b5790a`) and `NAV` dict |
+| Hub card | FBR module card added with gear icon, distinct gold hover color |
+| Schema | `users.has_fbr_access` column added via idempotent migration |
+
+---
+
+## 15. Additional Charge Model — Enhanced
+
+**File:** `inventory_app/models/additional_charge.py`
+
+| Change | Detail |
+|---|---|
+| `treatment` | Varchar(10) — `'bill'` (supplier charge line), `'absorb'` (capitalise into inventory), `'expense'` (we bear it, Dr expense/Cr accrued) |
+| `st_taxable` | Boolean — whether charge is subject to sales tax (default `True`) |
+| `wht_taxable` | Boolean — whether charge is subject to withholding tax (default `False`) |
+| `extra_taxable` | Boolean — reserve for additional tax types |
+| `charge_buckets()` | Helper function — splits charges into `(absorb_total, bill_total, expense_total, billed_charges, expense_charges)` |
+| `build_charge()` | Helper function — creates `AdditionalCharge` row from form data dict |
+
+---
+
+## 16. InvoiceSettings — Extended
+
+**File:** `shared/models/invoice_settings.py`
+
+| Column | Type | Default |
+|---|---|---|
+| `over_invoice_tolerance_pct` | Float | 0 |
+| `withholding_base` | Varchar(10) | `'taxable'` (taxable/gross) |
+| `show_further_tax` | Boolean | True |
+| `show_withholding_tax` | Boolean | True |
+| `show_transport_block` | Boolean | True |
+| `create_from_orders_enabled` | Boolean | True |
+| `per_line_discount_enabled` | Boolean | True |
+| `per_line_tax_enabled` | Boolean | True |
+
+**Settings UI:** New "Invoice Defaults" tab (`settings/_invoice.html`) with all fields, POST handler `save_invoicing()` gated by `has_invoicing_access`.
+
+---
+
+## 17. Chart of Accounts — Further Tax Payable
+
+**Files:** `shared/coa.py`, `shared/ledger_utils.py`
+
+| Code | Name | Type |
+|---|---|---|
+| `2-01-03-04` | Further Tax Payable (group) | liability |
+| `2-01-03-04-0001` | Further Tax Payable (ledger) | liability |
+
+- Added to `ROLE_CODES` as `further_tax_payable`
+- Added to `POSTING_ACCOUNTS` for GL posting reference
+
+---
+
+## 18. Product Model — HS Code
+
+**File:** `inventory_app/models/product.py`
+
+| Column | Type | Default |
+|---|---|---|
+| `hs_code` | Varchar(50) | `''` |
+
+- Supported in product create/edit form, batch editor, and Excel upload
+
+---
+
+## 19. Purchase Invoice — Enhanced GL Posting
+
+**File:** `invoicing_app/routes/purchase_invoice.py`
+
+### Landed Cost Calculation
+```
+Dr Inventory   (line values after discount + per-item carriage + pro-rata absorbed charges − global discount)
+Dr Input Tax   (sales tax on goods + taxable billed charges)
+Dr [billed charge ledgers]   (supplier's own charge lines)
+Dr [expense charge ledgers]  (company-borne expenses)
+  Cr Accounts Payable   (net payable = gross − WHT)
+  Cr WHT Payable        (withholding tax deducted)
+  Cr Accrued Expenses   (expense-only charges)
+```
+
+### Features
+| Feature | Detail |
+|---|---|
+| Absorption spread | Document-level absorbed carriage (less combined discount) spread pro-rata by line value |
+| Charge bucketing | Billed → own ledger debit; Expense → Dr expense/Cr accrued |
+| Pay integration | POST `/pay/<id>` route with Dr AP / Cr Cash GL posting |
+| Payment status | `paid_amount`, `payment_status` (unpaid/partial/paid) |
+| Purchase order link | `purchase_order_id` FK, items importable from approved POs |
+| `api/orders/<supplier_id>` | Returns approved POs for order import modal |
+| WHT payable | Server-recalculated, not trusted from client input |
+
+---
+
+## 20. Sales & Purchase Orders — Approval System
+
+**Files:** `invoicing_app/routes/sales.py`, `invoicing_app/routes/purchases.py`
+
+| Feature | Detail |
+|---|---|
+| Approval fields | `approved_by` (FK → users), `approved_at` (datetime) on both SO and PO |
+| Approve action | Sets status → `'approved'`, records approver + timestamp |
+| Unapprove | POST `/unapprove/<id>` — clears approval, resets status to `'unapproved'` |
+| Delete guard | Cannot delete approved order; must unapprove first |
+| JSON API | Save/approve/unapprove/delete all via POST JSON with `deny_json` permission check |
+| Party account | `party_account_id` (FK → chart_of_accounts) for overriding default party ledger |
+| Charges cascade | `AdditionalCharge` rows deleted on order delete/update |
+
+### Route changes (same pattern for both SO and PO)
+| Old | New |
+|---|---|
+| `@/` (GET list) | `@/list` (GET list) |
+| `@/create` (GET+POST form) | Removed |
+| `@/` and `@/<id>` (GET form) | New — unified form route |
+| `@/save` (POST JSON) | New |
+| `@/unapprove/<id>` (POST) | New |
+| `@/delete/<id>` (GET) | `@/delete/<id>` (POST with JSON response) |
+
+---
+
+## 21. Hub Page — Refactored Layout
+
+**File:** `templates/dashboard/hub.html`, `templates/layouts/hub_base.html`
+
+| Change | Detail |
+|---|---|
+| CSS classes | Inline `style` attributes replaced with reusable classes: `.mod-card`, `.mod-ico`, `.mod-title`, `.mod-desc` |
+| Grid layout | Changed from `auto-fit,minmax(220px)` to fixed 4-column `repeat(4,1fr)` |
+| Brand colors | Each module card gets a `--hover` CSS variable for distinct border color |
+| FBR card | Added with gear icon and gold accent (`#b5790a`) |
+| Hub base | Logo/header sizing reduced; max-width expanded to 1100px |
+
+---
+
+## 22. API Enhancements
+
+| Endpoint | Method | Detail |
+|---|---|---|
+| `/api/products` | GET | Added `?q=` search filter (name + SKU), limit 20, includes `unit` |
+| `/api/customers` | GET | Added `?q=` search filter (name), limit 20 |
+| `/api/suppliers` | GET | Added `?q=` search filter (name), limit 20 |
+| `/api/accounts` | GET | New — COA autocomplete for charges modals, filter by code/name, level 5 only |
+| `/api/orders/<customer_id>` | GET | Returns approved SOs for order import modal |
+| `/api/orders/<supplier_id>` | GET | Returns approved POs for order import modal |
+
+---
+
+## 23. Product Batch Editor — HS Code Support
+
+**File:** `inventory_app/templates/products/batch_editor.html`
+
+| Change | Detail |
+|---|---|
+| HS Code column | Added to batch editor form grid |
+| Excel upload | HS Code parsed from column index 9 in upload spreadsheet |
+| Create/edit form | HS Code input field added to product form |
