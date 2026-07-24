@@ -230,20 +230,6 @@ body{background:var(--bg);font-family:Inter,-apple-system,BlinkMacSystemFont,'Se
         {% endif %}
         <!-- Scope toggles live in the Additional Settings panel (§13);
              the grid header states the active modes read-only (Figure 3). -->
-          </div>
-          <div class="pill-g"><span class="pill-lbl">Charges</span>
-            <div class="pill" id="chargesMode">
-              <button type="button" class="pill-b {{ 'active' if not order or order.charges_mode == 'general' else '' }}" data-value="general" {{ 'disabled' if not editable else '' }}>Combined</button>
-              <button type="button" class="pill-b {{ 'active' if order and order.charges_mode == 'individual' else '' }}" data-value="individual" {{ 'disabled' if not editable else '' }}>Per Item</button>
-            </div>
-          </div>
-          <div class="pill-g"><span class="pill-lbl">Tax</span>
-            <div class="pill" id="taxMode">
-              <button type="button" class="pill-b {{ 'active' if not order or order.tax_mode == 'general' else '' }}" data-value="general" {{ 'disabled' if not editable else '' }}>Combined</button>
-              <button type="button" class="pill-b {{ 'active' if order and order.tax_mode == 'individual' else '' }}" data-value="individual" {{ 'disabled' if not editable else '' }}>Per Item</button>
-            </div>
-          </div>
-        </div>
       </div>
     </div>
     <div style="padding:0;">
