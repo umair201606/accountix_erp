@@ -3,14 +3,14 @@
 {% block page_title %}Purchase Orders{% endblock %}
 {% block content %}
 <div class="page-header">
-  <a href="{{ url_for('inv_purchases.create_purchase') }}" class="btn btn-primary">+ New Purchase Order</a>
+  <a href="{{ url_for('inv_purchases.purchase_form') }}" class="btn btn-primary">+ New Purchase Order</a>
 </div>
 <div class="card">
   <div class="card-body" style="padding-bottom:8px;">
     <form method="GET" class="search-form">
       <select name="status" class="form-control focus-ring" style="width:200px;display:inline-block;" onchange="this.form.submit()">
         <option value="">All Status</option>
-        {% for s in ['unapproved', 'pending', 'received', 'cancelled'] %}
+        {% for s in ['unapproved', 'approved', 'received', 'cancelled'] %}
         <option value="{{ s }}" {% if request.args.get('status') == s %}selected{% endif %}>{{ s|title }}</option>
         {% endfor %}
       </select>
@@ -28,11 +28,18 @@
           <td>{{ o.expected_date or '-' }}</td>
           <td>{{ "%.2f"|format(o.total_amount) }}</td>
           <td><span class="badge badge-{{ o.status }}">{{ o.status|title }}</span></td>
-          <td class="actions">
-            {% if o.status in ('unapproved', 'pending') %}
+          <td class="actions" style="display:flex;gap:4px;">
+            <a href="{{ url_for('inv_purchases.purchase_form', id=o.id) }}" class="btn btn-sm btn-outline">View / Edit</a>
+            {% if o.status == 'approved' %}
             <a href="{{ url_for('inv_purchases.receive_purchase', id=o.id) }}" class="btn btn-sm btn-success" onclick="return confirm('Receive this order?')">Receive</a>
+            {% endif %}
+            {% if o.status in ('unapproved', 'approved') %}
             <a href="{{ url_for('inv_purchases.cancel_purchase', id=o.id) }}" class="btn btn-sm btn-warning" onclick="return confirm('Cancel?')">Cancel</a>
-            <a href="{{ url_for('inv_purchases.delete_purchase', id=o.id) }}" class="btn btn-sm btn-danger" onclick="return confirm('Delete?')">Delete</a>
+            {% endif %}
+            {% if o.status != 'received' %}
+            <form method="POST" action="{{ url_for('inv_purchases.delete_purchase', id=o.id) }}" style="display:inline;" onsubmit="return confirm('Delete?')">
+              <button type="submit" class="btn btn-sm btn-danger">Delete</button>
+            </form>
             {% endif %}
           </td>
         </tr>
@@ -45,8 +52,8 @@
 </div>
 <style>
 .badge-unapproved { background:#e2e8f0; color:#475569; }
-.badge-pending { background:#fef3c7; color:#92400e; }
-.badge-received { background:#dcfce7; color:#16a34a; }
+.badge-approved { background:#dcfce7; color:#16a34a; }
+.badge-received { background:#dbeafe; color:#1d4ed8; }
 .badge-cancelled { background:#fce4ec; color:#c62828; }
 </style>
 {% endblock %}

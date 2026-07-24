@@ -4,6 +4,8 @@ from datetime import datetime
 from decimal import Decimal
 from inventory_app.extensions import db
 from inventory_app.models.purchase_invoice import InvPurchaseInvoice, InvPurchaseInvoiceItem
+from inventory_app.models.purchase_order import InvPurchaseOrder
+from inventory_app.models.additional_charge import AdditionalCharge
 from inventory_app.models.supplier import InvSupplier
 from inventory_app.models.product import InvProduct
 from inventory_app.models.stock_movement import InvStockMovement
@@ -11,12 +13,75 @@ from shared.models.vouchers import ConsumptionItem as ConsItem, ScrapItem, Stock
 from shared.ledger_utils import post_journal_entry, reverse_journal_entry, posting_account, party_account
 from shared.models.ledger import ChartOfAccount
 from shared.models.company_settings import CompanyInfo, ReportSettings
+from shared.models.invoice_settings import InvoiceSettings
 from shared.models.invoice_template import InvoiceTemplate, render_invoice_template, build_totals_table
-from shared.permissions import deny_json
+from shared.permissions import deny_json, deny_page
 from shared.costing import record_in, reverse_voucher_stock
 
 inv_pinv_bp = Blueprint("inv_purchase_invoice", __name__,
                          url_prefix="/inventory/purchase-invoice")
+
+
+def _charge_columns():
+    return {c.key for c in AdditionalCharge.__table__.columns}
+
+
+def build_charge(doc_id, chg):
+    """Persist one additional charge for a purchase invoice.
+
+    The data contract carries treatment(bill|absorb|expense) and independent
+    st/wht/extra tax-base switches. This writes to the shared model's dedicated
+    columns when they exist, and otherwise falls back to the columns the model
+    does have (treatment -> tax_base, st_taxable -> taxable) so the feature
+    works on the current schema and upgrades cleanly once the columns are added.
+    """
+    cols = _charge_columns()
+    treatment = chg.get("treatment", "bill")
+    if treatment not in ("bill", "absorb", "expense"):
+        treatment = "bill"
+    # Only a supplier-billed charge can sit in a tax base: absorbed carriage is
+    # already inside item cost and an expense-only charge is not on the
+    # supplier's invoice at all, so neither can be taxed on it.
+    billed = treatment == "bill"
+    st = billed and bool(chg.get("st_taxable", True))
+    wht = billed and bool(chg.get("wht_taxable", False))
+    extra = bool(chg.get("extra_taxable", False))
+    kwargs = dict(
+        doc_type="PI", doc_id=doc_id,
+        charge_account_id=int(chg["charge_account_id"]),
+        description=chg.get("description", ""),
+        amount=float(chg.get("amount", 0)),
+        scope=chg.get("scope", "general"),
+    )
+    kwargs["treatment" if "treatment" in cols else "tax_base"] = treatment
+    kwargs["st_taxable" if "st_taxable" in cols else "taxable"] = st
+    if "wht_taxable" in cols:
+        kwargs["wht_taxable"] = wht
+    if "extra_taxable" in cols:
+        kwargs["extra_taxable"] = extra
+    return AdditionalCharge(**{k: v for k, v in kwargs.items() if k in cols
+                               or k in ("doc_type", "doc_id")})
+
+
+def charge_buckets(charges):
+    """Split saved/incoming charge dicts into absorb / bill / expense totals and
+    keep the billed & expense rows (with their charge ledgers) for GL posting."""
+    absorb_total = bill_total = expense_total = 0.0
+    billed, expensed = [], []
+    for c in charges:
+        amt = float(c.get("amount", 0) or 0)
+        if amt <= 0 or not c.get("charge_account_id"):
+            continue
+        t = c.get("treatment", "bill")
+        if t == "absorb":
+            absorb_total += amt
+        elif t == "expense":
+            expense_total += amt
+            expensed.append(c)
+        else:
+            bill_total += amt
+            billed.append(c)
+    return absorb_total, bill_total, expense_total, billed, expensed
 
 
 def next_voucher():
@@ -39,6 +104,7 @@ def invoice_form(id):
     suppliers = InvSupplier.query.filter_by(is_active=True).order_by(InvSupplier.name).all()
     products = InvProduct.query.filter_by(is_active=True).order_by(InvProduct.name).all()
     invoice_items = []
+    invoice_charges = []
     if invoice:
         for it in invoice.items.all():
             invoice_items.append({
@@ -56,6 +122,33 @@ def invoice_form(id):
                 "sales_tax_pct": it.sales_tax_pct,
                 "total_before_discount": it.total_before_discount,
                 "total_after_discount": it.total_after_discount,
+            })
+        # Additional charges (polymorphic, doc_type='PI'). The purchase side
+        # carries a per-charge treatment (bill / absorb=carriage inward /
+        # expense) and independent sales-tax & withholding tax-base switches.
+        # These map onto whatever columns the shared model exposes; getattr
+        # fallbacks keep this working before/after the model gains the
+        # dedicated columns (treatment stored in tax_base, st in taxable).
+        for chg in invoice.charges_list:
+            treatment = getattr(chg, "treatment", None)
+            if treatment not in ("bill", "absorb", "expense"):
+                treatment = chg.tax_base if chg.tax_base in ("bill", "absorb", "expense") else "bill"
+            invoice_charges.append({
+                "id": chg.id,
+                "charge_account_id": chg.charge_account_id,
+                "account_code": chg.charge_account.code if chg.charge_account else "",
+                "account_name": chg.charge_account.name if chg.charge_account else "",
+                # The modal's account picker renders from _display, so reopening
+                # a saved invoice has to hand it back the same "code — name".
+                "_display": (f"{chg.charge_account.code} — {chg.charge_account.name}"
+                             if chg.charge_account else ""),
+                "description": chg.description,
+                "amount": chg.amount,
+                "scope": chg.scope,
+                "treatment": treatment,
+                "st_taxable": bool(getattr(chg, "st_taxable", chg.taxable)),
+                "wht_taxable": bool(getattr(chg, "wht_taxable", False)),
+                "extra_taxable": bool(getattr(chg, "extra_taxable", False)),
             })
     rs = ReportSettings.get()
     company = CompanyInfo.get()
@@ -228,9 +321,9 @@ def invoice_form(id):
             "subtotal": f"{invoice.subtotal:.2f}" if invoice.subtotal else "0.00",
             "discount": f"{invoice.total_discount:.2f}" if invoice.total_discount else "0.00",
             "tax": f"{invoice.total_tax:.2f}" if invoice.total_tax else "0.00",
-            "commission": f"{invoice.total_commission:.2f}" if invoice.total_commission else "0.00",
-            "freight": f"{invoice.total_freight:.2f}" if invoice.total_freight else "0.00",
-            "loading_unloading": f"{invoice.total_loading_unloading:.2f}" if invoice.total_loading_unloading else "0.00",
+            "commission": "0.00",
+            "freight": "0.00",
+            "loading_unloading": f"{invoice.total_expenses:.2f}" if invoice.total_expenses else "0.00",
             "withholding_tax": f"{invoice.total_withholding_tax:.2f}" if invoice.total_withholding_tax else "0.00",
             "grand_total": "0.00",
             "delivery_charges": "0.00",
@@ -253,15 +346,19 @@ def invoice_form(id):
                 display_opts["show_withholding"] = False
         ctx["totals_table"] = build_totals_table("purchase", display_opts,
                                                   invoice_template_obj.accent_color or "#0f766e")
-        net = (invoice.subtotal or 0) - (invoice.total_discount or 0) + (invoice.total_tax or 0) + (invoice.total_commission or 0) + (invoice.total_freight or 0) + (invoice.total_loading_unloading or 0) - (invoice.total_withholding_tax or 0)
+        net = invoice.net_payable or (
+            (invoice.subtotal or 0) - (invoice.total_discount or 0)
+            + (invoice.total_tax or 0) - (invoice.total_withholding_tax or 0))
         ctx["grand_total"] = f"{net:.2f}"
         rendered_template = render_invoice_template(invoice_template_obj.body_html, ctx)
 
     return render_template("purchase_invoice/form_inv.html",
                            invoice=invoice,
                            invoice_items=invoice_items,
+                           invoice_charges=invoice_charges,
                            suppliers=suppliers,
                            party_mode=rs.party_mode("purchase"),
+                           invoice_settings=InvoiceSettings.get(),
                            invoice_template_text=rs.template_text("purchase"),
                            rendered_template=rendered_template,
                            products=products,
@@ -331,12 +428,23 @@ def save_invoice():
     inv.global_loading = float(data.get("global_loading", 0))
     inv.global_sales_tax_pct = float(data.get("global_sales_tax_pct", 0))
     inv.global_withholding_tax_pct = float(data.get("global_withholding_tax_pct", 0))
+    # A purchase invoice never carries further tax — it is a sales-side levy
+    # (§8), so the switch is pinned off no matter what the form sends.
+    inv.further_tax_pct = 0
+    inv.apply_further_tax = False
+    inv.apply_withholding_tax = bool(data.get("apply_withholding_tax", False))
     inv.notes = data.get("notes", "")
     inv.subtotal = float(data.get("subtotal", 0))
     inv.total_discount = float(data.get("total_discount", 0))
     inv.total_expenses = float(data.get("total_expenses", 0))
     inv.total_tax = float(data.get("total_tax", 0))
+    inv.total_further_tax = float(data.get("total_further_tax", 0))
+    inv.total_withholding_tax = float(data.get("total_withholding_tax", 0))
     inv.net_payable = float(data.get("net_payable", 0))
+    inv.total_amount = float(data.get("total_amount", 0))
+    inv.paid_amount = float(data.get("paid_amount", 0))
+    inv.payment_status = data.get("payment_status", "unpaid")
+    inv.purchase_order_id = data.get("purchase_order_id") or None
 
     if action == "approve":
         inv.status = "approved"
@@ -347,7 +455,19 @@ def save_invoice():
 
     db.session.flush()
 
+    # Additional charges by treatment. Absorb = carriage inward (capitalised
+    # into inventory cost); bill = supplier's own charge line (adds to AP,
+    # debits its own ledger); expense = we bear it (Dr expense / Cr accrued).
+    charges_data = data.get("charges", [])
+    absorb_total, bill_total, expense_total, billed_charges, expense_charges = \
+        charge_buckets(charges_data)
+    # Discount reduces inventory cost. In combined mode it is a document-level
+    # figure not yet in any line, so it is spread out of inventory; in per-item
+    # mode it already sits in each line's total_after_discount.
+    global_discount = float(inv.total_discount or 0) if inv.discount_mode == "general" else 0.0
+
     InvPurchaseInvoiceItem.query.filter_by(invoice_id=inv.id).delete()
+    cost_rows = []
     for row in data.get("items", []):
         item = InvPurchaseInvoiceItem(
             invoice_id=inv.id,
@@ -368,31 +488,81 @@ def save_invoice():
             comments=row.get("comments", ""),
         )
         db.session.add(item)
+        cost_rows.append(item)
 
-        if action == "approve" and item.product_id:
+    # Per-item absorbed expenses (carriage inward columns) already capitalise.
+    per_item_absorb = sum(float(it.commission or 0) + float(it.freight or 0)
+                          + float(it.loading_unloading or 0) for it in cost_rows)
+    base_values = [float(it.total_after_discount or 0) for it in cost_rows]
+    total_base = sum(base_values)
+
+    # Re-derive the tax figures rather than trusting the browser's copy — a
+    # posted journal must not depend on a client-supplied number. Absorbed
+    # carriage is inside the goods value, so it is in every base; withholding
+    # is never compounded onto the input tax.
+    st_charges = sum(float(c.get("amount", 0) or 0) for c in billed_charges
+                     if c.get("st_taxable", c.get("taxable", True)))
+    wht_charges = sum(float(c.get("amount", 0) or 0) for c in billed_charges
+                      if c.get("wht_taxable"))
+    effective_goods = round(total_base + per_item_absorb + absorb_total
+                            - global_discount, 2)
+    input_tax_base = round(effective_goods + st_charges, 2)
+    if (inv.tax_mode or "general") == "general":
+        inv.total_tax = round(input_tax_base * float(inv.global_sales_tax_pct or 0) / 100, 2)
+    inv.total_withholding_tax = round(
+        (effective_goods + wht_charges) * float(inv.global_withholding_tax_pct or 0) / 100, 2
+    ) if inv.apply_withholding_tax else 0.0
+    inv.total_further_tax = 0.0
+    inv.net_payable = round(effective_goods + bill_total + float(inv.total_tax or 0)
+                            - float(inv.total_withholding_tax or 0), 2)
+    inv.total_amount = inv.net_payable
+
+    if action == "approve":
+        # Spread the document-level absorbed carriage (less the combined
+        # discount) across lines pro-rata by value, so each purchase layer's
+        # value sums exactly to the Inventory debit (costing invariant).
+        spread = round(absorb_total - global_discount, 2)
+        spread_left = spread
+        n = len(cost_rows)
+        denom = total_base or 1.0
+        for idx, item in enumerate(cost_rows):
+            if not item.product_id:
+                continue
             prod = InvProduct.query.get(item.product_id)
-            if prod:
-                db.session.add(InvStockMovement(
-                    product_id=item.product_id, type="purchase_in",
-                    quantity=item.quantity,
-                    reference_type="purchase_invoice",
-                    reference_id=inv.id,
-                    notes=f"Approved invoice {inv.invoice_number}",
-                    created_by=current_user.id,
-                ))
-                # Costing engine: receive stock at LANDED cost (goods value
-                # after discount plus per-item expenses). This purchase layer
-                # is what future issues (sales, scrap, consumption) draw on.
-                landed_total = (float(item.total_after_discount or 0)
-                                + float(item.commission or 0)
-                                + float(item.freight or 0)
-                                + float(item.loading_unloading or 0))
-                qty_f = float(item.quantity or 0)
-                if qty_f > 0:
-                    record_in(item.product_id, "PI", inv.id, inv.voucher_number,
-                              qty=qty_f, unit_cost=landed_total / qty_f,
-                              notes=f"Purchase {inv.invoice_number}",
-                              created_by=current_user.id)
+            if not prod:
+                continue
+            db.session.add(InvStockMovement(
+                product_id=item.product_id, type="purchase_in",
+                quantity=item.quantity,
+                reference_type="purchase_invoice",
+                reference_id=inv.id,
+                notes=f"Approved invoice {inv.invoice_number}",
+                created_by=current_user.id,
+            ))
+            if idx == n - 1:
+                share = spread_left
+            else:
+                share = round(spread * base_values[idx] / denom, 2)
+                spread_left = round(spread_left - share, 2)
+            # Landed cost = line value after its discount + per-item carriage +
+            # its pro-rata slice of document-level absorbed carriage/discount.
+            landed_total = (float(item.total_after_discount or 0)
+                            + float(item.commission or 0)
+                            + float(item.freight or 0)
+                            + float(item.loading_unloading or 0)
+                            + share)
+            qty_f = float(item.quantity or 0)
+            if qty_f > 0:
+                record_in(item.product_id, "PI", inv.id, inv.voucher_number,
+                          qty=qty_f, unit_cost=landed_total / qty_f,
+                          notes=f"Purchase {inv.invoice_number}",
+                          created_by=current_user.id)
+
+    # Save additional charges
+    AdditionalCharge.query.filter_by(doc_type="PI", doc_id=inv.id).delete()
+    for chg in charges_data:
+        if float(chg.get("amount", 0) or 0) > 0 and chg.get("charge_account_id"):
+            db.session.add(build_charge(inv.id, chg))
 
     if action == "approve":
         inv_acc = posting_account("inventory")
@@ -402,19 +572,23 @@ def save_invoice():
                                inv.supplier.name if inv.supplier else None,
                                inv.party_account_id)
         if inv_acc and ap_acc:
-            # Goods value (subtotal net of discount, plus capitalised expenses)
-            # is debited to Inventory; recoverable input sales tax is debited to
-            # its own asset; any withholding deducted from the payable is
-            # credited to WHT Payable so the entry still balances:
-            #   Dr Inventory (goods) + Dr Input Tax (sales tax)
-            #   Cr Accounts Payable (net_payable) + Cr WHT Payable (residual)
-            net_payable = float(inv.net_payable or 0)
-            input_tax = float(inv.total_tax or 0)
-            goods = round(float(inv.subtotal or 0) - float(inv.total_discount or 0)
-                          + float(inv.total_expenses or 0), 2)
-            wht = round(goods + input_tax - net_payable, 2)
+            # §12.3 mirror of the sales invoice:
+            #   Dr Inventory        effectiveGoods - discount + per-item carriage
+            #   Dr Input Sales Tax  recoverable input tax
+            #   Dr each billed charge ledger (supplier's own cost lines)
+            #   Dr each expense charge ledger (we bear it)
+            #     Cr Accounts Payable   amount payable to supplier (net of WHT)
+            #     Cr WHT Payable        withheld from the supplier
+            #     Cr Accrued Expenses   expense-only charges
+            inventory_dr = round(total_base + per_item_absorb
+                                 + (absorb_total - global_discount), 2)
+            input_tax = round(float(inv.total_tax or 0), 2)
+            wht = round(float(inv.total_withholding_tax or 0), 2)
+            invoice_gross = round(inventory_dr + bill_total + input_tax, 2)
+            amount_payable = round(invoice_gross - wht, 2)
+
             lines = [
-                {"account_id": inv_acc.id, "debit": goods, "credit": 0,
+                {"account_id": inv_acc.id, "debit": inventory_dr, "credit": 0,
                  "description": f"Inventory - {inv.invoice_number}"},
             ]
             if input_tax > 0:
@@ -423,15 +597,34 @@ def save_invoice():
                     {"account_id": in_tax_acc.id, "debit": input_tax, "credit": 0,
                      "description": f"Input Tax - {inv.invoice_number}"},
                 )
+            for c in billed_charges:
+                lines.append(
+                    {"account_id": int(c["charge_account_id"]),
+                     "debit": round(float(c["amount"]), 2), "credit": 0,
+                     "description": f"{c.get('description') or 'Charge'} - {inv.invoice_number}"},
+                )
+            for c in expense_charges:
+                lines.append(
+                    {"account_id": int(c["charge_account_id"]),
+                     "debit": round(float(c["amount"]), 2), "credit": 0,
+                     "description": f"{c.get('description') or 'Expense'} - {inv.invoice_number}"},
+                )
             lines.append(
-                {"account_id": ap_acc.id, "debit": 0, "credit": net_payable,
+                {"account_id": ap_acc.id, "debit": 0, "credit": amount_payable,
                  "description": f"AP - {inv.invoice_number}"},
             )
-            if abs(wht) > 0.005:
+            if wht > 0.005:
                 wht_acc = posting_account("wht_payable")
                 lines.append(
                     {"account_id": wht_acc.id, "debit": 0, "credit": wht,
                      "description": f"WHT - {inv.invoice_number}"},
+                )
+            if expense_total > 0.005:
+                accrued_acc = posting_account("accrued")
+                lines.append(
+                    {"account_id": accrued_acc.id, "debit": 0,
+                     "credit": round(expense_total, 2),
+                     "description": f"Charges payable - {inv.invoice_number}"},
                 )
             post_journal_entry(
                 voucher_type="PI",
@@ -535,6 +728,45 @@ def delete_invoice(id):
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
+@inv_pinv_bp.route("/pay/<int:id>", methods=["POST"])
+@login_required
+def pay_invoice(id):
+    if deny_page("purchase_invoices", "edit"):
+        return redirect(url_for("inv_purchase_invoice.list_invoices"))
+    inv = InvPurchaseInvoice.query.get_or_404(id)
+    amount = request.form.get("amount", 0, type=float)
+    if amount <= 0:
+        flash("Invalid payment amount", "error")
+    else:
+        inv.paid_amount = (inv.paid_amount or 0) + amount
+        if inv.paid_amount >= inv.total_amount:
+            inv.payment_status = "paid"
+        else:
+            inv.payment_status = "partial"
+        cash_acc = posting_account("cash")
+        ap_acc = party_account("supplier", inv.supplier_id,
+                               inv.supplier.name if inv.supplier else None,
+                               inv.party_account_id)
+        if cash_acc and ap_acc:
+            post_journal_entry(
+                voucher_type="PMT",
+                voucher_id=inv.id,
+                voucher_number=f"PMT-{inv.invoice_number}-{datetime.utcnow():%Y%m%d%H%M%S}",
+                description=f"Payment for {inv.invoice_number} - {inv.supplier.name if inv.supplier else ''}",
+                lines=[
+                    {"account_id": ap_acc.id, "debit": amount, "credit": 0,
+                     "description": f"AP - {inv.invoice_number}"},
+                    {"account_id": cash_acc.id, "debit": 0, "credit": amount,
+                     "description": f"Cash - {inv.invoice_number}"},
+                ],
+                entry_date=datetime.utcnow(),
+                created_by=current_user.id,
+            )
+        db.session.commit()
+        flash(f"Payment of {amount} recorded", "success")
+    return redirect(url_for("inv_purchase_invoice.list_invoices"))
+
+
 @inv_pinv_bp.route("/list")
 @login_required
 def list_invoices():
@@ -600,3 +832,47 @@ def api_new_product():
         "unit_price": p.unit_price, "current_stock": p.current_stock,
         "unit": p.unit,
     }})
+
+
+@inv_pinv_bp.route("/api/orders/<int:supplier_id>")
+@login_required
+def api_orders_for_supplier(supplier_id):
+    orders = InvPurchaseOrder.query.filter_by(supplier_id=supplier_id, status="approved").all()
+    result = []
+    for o in orders:
+        items = []
+        for i in o.items.all():
+            items.append({
+                "id": i.id,
+                "product_id": i.product_id,
+                "product_name": i.product.name if i.product else "",
+                "product_sku": i.product.sku if i.product else "",
+                "ordered_qty": i.quantity,
+                "unit_price": i.unit_price,
+            })
+        result.append({
+            "id": o.id,
+            "po_number": o.po_number,
+            "order_date": o.order_date.strftime("%Y-%m-%d") if o.order_date else "",
+            "total_amount": o.total_amount,
+            "items": items,
+        })
+    return jsonify(result)
+
+
+@inv_pinv_bp.route("/api/accounts")
+@login_required
+def api_pi_charge_accounts():
+    q = request.args.get("q", "").strip()
+    query = ChartOfAccount.query.filter_by(is_active=True, level=5)
+    if q:
+        query = query.filter(
+            db.or_(
+                ChartOfAccount.name.ilike(f"%{q}%"),
+                ChartOfAccount.code.ilike(f"%{q}%"),
+            )
+        )
+    accts = query.order_by(ChartOfAccount.code).limit(30).all()
+    return jsonify([{
+        "id": a.id, "code": a.code, "name": a.name, "type": a.type,
+    } for a in accts])

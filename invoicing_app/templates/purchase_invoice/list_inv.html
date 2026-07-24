@@ -6,44 +6,74 @@
   <a href="{{ url_for('inv_purchase_invoice.invoice_form') }}" class="btn btn-primary">+ New Invoice</a>
 </div>
 <div class="card">
+  <div class="card-body" style="padding-bottom:8px;">
+    <form method="GET" class="search-form">
+      <select name="status" class="form-control focus-ring" style="width:200px;display:inline-block;" onchange="this.form.submit()">
+        <option value="">All Status</option>
+        {% for s in ['unapproved', 'approved', 'unpaid', 'partial', 'paid'] %}
+        <option value="{{ s }}" {% if request.args.get('status') == s %}selected{% endif %}>{{ s|title }}</option>
+        {% endfor %}
+      </select>
+    </form>
+  </div>
   <div class="table-responsive">
     <table class="table">
       <thead>
-        <tr><th>Invoice #</th><th>Voucher #</th><th>Supplier</th><th>Date</th><th>Amount</th><th>Status</th><th>Actions</th></tr>
+        <tr>
+          <th>Invoice #</th><th>Voucher #</th><th>Supplier</th><th>Date</th><th>Due Date</th>
+          <th>Subtotal</th><th>Tax</th><th>Further Tax</th><th>WHT</th>
+          <th>Total</th><th>Paid</th><th>Status</th><th>Actions</th>
+        </tr>
       </thead>
       <tbody>
         {% for inv in invoices %}
+        {% set balance = (inv.total_amount or 0) - (inv.paid_amount or 0) %}
         <tr>
           <td><strong>{{ inv.invoice_number }}</strong></td>
           <td>{{ inv.voucher_number }}</td>
           <td>{{ inv.supplier.name }}</td>
           <td>{{ inv.created_at.strftime('%Y-%m-%d') }}</td>
-          <td>{{ "%.2f"|format(inv.net_payable) }}</td>
+          <td>{{ inv.due_date.strftime('%Y-%m-%d') if inv.due_date else '-' }}</td>
+          <td>{{ "%.2f"|format(inv.subtotal or 0) }}</td>
+          <td>{{ "%.2f"|format(inv.total_tax or 0) }}</td>
+          <td>{{ "%.2f"|format(inv.total_further_tax or 0) }}</td>
+          <td>{{ "%.2f"|format(inv.total_withholding_tax or 0) }}</td>
+          <td><strong>{{ "%.2f"|format(inv.total_amount or 0) }}</strong></td>
+          <td>{{ "%.2f"|format(inv.paid_amount or 0) }}</td>
           <td>
-            <span class="badge badge-{{ inv.status }}">
-              {% if inv.status == 'new' %}New
-              {% elif inv.status == 'unapproved' %}Unapproved
-              {% elif inv.status == 'approved' %}Approved
-              {% else %}{{ inv.status }}{% endif %}
-            </span>
+            {% set vs = inv.status or 'unapproved' %}
+            {% set ps = inv.payment_status or 'unpaid' %}
+            {% if inv.approved_at %}
+            <span class="badge badge-approved">Approved</span>
+            {% else %}
+            <span class="badge badge-{{ vs }}">{{ vs|title }}</span>
+            {% endif %}
+            {% if inv.paid_amount and inv.paid_amount > 0 %}
+            <br><span class="badge badge-{{ ps }}" style="margin-top:2px;">{{ ps|title }}</span>
+            {% endif %}
           </td>
-          <td class="actions" style="display:flex;gap:4px;">
-            <a href="{{ url_for('inv_purchase_invoice.invoice_form', id=inv.id) }}" class="btn btn-sm btn-outline" title="View">&#128065; View</a>
-            {% if inv.status != 'approved' %}
-            <a href="{{ url_for('inv_purchase_invoice.invoice_form', id=inv.id) }}" class="btn btn-sm btn-outline" title="Edit">&#9998; Edit</a>
+          <td class="actions">
+            <a href="{{ url_for('inv_purchase_invoice.invoice_form', id=inv.id) }}" class="btn btn-sm btn-outline">View / Edit</a>
+            {% if inv.status != 'approved' and inv.payment_status in ('unpaid', 'partial') %}
+            <form method="POST" action="{{ url_for('inv_purchase_invoice.pay_invoice', id=inv.id) }}" style="display:inline-flex;gap:4px;margin-left:4px;">
+              <input type="number" step="0.01" name="amount" class="form-control" style="width:90px;display:inline-block;" placeholder="Amount" required>
+              <button type="submit" class="btn btn-sm btn-success">Pay</button>
+            </form>
             {% endif %}
           </td>
         </tr>
         {% else %}
-        <tr><td colspan="7" class="empty">No purchase invoices</td></tr>
+        <tr><td colspan="13" class="empty">No purchase invoices found</td></tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
 </div>
 <style>
-.badge-new { background:#e2e8f0; color:#475569; }
-.badge-unapproved { background:#fef3c7; color:#92400e; }
+.badge-unapproved { background:#e2e8f0; color:#475569; }
 .badge-approved { background:#dcfce7; color:#16a34a; }
+.badge-unpaid { background:#fce4ec; color:#c62828; }
+.badge-partial { background:#fef3c7; color:#92400e; }
+.badge-paid { background:#dcfce7; color:#166534; }
 </style>
 {% endblock %}

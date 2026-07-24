@@ -60,10 +60,10 @@
     <a href="{{ url_for('inv_purchase_invoice.invoice_form') }}" class="btn btn-primary">+ New Purchase Invoice</a>
     <a href="{{ url_for('inv_purchase_return.return_form') }}" class="btn btn-secondary">+ New Purchase Return</a>
     {% if purchase_flow == 'with_po' %}
-    <a href="{{ url_for('inv_purchases.create_purchase') }}" class="btn btn-outline">+ Purchase Order</a>
+    <a href="{{ url_for('inv_purchases.purchase_form') }}" class="btn btn-outline">+ Purchase Order</a>
     {% endif %}
     {% if sales_flow == 'with_so' %}
-    <a href="{{ url_for('inv_sales.create_sale') }}" class="btn btn-outline">+ Sales Order</a>
+    <a href="{{ url_for('inv_sales.sale_form') }}" class="btn btn-outline">+ Sales Order</a>
     {% endif %}
     <a href="{{ url_for('inv_suppliers.create_supplier') }}" class="btn btn-outline">+ Supplier</a>
     <a href="{{ url_for('inv_customers.create_customer') }}" class="btn btn-outline">+ Customer</a>

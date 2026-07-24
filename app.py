@@ -31,6 +31,7 @@ def _create_app():
             os.path.join(os.path.dirname(__file__), "inventory_app", "templates"),
             os.path.join(os.path.dirname(__file__), "invoicing_app", "templates"),
             os.path.join(os.path.dirname(__file__), "finance_app", "templates"),
+            os.path.join(os.path.dirname(__file__), "fbr_app", "templates"),
         ]),
     ])
     app.jinja_loader = my_loader
@@ -55,6 +56,9 @@ def _create_app():
 
     from finance_app.app import register_finance_blueprints
     register_finance_blueprints(app)
+
+    from fbr_app.app import register_fbr_blueprints
+    register_fbr_blueprints(app)
 
     @app.context_processor
     def inject_now():
@@ -215,6 +219,7 @@ def _migrate_schema(db):
         ("users", "has_invoicing_access", bool_false),
         ("users", "has_finance_access", bool_false),
         ("users", "has_accounting_access", bool_false),
+        ("users", "has_fbr_access", bool_false),
         ("users", "login_id", "VARCHAR(120)"),
         ("consumption_vouchers", "charge_account_id", "INTEGER"),
         ("scrap_vouchers", "charge_account_id", "INTEGER"),
@@ -267,6 +272,101 @@ def _migrate_schema(db):
         ("invoice_templates", "design", "VARCHAR(20)"),
         ("invoice_templates", "accent_color", "VARCHAR(20)"),
         ("invoice_templates", "options_json", "TEXT"),
+        ("inv_invoices", "further_tax_pct", "FLOAT DEFAULT 0"),
+        ("inv_invoices", "apply_further_tax", bool_false),
+        ("inv_invoices", "withholding_tax_pct", "FLOAT DEFAULT 0"),
+        ("inv_invoices", "apply_withholding_tax", bool_false),
+        ("inv_invoices", "total_further_tax", "FLOAT DEFAULT 0"),
+        ("inv_invoices", "total_withholding_tax", "FLOAT DEFAULT 0"),
+        ("inv_purchase_invoices", "further_tax_pct", "FLOAT DEFAULT 0"),
+        ("inv_purchase_invoices", "apply_further_tax", bool_false),
+        ("inv_purchase_invoices", "apply_withholding_tax", bool_false),
+        ("inv_purchase_invoices", "total_further_tax", "FLOAT DEFAULT 0"),
+        ("inv_purchase_invoices", "total_withholding_tax", "FLOAT DEFAULT 0"),
+        ("inv_purchase_invoices", "total_amount", "FLOAT DEFAULT 0"),
+        ("inv_purchase_invoices", "paid_amount", "FLOAT DEFAULT 0"),
+        ("inv_purchase_invoices", "payment_status", "VARCHAR(20) DEFAULT 'unpaid'"),
+        ("inv_purchase_invoices", "purchase_order_id", "INTEGER"),
+        ("inv_products", "hs_code", "VARCHAR(50) DEFAULT ''"),
+        ("inv_sales_orders", "party_account_id", "INTEGER"),
+        ("inv_sales_orders", "expected_date", "DATE"),
+        ("inv_sales_orders", "discount_mode", "VARCHAR(20) DEFAULT 'general'"),
+        ("inv_sales_orders", "charges_mode", "VARCHAR(20) DEFAULT 'general'"),
+        ("inv_sales_orders", "tax_mode", "VARCHAR(20) DEFAULT 'general'"),
+        ("inv_sales_orders", "global_discount_pct", "FLOAT DEFAULT 0"),
+        ("inv_sales_orders", "global_discount_value", "FLOAT DEFAULT 0"),
+        ("inv_sales_orders", "global_delivery", "FLOAT DEFAULT 0"),
+        ("inv_sales_orders", "global_installation", "FLOAT DEFAULT 0"),
+        ("inv_sales_orders", "global_sales_tax_pct", "FLOAT DEFAULT 0"),
+        ("inv_sales_orders", "further_tax_pct", "FLOAT DEFAULT 0"),
+        ("inv_sales_orders", "apply_further_tax", bool_false),
+        ("inv_sales_orders", "withholding_tax_pct", "FLOAT DEFAULT 0"),
+        ("inv_sales_orders", "apply_withholding_tax", bool_false),
+        ("inv_sales_orders", "subtotal", "FLOAT DEFAULT 0"),
+        ("inv_sales_orders", "total_discount", "FLOAT DEFAULT 0"),
+        ("inv_sales_orders", "total_charges", "FLOAT DEFAULT 0"),
+        ("inv_sales_orders", "total_tax", "FLOAT DEFAULT 0"),
+        ("inv_sales_orders", "total_further_tax", "FLOAT DEFAULT 0"),
+        ("inv_sales_orders", "total_withholding_tax", "FLOAT DEFAULT 0"),
+        ("inv_sales_orders", "total_amount", "FLOAT DEFAULT 0"),
+        ("inv_sales_orders", "approved_by", "INTEGER"),
+        ("inv_sales_orders", "approved_at", ts_type),
+        ("inv_sales_order_items", "description", "VARCHAR(200) DEFAULT ''"),
+        ("inv_sales_order_items", "unit", "VARCHAR(20) DEFAULT 'pcs'"),
+        ("inv_sales_order_items", "quantity", "FLOAT DEFAULT 1"),
+        ("inv_sales_order_items", "discount_pct", "FLOAT DEFAULT 0"),
+        ("inv_sales_order_items", "discount_amount", "FLOAT DEFAULT 0"),
+        ("inv_sales_order_items", "delivery", "FLOAT DEFAULT 0"),
+        ("inv_sales_order_items", "installation", "FLOAT DEFAULT 0"),
+        ("inv_sales_order_items", "sales_tax_pct", "FLOAT DEFAULT 0"),
+        ("inv_sales_order_items", "total_before_discount", "FLOAT DEFAULT 0"),
+        ("inv_sales_order_items", "total_after_discount", "FLOAT DEFAULT 0"),
+        ("inv_purchase_orders", "party_account_id", "INTEGER"),
+        ("inv_purchase_orders", "discount_mode", "VARCHAR(20) DEFAULT 'general'"),
+        ("inv_purchase_orders", "charges_mode", "VARCHAR(20) DEFAULT 'general'"),
+        ("inv_purchase_orders", "tax_mode", "VARCHAR(20) DEFAULT 'general'"),
+        ("inv_purchase_orders", "global_discount_pct", "FLOAT DEFAULT 0"),
+        ("inv_purchase_orders", "global_discount_value", "FLOAT DEFAULT 0"),
+        ("inv_purchase_orders", "global_sales_tax_pct", "FLOAT DEFAULT 0"),
+        ("inv_purchase_orders", "further_tax_pct", "FLOAT DEFAULT 0"),
+        ("inv_purchase_orders", "apply_further_tax", bool_false),
+        ("inv_purchase_orders", "withholding_tax_pct", "FLOAT DEFAULT 0"),
+        ("inv_purchase_orders", "apply_withholding_tax", bool_false),
+        ("inv_purchase_orders", "subtotal", "FLOAT DEFAULT 0"),
+        ("inv_purchase_orders", "total_discount", "FLOAT DEFAULT 0"),
+        ("inv_purchase_orders", "total_charges", "FLOAT DEFAULT 0"),
+        ("inv_purchase_orders", "total_tax", "FLOAT DEFAULT 0"),
+        ("inv_purchase_orders", "total_further_tax", "FLOAT DEFAULT 0"),
+        ("inv_purchase_orders", "total_withholding_tax", "FLOAT DEFAULT 0"),
+        ("inv_purchase_orders", "total_amount", "FLOAT DEFAULT 0"),
+        ("inv_purchase_orders", "driver_name", "VARCHAR(100) DEFAULT ''"),
+        ("inv_purchase_orders", "driver_contact", "VARCHAR(50) DEFAULT ''"),
+        ("inv_purchase_orders", "vehicle_number", "VARCHAR(50) DEFAULT ''"),
+        ("inv_purchase_orders", "gate_pass", "VARCHAR(50) DEFAULT ''"),
+        ("inv_purchase_orders", "approved_by", "INTEGER"),
+        ("inv_purchase_orders", "approved_at", ts_type),
+        ("inv_purchase_order_items", "description", "VARCHAR(200) DEFAULT ''"),
+        ("inv_purchase_order_items", "unit", "VARCHAR(20) DEFAULT 'pcs'"),
+        ("inv_purchase_order_items", "quantity", "FLOAT DEFAULT 1"),
+        ("inv_purchase_order_items", "discount_pct", "FLOAT DEFAULT 0"),
+        ("inv_purchase_order_items", "discount_amount", "FLOAT DEFAULT 0"),
+        ("inv_purchase_order_items", "sales_tax_pct", "FLOAT DEFAULT 0"),
+        ("inv_purchase_order_items", "total_before_discount", "FLOAT DEFAULT 0"),
+        ("inv_purchase_order_items", "total_after_discount", "FLOAT DEFAULT 0"),
+        # v3 ERP-standard: per-charge treatment + independent tax-base switches
+        ("additional_charges", "treatment", "VARCHAR(10) DEFAULT 'bill'"),
+        ("additional_charges", "st_taxable", "BOOLEAN DEFAULT 1"),
+        ("additional_charges", "wht_taxable", "BOOLEAN DEFAULT 0"),
+        ("additional_charges", "extra_taxable", "BOOLEAN DEFAULT 0"),
+        # invoice_settings — §11 admin defaults, tolerance, field visibility
+        ("invoice_settings", "over_invoice_tolerance_pct", "FLOAT DEFAULT 0"),
+        ("invoice_settings", "withholding_base", "VARCHAR(10) DEFAULT 'taxable'"),
+        ("invoice_settings", "show_further_tax", "BOOLEAN DEFAULT 1"),
+        ("invoice_settings", "show_withholding_tax", "BOOLEAN DEFAULT 1"),
+        ("invoice_settings", "show_transport_block", "BOOLEAN DEFAULT 1"),
+        ("invoice_settings", "create_from_orders_enabled", "BOOLEAN DEFAULT 1"),
+        ("invoice_settings", "per_line_discount_enabled", "BOOLEAN DEFAULT 1"),
+        ("invoice_settings", "per_line_tax_enabled", "BOOLEAN DEFAULT 1"),
     ]
 
     inspector = inspect(engine)
@@ -292,6 +392,63 @@ def _migrate_schema(db):
             ))
     except Exception as e:
         print("MIGRATION SKIP ix_inv_invoices_voucher_number:", e)
+
+    # Create additional_charges table if not exists
+    # Create invoice_settings table if not exists
+    try:
+        with engine.begin() as conn:
+            conn.execute(db.text("""
+                CREATE TABLE IF NOT EXISTS invoice_settings (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    default_sales_tax_pct FLOAT DEFAULT 0,
+                    default_further_tax_pct FLOAT DEFAULT 0,
+                    default_withholding_tax_pct FLOAT DEFAULT 0,
+                    default_discount_pct FLOAT DEFAULT 0,
+                    default_charges_mode VARCHAR(20) DEFAULT 'general',
+                    default_discount_mode VARCHAR(20) DEFAULT 'general',
+                    default_tax_mode VARCHAR(20) DEFAULT 'general',
+                    show_discount_column BOOLEAN DEFAULT 1,
+                    show_charges_column BOOLEAN DEFAULT 1,
+                    show_tax_column BOOLEAN DEFAULT 1,
+                    auto_add_line BOOLEAN DEFAULT 1,
+                    require_approval BOOLEAN DEFAULT 1,
+                    allow_partial_payment BOOLEAN DEFAULT 1,
+                    default_party_mode VARCHAR(10) DEFAULT 'relevant',
+                    over_invoice_tolerance_pct FLOAT DEFAULT 0,
+                    withholding_base VARCHAR(10) DEFAULT 'taxable',
+                    show_further_tax BOOLEAN DEFAULT 1,
+                    show_withholding_tax BOOLEAN DEFAULT 1,
+                    show_transport_block BOOLEAN DEFAULT 1,
+                    create_from_orders_enabled BOOLEAN DEFAULT 1,
+                    per_line_discount_enabled BOOLEAN DEFAULT 1,
+                    per_line_tax_enabled BOOLEAN DEFAULT 1
+                )
+            """))
+    except Exception as e:
+        print("MIGRATION SKIP invoice_settings table:", e)
+
+    try:
+        with engine.begin() as conn:
+            conn.execute(db.text("""
+                CREATE TABLE IF NOT EXISTS additional_charges (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    doc_type VARCHAR(10) NOT NULL,
+                    doc_id INTEGER NOT NULL,
+                    charge_account_id INTEGER NOT NULL REFERENCES chart_of_accounts(id),
+                    description VARCHAR(200),
+                    amount FLOAT DEFAULT 0,
+                    scope VARCHAR(20) DEFAULT 'general',
+                    treatment VARCHAR(10) DEFAULT 'bill',
+                    st_taxable BOOLEAN DEFAULT 1,
+                    wht_taxable BOOLEAN DEFAULT 0,
+                    extra_taxable BOOLEAN DEFAULT 0,
+                    taxable BOOLEAN DEFAULT 1,
+                    tax_base VARCHAR(30) DEFAULT 'after_discount',
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+            """))
+    except Exception as e:
+        print("MIGRATION SKIP additional_charges table:", e)
 
 
 def _seed_all_data(app):
@@ -371,6 +528,11 @@ def _seed_all_data(app):
         if not User.query.filter_by(has_invoicing_access=True).first():
             for u in User.query.all():
                 u.has_invoicing_access = bool(u.has_inventory_access)
+
+        if not User.query.filter_by(has_fbr_access=True).first():
+            for u in User.query.all():
+                if u.is_admin():
+                    u.has_fbr_access = True
 
         seed_users = [
             # Built-in system administrator — always present, hidden from the HR

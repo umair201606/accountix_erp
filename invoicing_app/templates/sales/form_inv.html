@@ -1,171 +1,897 @@
 {% extends "layouts/base_invoicing.html" %}
-{% block title %}Sales Order{% endblock %}
-{% block page_title %}Sales Order{% endblock %}
+{% set vstatus = order.status if order else 'unapproved' %}
+{% set is_approved = vstatus == 'approved' %}
+{% set editable = not is_approved and vstatus != 'delivered' and vstatus != 'cancelled' %}
+{% block title %}{{ 'Approved' if is_approved else 'Unapproved' }} Sales Order{% endblock %}
+{% block page_title %}{{ 'Approved' if is_approved else 'Unapproved' }} Sales Order{% endblock %}
 {% block extra_css %}
 <style>
-:root {
-  --qb-bg: #f5f5f5; --qb-card: #ffffff; --qb-border: #d1d5db;
-  --qb-text: #1f2937; --qb-text-muted: #6b7280; --qb-text-light: #9ca3af;
-  --qb-primary: #2563eb; --qb-primary-hover: #1d4ed8;
-  --qb-input-border: #d1d5db; --qb-table-header-bg: #f3f4f6; --qb-table-border: #e5e7eb;
+*,*::before,*::after{box-sizing:border-box}
+:root{--bg:#f1f5f9;--card:#fff;--border:#e2e8f0;--text:#1e293b;--muted:#64748b;--light:#94a3b8;--primary:#2563eb;--primary-hover:#1d4ed8;--primary-light:#eff6ff;--danger:#ef4444;--success:#22c55e;--warning:#f59e0b;--radius:8px;--shadow:0 1px 3px 0 rgba(0,0,0,0.06),0 1px 2px -1px rgba(0,0,0,0.06)}
+body{background:var(--bg);font-family:Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:var(--text);margin:0;font-size:14px}
+.wrap{max-width:1240px;margin:0 auto;padding:24px}
+.card{background:var(--card);border-radius:var(--radius);box-shadow:var(--shadow);border:1px solid var(--border);margin-bottom:16px;overflow:hidden}
+.card-h{padding:12px 20px;border-bottom:1px solid var(--border);font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:flex;align-items:center;justify-content:space-between;background:#f8fafc}
+.card-b{padding:16px 20px}
+.lbl{display:block;font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin-bottom:3px}
+.inp,.sel{display:block;width:100%;padding:7px 10px;font-size:13px;color:var(--text);background:var(--card);border:1px solid var(--border);border-radius:5px;outline:none;transition:border-color .12s,box-shadow .12s}
+.inp:focus,.sel:focus{border-color:var(--primary);box-shadow:0 0 0 3px rgba(37,99,235,.12)}
+.inp:disabled,.sel:disabled{background:#f8fafc;color:var(--light)}
+.inp-plain{background:transparent;border-color:transparent;padding-left:0;padding-right:0;color:var(--text);font-weight:500;cursor:default}
+.inp-plain:focus{box-shadow:none;border-color:transparent;background:transparent}
+.inp-sm{padding:5px 8px;font-size:12px}
+.hdr-g{display:grid;grid-template-columns:1.6fr 1.2fr 1fr;gap:20px;align-items:start}
+.ac-wrap{position:relative}
+.ac-dd{position:absolute;top:100%;left:0;right:0;background:#fff;border:1px solid var(--border);border-radius:0 0 5px 5px;z-index:200;max-height:220px;overflow-y:auto;box-shadow:0 8px 24px rgba(0,0,0,.1);display:none}
+.ac-dd.show{display:block}
+.ac-it{padding:7px 12px;cursor:pointer;font-size:13px;border-bottom:1px solid #f1f5f9;display:flex;justify-content:space-between;align-items:center}
+.ac-it:hover,.ac-it.hl{background:var(--primary-light)}
+.ac-it .ac-n{font-weight:600}
+.ac-it .ac-s{font-size:11px;color:var(--light)}
+.pills{display:flex;gap:16px;align-items:center}
+.pill-g{display:flex;align-items:center;gap:6px}
+.pill-lbl{font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.3px}
+.pill{display:inline-flex;gap:0}
+.pill-b{padding:4px 12px;font-size:11px;font-weight:600;color:var(--muted);border:1px solid var(--border);cursor:pointer;background:#fff;user-select:none;transition:all .1s;line-height:1.5}
+.pill-b:first-child{border-radius:12px 0 0 12px}
+.pill-b:last-child{border-radius:0 12px 12px 0}
+.pill-b:not(:last-child){border-right:none}
+.pill-b.active{background:var(--primary-light);border-color:var(--primary);color:var(--primary);z-index:1}
+.pill-b:disabled{opacity:.4;cursor:not-allowed}
+.tb-w{overflow-x:auto;border:1px solid var(--border);border-radius:5px;-webkit-overflow-scrolling:touch}
+.tb-w::after{content:'\2190  Scroll for more columns  \2192';display:block;text-align:center;font-size:10px;color:var(--light);padding:2px;background:#f8fafc;border-top:1px solid var(--border)}
+.tb{width:100%;border-collapse:collapse;font-size:13px}
+.tb th{padding:8px 10px;font-size:11px;font-weight:700;color:var(--muted);background:#f8fafc;border-bottom:2px solid var(--border);text-transform:uppercase;letter-spacing:.3px;white-space:nowrap}
+.tb td{padding:4px 6px;border-bottom:1px solid #f1f5f9;vertical-align:middle;white-space:nowrap}
+.tb tr:hover td{background:#fafafa}
+.tb .ri{width:100%;border:1px solid transparent;padding:7px 8px;font-size:13px;background:transparent;outline:none;border-radius:4px;font-family:inherit;min-height:34px;box-sizing:border-box}
+.tb .ri:focus{border-color:var(--primary);box-shadow:0 0 0 2px rgba(37,99,235,.1);outline:none;background:#fff}
+.tb .ri:disabled{background:transparent;color:var(--muted)}
+.tb .ri.rc{font-weight:700;border:none;background:transparent;color:var(--text)}
+.tb .rn{width:32px;text-align:center;color:var(--light);font-size:11px;font-weight:600}
+.tb .desc-col{min-width:200px}
+.tb .num{text-align:right}
+.tb th.num{padding-right:14px}
+.ra{display:flex;gap:2px;justify-content:center;align-items:center}
+.ra button{width:22px;height:22px;border-radius:50%;border:1px solid var(--border);background:#fff;color:var(--muted);font-size:13px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;transition:all .12s}
+.ra button:hover{border-color:var(--primary);color:var(--primary)}
+.ra button.del:hover{border-color:var(--danger);color:var(--danger)}
+.ga{display:flex;gap:8px;padding:8px 12px;border-top:1px solid var(--border);background:#fafafa;align-items:center}
+.bsm{padding:5px 14px;font-size:11px;border-radius:5px;border:1px solid var(--border);background:#fff;color:var(--text);cursor:pointer;font-weight:600;transition:all .12s;font-family:inherit}
+.bsm:hover{background:#f1f5f9;border-color:var(--primary);color:var(--primary)}
+.bsm-d{color:var(--danger);border-color:#fecaca}
+.bsm-d:hover{background:#fef2f2;border-color:var(--danger)}
+.btm{display:grid;grid-template-columns:1fr 1fr;gap:0}
+.btm-l{padding:16px 20px;border-right:1px solid var(--border)}
+.btm-r{padding:16px 20px;background:#fafbfc}
+.sl{display:flex;align-items:center;justify-content:space-between;padding:3px 0;font-size:13px;gap:8px}
+.sl .sll{color:var(--muted);white-space:nowrap}
+.sl .slv{font-weight:600;min-width:60px;text-align:right}
+.sl .sli{width:60px;text-align:center;padding:3px 6px;font-size:12px;border:1px solid var(--border);border-radius:4px;outline:none;font-family:inherit;background:#fff}
+.sl .sli:focus{border-color:var(--primary);box-shadow:0 0 0 2px rgba(37,99,235,.1)}
+.sl .sli:disabled{background:#f8fafc;color:var(--muted)}
+.sl .sli-amt{width:70px;text-align:right}
+.sl .sli-pct{width:50px;text-align:center}
+.tl{border-top:2px solid var(--text);margin-top:4px;padding-top:8px}
+.tl .slv{font-size:20px;font-weight:800}
+.ab{display:flex;gap:10px;justify-content:flex-end;align-items:center;padding:14px 20px;border-top:1px solid var(--border)}
+.btn{padding:8px 22px;border:none;font-size:13px;font-weight:600;cursor:pointer;border-radius:5px;transition:all .12s;display:inline-flex;align-items:center;gap:5px;font-family:inherit}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.btn-p{background:var(--primary);color:#fff}
+.btn-p:hover:not(:disabled){background:var(--primary-hover)}
+.btn-o{background:#fff;color:var(--text);border:1px solid var(--border)}
+.btn-o:hover:not(:disabled){background:#f1f5f9}
+.btn-d{background:var(--danger);color:#fff}
+.btn-d:hover:not(:disabled){background:#dc2626}
+.btn-s{background:var(--success);color:#fff}
+.btn-s:hover:not(:disabled){background:#16a34a}
+.bdg{display:inline-block;padding:3px 12px;font-size:11px;font-weight:700;border-radius:12px}
+.bdg-unapproved{background:#f1f5f9;color:var(--muted)}
+.bdg-approved{background:#dcfce7;color:#16a34a}
+.bdg-delivered{background:#dbeafe;color:#1d4ed8}
+.bdg-cancelled{background:#fee2e2;color:#991b1b}
+.ap-b{background:#f0fdf4;border:1px solid #bbf7d0;border-radius:var(--radius);padding:10px 16px;margin-bottom:16px;display:flex;justify-content:space-between;align-items:center;font-size:13px;color:#166534}
+.ap-b .ap-t{font-weight:700;display:flex;align-items:center;gap:6px}
+.toast-c{position:fixed;top:16px;right:16px;z-index:3000;display:flex;flex-direction:column;gap:6px}
+.toast{padding:10px 18px;color:#fff;font-size:13px;font-weight:500;border-radius:5px;box-shadow:0 4px 16px rgba(0,0,0,.12);display:flex;align-items:center;gap:8px;min-width:240px}
+.toast-s{background:var(--success)}
+.toast-e{background:var(--danger)}
+.toast-i{background:var(--primary)}
+.modal-o{display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:2000;justify-content:center;align-items:center}
+.modal-o.show{display:flex}
+.modal-b{background:#fff;padding:24px;border-radius:var(--radius);width:620px;max-width:90vw;max-height:80vh;overflow-y:auto;box-shadow:0 10px 40px rgba(0,0,0,.15)}
+.modal-b h3{margin:0 0 12px;font-size:16px}
+.modal-acts{display:flex;gap:8px;justify-content:flex-end;margin-top:16px}
+.modal-big{width:780px}
+.side-panel{position:fixed;top:0;right:-420px;width:400px;height:100vh;background:#fff;z-index:2500;box-shadow:-4px 0 24px rgba(0,0,0,.12);transition:right .25s ease;display:flex;flex-direction:column}
+.side-panel.open{right:0}
+.sp-h{padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted)}
+.sp-h button{background:none;border:none;font-size:20px;cursor:pointer;color:var(--muted);line-height:1}
+.sp-b{flex:1;overflow-y:auto;padding:16px 20px}
+.sp-overlay{position:fixed;inset:0;background:rgba(0,0,0,.3);z-index:2499;display:none}
+.sp-overlay.show{display:block}
+.accordion{border:1px solid var(--border);border-radius:5px;margin-bottom:8px;overflow:hidden}
+.acc-h{padding:10px 14px;background:#f8fafc;cursor:pointer;font-size:12px;font-weight:700;color:var(--muted);display:flex;align-items:center;justify-content:space-between;user-select:none;text-transform:uppercase;letter-spacing:.3px}
+.acc-h:hover{background:#f1f5f9}
+.acc-h .arrow{transition:transform .2s;font-size:10px}
+.acc-h.open .arrow{transform:rotate(90deg)}
+.acc-b{padding:12px 14px;display:none;border-top:1px solid var(--border)}
+.acc-b.open{display:block}
+.flex-row{display:flex;gap:8px;align-items:center}
+.flex-1{flex:1}
+.tgl{position:relative;display:inline-block;width:36px;height:20px;vertical-align:middle}
+.tgl input{opacity:0;width:0;height:0}
+.tgl-s{position:absolute;cursor:pointer;inset:0;background:#cbd5e1;border-radius:10px;transition:.2s}
+.tgl-s:before{position:absolute;content:'';height:16px;width:16px;left:2px;bottom:2px;background:#fff;border-radius:50%;transition:.2s}
+.tgl input:checked+.tgl-s{background:var(--primary)}
+.tgl input:checked+.tgl-s:before{transform:translateX(16px)}
+.chg-row{display:grid;grid-template-columns:1fr 90px 96px 104px 42px 42px 26px;gap:6px;padding:6px 0;border-bottom:1px solid #f1f5f9;align-items:center}
+.chg-row .inp-sm{font-size:11px;padding:4px 6px}
+.chg-sw{display:flex;justify-content:center}
+.chg-row .tgl{width:32px;height:18px;margin:0 auto}
+.chg-row .tgl-s:before{height:14px;width:14px}
+.chg-row .tgl input:checked+.tgl-s:before{transform:translateX(14px)}
+.chg-hdr{display:grid;grid-template-columns:1fr 90px 96px 104px 42px 42px 26px;gap:6px;padding:4px 0;font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.3px;border-bottom:2px solid var(--border)}
+.order-it{padding:8px 12px;border:1px solid var(--border);border-radius:5px;margin-bottom:6px;cursor:pointer;transition:all .1s;display:flex;justify-content:space-between;align-items:center}
+.order-it:hover{border-color:var(--primary);background:var(--primary-light)}
+.order-so{font-weight:700;font-size:13px}
+.order-date{font-size:11px;color:var(--muted)}
+.order-amnt{font-weight:600;font-size:13px}
+.order-items-preview{font-size:11px;color:var(--muted);margin-top:4px}
+@media(max-width:768px){
+.wrap{padding:12px}.card-h{padding:10px 14px;flex-wrap:wrap;gap:8px}.card-b{padding:12px 14px}.hdr-g{grid-template-columns:1fr;gap:12px}.pills{flex-wrap:wrap;gap:8px}.btm{grid-template-columns:1fr}.btm-l{border-right:none;border-bottom:1px solid var(--border)}.sl{flex-wrap:wrap;gap:4px}.sl .slv{min-width:auto}.tb-w::after{content:'\2190  Scroll for more  \2192'}.tb{font-size:12px}.tb .ri{padding:5px 6px;font-size:12px;min-height:30px}.tb th{padding:6px 6px;font-size:10px}.ab{flex-wrap:wrap}.btn{width:100%;justify-content:center}.hdr-g>div>div{grid-template-columns:1fr!important}.side-panel{width:100%;right:-100%}.side-panel.open{right:0}.chg-row{grid-template-columns:1fr 70px 84px 92px 38px 38px 24px}.chg-hdr{grid-template-columns:1fr 70px 84px 92px 38px 38px 24px;font-size:8px}
 }
-body { background: var(--qb-bg); }
-.invoice-wrap { max-width: 1000px; margin: 0 auto; padding: 20px 0; }
-.qb-card { background: var(--qb-card); margin-bottom: 1px; border: none; }
-.qb-card .card-header { padding: 14px 20px; background: var(--qb-table-header-bg); border-bottom: 1px solid var(--qb-table-border); font-size: 13px; font-weight: 600; color: var(--qb-text); letter-spacing: 0.3px; }
-.qb-card .card-body { padding: 16px 20px; }
-.qb-field { margin-bottom: 10px; }
-.qb-field label { display: block; font-size: 11px; font-weight: 600; color: var(--qb-text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 2px; }
-.qb-field .qb-input { display: block; width: 100%; padding: 6px 8px; font-size: 13px; color: var(--qb-text); background: #fff; border: 1px solid var(--qb-input-border); box-sizing: border-box; }
-.qb-field .qb-input:focus { border-color: var(--qb-primary); outline: none; box-shadow: 0 0 0 2px rgba(37,99,235,.1); }
-.qb-field select.qb-input { cursor: pointer; }
-.table-wrap { overflow-x: auto; border: 1px solid var(--qb-table-border); }
-.qb-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-.qb-table th { background: var(--qb-table-header-bg); padding: 8px 10px; font-size: 11px; font-weight: 600; color: var(--qb-text-muted); text-align: left; border-bottom: 2px solid var(--qb-table-border); text-transform: uppercase; letter-spacing: 0.4px; white-space: nowrap; }
-.qb-table td { padding: 4px 6px; border-bottom: 1px solid #f3f4f6; vertical-align: middle; white-space: nowrap; }
-.qb-table .ri { width: 100%; border: 1px solid transparent; padding: 7px 8px; font-size: 13px; background: transparent; box-sizing: border-box; min-height: 34px; }
-.qb-table .ri:focus { border-color: var(--qb-primary); box-shadow: 0 0 0 2px rgba(37,99,235,.1); outline: none; background: #fff; }
-.qb-table .ri.rc { background: transparent; color: var(--qb-text); font-weight: 600; border: none; }
-.qb-table .rn { width: 24px; text-align: center; color: var(--qb-text-light); font-size: 11px; }
-.qb-table tr:hover td { background: #fafafa; }
-.action-bar { display: flex; gap: 10px; justify-content: flex-end; margin-top: 16px; padding: 12px 0; border-top: 1px solid var(--qb-table-border); }
-.btn-qb { padding: 8px 22px; border: none; font-size: 13px; font-weight: 600; cursor: pointer; }
-.btn-qb-primary { background: var(--qb-primary); color: #fff; }
-.btn-qb-primary:hover { background: var(--qb-primary-hover); }
-.btn-qb-outline { background: #fff; color: var(--qb-text); border: 1px solid var(--qb-input-border); }
-.btn-qb-outline:hover { background: #f3f4f6; }
-@media(max-width:768px){.invoice-wrap{padding:12px}.qb-card .card-body{padding:12px 14px}.qb-card .card-header{padding:10px 14px}.table-wrap::after{content:'\2190  Scroll for more  \2192';display:block;text-align:center;font-size:10px;color:var(--qb-text-light);padding:2px;background:var(--qb-table-header-bg);border-top:1px solid var(--qb-table-border)}.qb-table{font-size:12px}.qb-table th{padding:6px 6px;font-size:10px}.qb-table .ri{padding:5px 6px;font-size:12px;min-height:30px}.action-bar{flex-wrap:wrap}.btn-qb{width:100%;justify-content:center}}
-@media(max-width:480px){.invoice-wrap{padding:8px}}
-@media print { .sidebar, .topbar, .action-bar, .table-wrap::after { display: none !important; } body { background: #fff; } }
+@media(max-width:480px){
+.wrap{padding:8px}.card-h{font-size:10px}.card-b{padding:8px 10px}.tb-w{border-radius:0;border-left:none;border-right:none}.modal-b{width:95vw;padding:16px}
+}
 </style>
 {% endblock %}
 
 {% block content %}
-<div class="invoice-wrap">
-  <form method="POST" id="soForm">
-    <div class="qb-card">
-      <div class="card-header">Sales Order</div>
-      <div class="card-body">
-        <div class="qb-field">
-          <label>Customer</label>
-          <select name="customer_id" class="qb-input" required>
-            <option value="">Select Customer</option>
-            {% for c in customers %}
-            <option value="{{ c.id }}">{{ c.name }} ({{ c.city or '' }})</option>
-            {% endfor %}
-          </select>
+<div class="wrap">
+  <div class="toast-c" id="toastContainer"></div>
+  <div class="sp-overlay" id="spOverlay" onclick="closeSidePanel()"></div>
+  <input type="hidden" id="orderId" value="{{ order.id if order else '' }}">
+  <input type="hidden" id="orderStatus" value="{{ vstatus }}">
+
+  {% if is_approved %}
+  <div class="ap-b"><span class="ap-t">&#10003; APPROVED</span><span>{{ order.approver.full_name if order.approver else '' }} @ {{ order.approved_at.strftime('%Y-%m-%d %H:%M') if order.approved_at else '' }}</span></div>
+  {% endif %}
+
+  <!-- HEADER -->
+  <div class="card">
+    <div class="card-h">Sales Order</div>
+    <div class="card-b">
+      <div class="hdr-g">
+        <div>
+          <div class="ac-wrap" style="margin-bottom:8px;">
+            <label class="lbl">Customer <span style="color:var(--danger);">*</span></label>
+            <input type="text" class="inp" id="customerSearch" placeholder="Search or press Space..." value="{{ order.customer.name if order else '' }}" autocomplete="off" {{ 'disabled' if not editable else '' }}>
+            <input type="hidden" id="customerId" value="{{ order.customer_id if order else '' }}">
+            <div class="ac-dd" id="customerDropdown"></div>
+          </div>
+          {% if party_mode == 'all' %}
+          <div class="ac-wrap" style="margin-bottom:8px;">
+            <label class="lbl">Post To Ledger Account <span style="color:var(--muted);font-weight:400;">(optional)</span></label>
+            <input type="text" class="inp" id="partyAccountSearch" placeholder="Search ledger account..." autocomplete="off" {{ 'disabled' if not editable else '' }}>
+            <input type="hidden" id="partyAccountId" value="{{ order.party_account_id or '' if order else '' }}">
+            <div class="ac-dd" id="partyAccountDropdown"></div>
+          </div>
+          {% else %}
+          <input type="hidden" id="partyAccountId" value="">
+          {% endif %}
+          <div>
+            <label class="lbl">Billing Address</label>
+            <textarea class="inp inp-plain" id="billingAddress" rows="2" style="resize:none;" readonly>{{ order.customer.address if order and order.customer else '' }}</textarea>
+          </div>
         </div>
-        <div class="qb-field">
-          <label>Notes</label>
-          <textarea name="notes" class="qb-input" rows="2"></textarea>
+        <div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">
+            <div><label class="lbl">Order Date</label><input type="date" class="inp" id="orderDate" value="{{ order.order_date.strftime('%Y-%m-%d') if order and order.order_date else '' }}" {{ 'disabled' if not editable else '' }}></div>
+            <div><label class="lbl">Expected Date</label><input type="date" class="inp" id="expectedDate" value="{{ order.expected_date.strftime('%Y-%m-%d') if order and order.expected_date else '' }}" {{ 'disabled' if not editable else '' }}></div>
+          </div>
+          <div><label class="lbl">SO #</label><input type="text" class="inp" readonly style="background:#f8fafc;" id="soNumber" value="{{ order.so_number if order else '(auto)' }}"></div>
+        </div>
+        <div>
+          <div style="margin-bottom:8px;">
+            <label class="lbl">Status</label>
+            <div><span class="bdg bdg-{{ vstatus }}" id="statusBadge">{{ vstatus|title }}</span></div>
+          </div>
         </div>
       </div>
     </div>
+  </div>
 
-    <div class="qb-card">
-      <div class="card-header">Items</div>
-      <div class="card-body" style="padding:8px 0;">
-        <div class="table-wrap">
-          <table class="qb-table">
-            <thead>
-              <tr>
-                <th style="width:28px;">#</th>
-                <th style="min-width:80px;">Code</th>
-                <th style="min-width:140px;">Description</th>
-                <th class="num">Quantity</th>
-                <th class="num" style="min-width:80px;">Unit Price</th>
-                <th class="num">Amount</th>
-                <th style="width:44px;"></th>
-              </tr>
-            </thead>
-            <tbody id="itemsBody"></tbody>
-          </table>
+  <!-- ITEMS -->
+  <div class="card">
+    <div class="card-h">
+      <span>Items</span>
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+        {% if editable %}
+        <button type="button" class="bsm" id="fromOrdersBtn" title="Import items from approved orders">From Orders</button>
+        <button type="button" class="bsm" id="chargesBtn">Charges <span style="font-size:10px;color:var(--light);font-weight:400;" id="chargesCount"></span></button>
+        <button type="button" class="bsm" onclick="openSidePanel()">&#9881; Settings</button>
+        {% endif %}
+        <div class="pills">
+          <div class="pill-g"><span class="pill-lbl">Discount</span>
+            <div class="pill" id="discountMode">
+              <button type="button" class="pill-b {{ 'active' if not order or order.discount_mode == 'general' else '' }}" data-value="general" {{ 'disabled' if not editable else '' }}>Combined</button>
+              <button type="button" class="pill-b {{ 'active' if order and order.discount_mode == 'individual' else '' }}" data-value="individual" {{ 'disabled' if not editable else '' }}>Per Item</button>
+            </div>
+          </div>
+          <div class="pill-g"><span class="pill-lbl">Charges</span>
+            <div class="pill" id="chargesMode">
+              <button type="button" class="pill-b {{ 'active' if not order or order.charges_mode == 'general' else '' }}" data-value="general" {{ 'disabled' if not editable else '' }}>Combined</button>
+              <button type="button" class="pill-b {{ 'active' if order and order.charges_mode == 'individual' else '' }}" data-value="individual" {{ 'disabled' if not editable else '' }}>Per Item</button>
+            </div>
+          </div>
+          <div class="pill-g"><span class="pill-lbl">Tax</span>
+            <div class="pill" id="taxMode">
+              <button type="button" class="pill-b {{ 'active' if not order or order.tax_mode == 'general' else '' }}" data-value="general" {{ 'disabled' if not editable else '' }}>Combined</button>
+              <button type="button" class="pill-b {{ 'active' if order and order.tax_mode == 'individual' else '' }}" data-value="individual" {{ 'disabled' if not editable else '' }}>Per Item</button>
+            </div>
+          </div>
         </div>
-        <button type="button" class="btn-qb btn-qb-outline" onclick="addRow({})" style="margin-top:8px;margin-left:8px;">+ Add Row</button>
       </div>
     </div>
+    <div style="padding:0;">
+      <div class="tb-w" style="border:none;border-radius:0;">
+        <table class="tb" id="itemsTable">
+          <thead>
+            <tr>
+              <th style="width:32px;">#</th>
+              <th style="min-width:80px;">Code</th>
+              <th class="desc-col">Description</th>
+              <th class="num">Quantity</th>
+              <th>Unit</th>
+              <th class="num" style="min-width:80px;">Rate</th>
+              <th class="num">Amount</th>
+              <th class="c-disc num" style="{{ 'display:none;' if not order or order.discount_mode != 'individual' else '' }}">Discount %</th>
+              <th class="c-disc num" style="{{ 'display:none;' if not order or order.discount_mode != 'individual' else '' }}">Disc. Amount</th>
+              <th class="c-chg num" style="{{ 'display:none;' if not order or order.charges_mode != 'individual' else '' }}">Delivery</th>
+              <th class="c-chg num" style="{{ 'display:none;' if not order or order.charges_mode != 'individual' else '' }}">Installation</th>
+              <th class="c-tax num" style="{{ 'display:none;' if not order or order.tax_mode != 'individual' else '' }}">Sales Tax %</th>
+              <th class="c-net num" style="{{ 'display:none;' if not order or order.discount_mode != 'individual' else '' }}">Net Amount</th>
+              <th style="width:52px;"></th>
+            </tr>
+          </thead>
+          <tbody id="itemsBody"></tbody>
+        </table>
+      </div>
+      <div class="ga">
+        {% if editable %}
+        <button type="button" class="bsm" id="addLineBtn">+ Add lines</button>
+        <button type="button" class="bsm bsm-d" id="clearAllBtn">&#10005; Clear all lines</button>
+        {% endif %}
+        <span style="flex:1;"></span>
+        <span style="font-size:11px;color:var(--muted);">Space to search &bull; Enter to add row</span>
+      </div>
+    </div>
+  </div>
 
-    <div class="qb-card">
-      <div class="card-body">
-        <div style="text-align:right;padding:8px 0;">
-          <span style="font-size:13px;color:var(--qb-text-muted);">Total Amount: </span>
-          <span style="font-size:20px;font-weight:800;color:var(--qb-text);" id="soTotal">0.00</span>
+  <!-- BOTTOM -->
+  <div class="card">
+    <div class="card-b" style="padding:0;">
+      <div class="btm">
+        <div class="btm-l">
+          <label class="lbl">Notes / Comments</label>
+          <textarea id="orderNotes" class="inp" rows="5" {{ 'disabled' if not editable else '' }}>{{ order.notes if order else '' }}</textarea>
+        </div>
+        <div class="btm-r">
+          <div class="sl"><span class="sll">Subtotal</span><span class="slv" id="summarySubtotal">0.00</span></div>
+          <div class="sl" id="absorbedRow" style="display:none;"><span class="sll">+ Absorbed charges</span><span class="slv" id="summaryAbsorbed">0.00</span></div>
+          <div class="sl">
+            <span class="sll">Discount</span>
+            <span style="display:flex;align-items:center;gap:4px;">
+              <span style="color:var(--muted);font-size:11px;">%</span>
+              <input type="number" class="sli sli-pct" id="globalDiscPct" placeholder="%" step="0.01" min="0" max="100" value="{{ order.global_discount_pct if order else '0' }}" {{ 'disabled' if not editable else '' }}>
+              <input type="number" class="sli sli-amt" id="globalDiscVal" placeholder="Val" step="0.01" min="0" value="{{ order.global_discount_value if order else '0' }}" {{ 'disabled' if not editable else '' }}>
+              <span class="slv" id="summaryDiscount" style="color:var(--danger);width:70px;text-align:right;min-width:auto;">-0.00</span>
+            </span>
+          </div>
+          <div class="sl" style="border-top:1px dashed var(--border);padding-top:6px;margin-top:2px;"><span class="sll" style="font-weight:700;">Taxable Value</span><span class="slv" id="summaryTaxableValue" style="font-weight:700;">0.00</span></div>
+          <div class="sl">
+            <span class="sll">Sales Tax</span>
+            <span style="display:flex;align-items:center;gap:4px;">
+              <span style="color:var(--muted);font-size:11px;">%</span>
+              <input type="number" class="sli sli-pct" id="globalSalesTaxPct" placeholder="%" step="0.01" min="0" max="100" value="{{ order.global_sales_tax_pct if order else '0' }}" {{ 'disabled' if not editable else '' }}>
+              <span class="slv" id="summarySalesTax" style="width:70px;text-align:right;min-width:auto;">0.00</span>
+            </span>
+          </div>
+          <div id="chargesSummaryContainer"></div>
+          <div class="sl" id="totalChargesRow" style="display:none;"><span class="sll" style="font-weight:700;">Total Charges (billed)</span><span class="slv" id="summaryChargesTotal" style="font-weight:700;">0.00</span></div>
+          <div class="sl" id="furtherTaxRow" style="display:none;">
+            <span class="sll">Further Tax</span>
+            <span style="display:flex;align-items:center;gap:4px;">
+              <span style="color:var(--muted);font-size:11px;">%</span>
+              <input type="number" class="sli sli-pct" id="furtherTaxPct" placeholder="%" step="0.01" min="0" max="100" value="{{ order.further_tax_pct if order else '0' }}" {{ 'disabled' if not editable else '' }}>
+              <span class="slv" id="summaryFurtherTax" style="width:70px;text-align:right;min-width:auto;">0.00</span>
+            </span>
+          </div>
+          <div class="sl" id="withholdingTaxRow" style="display:none;">
+            <span class="sll">W/H Tax</span>
+            <span style="display:flex;align-items:center;gap:4px;">
+              <span style="color:var(--muted);font-size:11px;">%</span>
+              <input type="number" class="sli sli-pct" id="withholdingTaxPct" placeholder="%" step="0.01" min="0" max="100" value="{{ order.withholding_tax_pct if order else '0' }}" {{ 'disabled' if not editable else '' }}>
+              <span class="slv" id="summaryWithholdingTax" style="color:var(--danger);width:70px;text-align:right;min-width:auto;">-0.00</span>
+            </span>
+          </div>
+          <div class="sl" id="expenseRow" style="display:none;"><span class="sll" style="font-size:11px;color:var(--light);">Expense-only charges (not billed)</span><span class="slv" id="summaryExpense" style="color:var(--light);font-weight:500;">0.00</span></div>
+          <div class="sl tl"><span class="sll" style="font-weight:700;">Net Total</span><span class="slv" id="summaryNetTotal" style="font-size:20px;font-weight:800;">0.00</span></div>
         </div>
       </div>
     </div>
+  </div>
 
-    <div class="action-bar">
-      <button type="submit" class="btn-qb btn-qb-primary">&#128190; Create SO</button>
-      <a href="{{ url_for('inv_sales.list_sales') }}" class="btn-qb btn-qb-outline">Cancel</a>
-    </div>
-  </form>
+  <!-- ACTION BAR -->
+  <div class="ab">
+    {% if editable and vstatus == 'unapproved' %}
+      <button type="button" class="btn btn-p" id="saveBtn">Save</button>
+      <button type="button" class="btn btn-s" id="saveApproveBtn">Save &amp; Approve</button>
+    {% elif editable and vstatus != 'unapproved' %}
+      <button type="button" class="btn btn-o" id="saveChangesBtn">Save Changes</button>
+      <button type="button" class="btn btn-p" id="approveBtn">Approve</button>
+      <button type="button" class="btn btn-d" id="deleteBtn" onclick="showConfirm('Delete','Delete this order?',deleteOrder)">Delete</button>
+    {% elif is_approved %}
+      <button type="button" class="btn btn-d" id="unapproveBtn">Unapprove</button>
+    {% endif %}
+    <a href="{{ url_for('inv_sales.list_sales') }}" class="btn btn-o">Cancel</a>
+  </div>
 </div>
 
+<!-- CHARGES MODAL -->
+<div class="modal-o" id="chargesModal">
+  <div class="modal-b modal-big">
+    <h3>Additional Charges</h3>
+    <p style="font-size:12px;color:var(--muted);margin-bottom:12px;">Each charge picks a ledger account, a scope (combined or per-line), a treatment (Bill adds it to the payable, Absorb folds it into item value, Expense is cost-only and not billed) and whether it enters the sales-tax and withholding bases.</p>
+    <div class="chg-hdr">
+      <span>Charge Type / Account</span>
+      <span style="text-align:right;">Amount</span>
+      <span style="text-align:center;">Scope</span>
+      <span style="text-align:center;">Treatment</span>
+      <span style="text-align:center;">ST</span>
+      <span style="text-align:center;">WHT</span>
+      <span></span>
+    </div>
+    <div id="chargesList"></div>
+    <button type="button" class="bsm" id="addChargeBtn" style="margin-top:8px;">+ Add Charge</button>
+    <div class="modal-acts">
+      <button type="button" class="btn btn-o" onclick="closeChargesModal()">Done</button>
+    </div>
+  </div>
+</div>
+
+<!-- ORDER SOURCING MODAL -->
+<div class="modal-o" id="orderModal">
+  <div class="modal-b modal-big">
+    <h3>Import from Sales Orders</h3>
+    <p style="font-size:12px;color:var(--muted);margin-bottom:12px;">Select approved orders for this customer to copy items.</p>
+    <div id="ordersList" style="max-height:400px;overflow-y:auto;">
+      <p style="color:var(--light);font-size:13px;text-align:center;padding:24px;">Select a customer first, then click "From Orders"</p>
+    </div>
+    <div class="modal-acts">
+      <button type="button" class="btn btn-o" onclick="closeOrderModal()">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- SETTINGS SIDE PANEL -->
+<div class="side-panel" id="sidePanel">
+  <div class="sp-h">
+    <span>Additional Settings</span>
+    <button onclick="closeSidePanel()">&times;</button>
+  </div>
+  <div class="sp-b">
+    <div class="accordion">
+      <div class="acc-h open" onclick="toggleAccordion(this)">
+        <span>General</span><span class="arrow">&#9654;</span>
+      </div>
+      <div class="acc-b open">
+        <div class="lbl">Order Date</div>
+        <input type="date" class="inp inp-sm" id="settingsOrderDate" {{ 'disabled' if not editable else '' }}>
+        <div class="lbl" style="margin-top:8px;">Expected Date</div>
+        <input type="date" class="inp inp-sm" id="settingsExpectedDate" {{ 'disabled' if not editable else '' }}>
+      </div>
+    </div>
+    <div class="accordion">
+      <div class="acc-h" onclick="toggleAccordion(this)">
+        <span>Tax Settings</span><span class="arrow">&#9654;</span>
+      </div>
+      <div class="acc-b">
+        <div class="lbl">Further Tax</div>
+        <div class="flex-row">
+          <label class="tgl">
+            <input type="checkbox" id="settingsApplyFurtherTax" {{ 'checked' if order and order.apply_further_tax else '' }} {{ 'disabled' if not editable else '' }}>
+            <span class="tgl-s"></span>
+          </label>
+          <span style="font-size:12px;color:var(--muted);">Apply further tax</span>
+        </div>
+        <div class="lbl" style="margin-top:8px;">Further Tax %</div>
+        <input type="number" class="inp inp-sm" id="settingsFurtherTaxPct" step="0.01" min="0" max="100" value="{{ order.further_tax_pct if order else '0' }}" {{ 'disabled' if not editable else '' }}>
+        <div class="lbl" style="margin-top:8px;">Withholding Tax</div>
+        <div class="flex-row">
+          <label class="tgl">
+            <input type="checkbox" id="settingsApplyWHT" {{ 'checked' if order and order.apply_withholding_tax else '' }} {{ 'disabled' if not editable else '' }}>
+            <span class="tgl-s"></span>
+          </label>
+          <span style="font-size:12px;color:var(--muted);">Apply withholding tax</span>
+        </div>
+        <div class="lbl" style="margin-top:8px;">WHT %</div>
+        <input type="number" class="inp inp-sm" id="settingsWHTaxPct" step="0.01" min="0" max="100" value="{{ order.withholding_tax_pct if order else '0' }}" {{ 'disabled' if not editable else '' }}>
+        <div class="lbl" style="margin-top:8px;">Sales Tax %</div>
+        <input type="number" class="inp inp-sm" id="settingsSalesTaxPct" step="0.01" min="0" max="100" value="{{ order.global_sales_tax_pct if order else '0' }}" {{ 'disabled' if not editable else '' }}>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-o" id="confirmModal">
+  <div class="modal-b">
+    <h3 id="confirmTitle">Confirm</h3>
+    <p id="confirmMsg" style="color:var(--muted);font-size:14px;margin:0 0 16px;"></p>
+    <div class="modal-acts">
+      <button type="button" class="btn btn-o" onclick="closeConfirm()">Cancel</button>
+      <button type="button" class="btn btn-p" id="confirmOkBtn">Yes, Continue</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
 <script>
-var products = {{ products|tojson }};
-var rowCount = 0;
+var allProducts = {{ products|tojson }}, rowCount = 0, charges = {{ order_charges|tojson }};
+const editable = {{ 'false' if not editable else 'true' }};
+var confirmCallback = null;
+var existingOrderItems = {{ order_items|tojson }};
+
+function qs(s,c){return(c||document).querySelector(s)}
+function qsa(s,c){return(c||document).querySelectorAll(s)}
+function getMode(n){var t=document.getElementById(n+'Mode');if(!t)return'general';var a=t.querySelector('.pill-b.active');return a?a.dataset.value:'general'}
+function toast(m,t){var c=document.getElementById('toastContainer'),d=document.createElement('div');d.className='toast toast-'+t;d.innerHTML=m+'<button style="background:none;border:none;color:inherit;font-size:16px;cursor:pointer;margin-left:auto;padding:0;line-height:1;" onclick="this.parentElement.remove()">&times;</button>';c.appendChild(d);setTimeout(function(){d.style.opacity='0';d.style.transition='opacity .3s';setTimeout(function(){d.remove()},300)},4000)}
+function esc(s){return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
+function showConfirm(t,m,cb){document.getElementById('confirmTitle').textContent=t;document.getElementById('confirmMsg').textContent=m;document.getElementById('confirmModal').classList.add('show');confirmCallback=cb}
+function closeConfirm(){document.getElementById('confirmModal').classList.remove('show');confirmCallback=null}
+document.getElementById('confirmOkBtn').addEventListener('click',function(){var cb=confirmCallback;closeConfirm();if(cb)cb()});
+
+async function fetchJSON(u){var r=await fetch(u);return r.json()}
+function loadProducts(q){return fetchJSON('/inventory/sales/api/products?q='+encodeURIComponent(q))}
+function loadCustomers(q){return fetchJSON('/inventory/sales/api/customers?q='+encodeURIComponent(q))}
+function loadAccounts(q){return fetchJSON('/inventory/sales/api/accounts?q='+encodeURIComponent(q))}
+function loadOrders(cid){return fetchJSON('/inventory/sales/api/orders/'+cid)}
+
+function openSidePanel(){document.getElementById('spOverlay').classList.add('show');document.getElementById('sidePanel').classList.add('open')}
+function closeSidePanel(){document.getElementById('spOverlay').classList.remove('show');document.getElementById('sidePanel').classList.remove('open')}
+function toggleAccordion(h){h.classList.toggle('open');var b=h.nextElementSibling;if(b)b.classList.toggle('open')}
+
+document.addEventListener('DOMContentLoaded',function(){
+  var sd=document.getElementById('settingsOrderDate'),md=document.getElementById('orderDate');
+  if(sd&&md){sd.value=md.value;md.addEventListener('input',function(){sd.value=this.value});sd.addEventListener('input',function(){md.value=this.value})}
+  var sed=document.getElementById('settingsExpectedDate'),med=document.getElementById('expectedDate');
+  if(sed&&med){sed.value=med.value;med.addEventListener('input',function(){sed.value=this.value});sed.addEventListener('input',function(){med.value=this.value})}
+  var sst=document.getElementById('settingsSalesTaxPct'),mst=document.getElementById('globalSalesTaxPct');
+  if(sst&&mst){sst.value=mst.value;mst.addEventListener('input',function(){sst.value=this.value;recalc()});sst.addEventListener('input',function(){mst.value=this.value;recalc()})}
+  var ftCb=document.getElementById('settingsApplyFurtherTax');
+  if(ftCb){var ftRow=document.getElementById('furtherTaxRow');if(ftRow)ftRow.style.display=ftCb.checked?'':'none'}
+  var whtCb=document.getElementById('settingsApplyWHT');
+  if(whtCb){var whtRow=document.getElementById('withholdingTaxRow');if(whtRow)whtRow.style.display=whtCb.checked?'':'none'}
+});
+
+document.getElementById('settingsApplyFurtherTax')?.addEventListener('change',function(){
+  var row=document.getElementById('furtherTaxRow');var inp=document.getElementById('furtherTaxPct');
+  if(this.checked){row.style.display='';recalc()}else{row.style.display='none';inp.value=0;recalc()}
+})
+document.getElementById('settingsApplyWHT')?.addEventListener('change',function(){
+  var row=document.getElementById('withholdingTaxRow');var inp=document.getElementById('withholdingTaxPct');
+  if(this.checked){row.style.display='';recalc()}else{row.style.display='none';inp.value=0;recalc()}
+})
+document.getElementById('furtherTaxPct')?.addEventListener('input',function(){
+  var s=document.getElementById('settingsFurtherTaxPct');if(s)s.value=this.value;recalc()
+})
+document.getElementById('settingsFurtherTaxPct')?.addEventListener('input',function(){
+  var f=document.getElementById('furtherTaxPct');if(f)f.value=this.value;recalc()
+})
+document.getElementById('withholdingTaxPct')?.addEventListener('input',function(){
+  var s=document.getElementById('settingsWHTaxPct');if(s)s.value=this.value;recalc()
+})
+document.getElementById('settingsWHTaxPct')?.addEventListener('input',function(){
+  var f=document.getElementById('withholdingTaxPct');if(f)f.value=this.value;recalc()
+})
+
+// Customer autocomplete
+var si=document.getElementById('customerSearch'),sd=document.getElementById('customerDropdown'),sid=document.getElementById('customerId'),sa=document.getElementById('billingAddress'),shl=-1,sl=[];
+function rCust(l){sl=l;shl=-1;if(!l||!l.length){sd.classList.remove('show');return}sd.innerHTML=l.map(function(s,i){return'<div class="ac-it" data-index="'+i+'" data-id="'+s.id+'" data-name="'+s.name.replace(/'/g,"\\'")+'" data-addr="'+(s.address||'').replace(/'/g,"\\'")+'"><span class="ac-n">'+s.name+'</span><span class="ac-s">'+(s.city||'')+' '+(s.phone||'')+'</span></div>'}).join('');sd.classList.add('show')}
+si.addEventListener('keydown',async function(e){if(!editable)return;if(e.key===' '){e.preventDefault();rCust(await loadCustomers(''));return}if(e.key==='ArrowDown'){e.preventDefault();shl=Math.min(shl+1,sl.length-1);hCust();return}if(e.key==='ArrowUp'){e.preventDefault();shl=Math.max(shl-1,0);hCust();return}if(e.key==='Enter'&&sd.classList.contains('show')&&shl>=0){sCust(shl);return}if(e.key==='Escape'){sd.classList.remove('show');return}})
+si.addEventListener('input',async function(){if(!editable)return;var q=this.value.trim();if(!q.length){sd.classList.remove('show');return}rCust(await loadCustomers(q))})
+si.addEventListener('blur',function(){setTimeout(function(){sd.classList.remove('show')},200)})
+function hCust(){sd.querySelectorAll('.ac-it').forEach(function(e,i){e.classList.toggle('hl',i===shl)})}
+function sCust(i){var t=sl[i];if(!t)return;sid.value=t.id;si.value=t.name;sd.classList.remove('show');if(sa&&t.address)sa.value=t.address}
+sd.addEventListener('mousedown',function(e){var t=e.target.closest('.ac-it');if(!t)return;shl=parseInt(t.dataset.index);sCust(shl)})
+
+// Party account override
+var pai=document.getElementById('partyAccountSearch');
+if(pai){(function(){
+  var pdd=document.getElementById('partyAccountDropdown'),pid=document.getElementById('partyAccountId'),phl=-1,pl=[];
+  function loadAccts(q){return fetchJSON('/accounting/api/accounts?q='+encodeURIComponent(q))}
+  function rA(l){pl=l;phl=-1;if(!l||!l.length){pdd.classList.remove('show');return}pdd.innerHTML=l.map(function(a,i){return'<div class="ac-it" data-index="'+i+'"><span class="ac-n">'+a.code+' — '+a.name+'</span><span class="ac-s">'+a.type+'</span></div>'}).join('');pdd.classList.add('show')}
+  function sA(i){var t=pl[i];if(!t)return;pid.value=t.id;pai.value=t.code+' — '+t.name;pdd.classList.remove('show')}
+  pai.addEventListener('keydown',async function(e){if(!editable)return;if(e.key===' '&&!this.value){e.preventDefault();rA(await loadAccts(''));return}if(e.key==='ArrowDown'){e.preventDefault();phl=Math.min(phl+1,pl.length-1);pdd.querySelectorAll('.ac-it').forEach(function(el,i){el.classList.toggle('hl',i===phl)});return}if(e.key==='ArrowUp'){e.preventDefault();phl=Math.max(phl-1,0);pdd.querySelectorAll('.ac-it').forEach(function(el,i){el.classList.toggle('hl',i===phl)});return}if(e.key==='Enter'&&pdd.classList.contains('show')&&phl>=0){e.preventDefault();sA(phl);return}if(e.key==='Escape'){pdd.classList.remove('show')}})
+  pai.addEventListener('input',async function(){if(!editable)return;var q=this.value.trim();if(!q){pid.value='';pdd.classList.remove('show');return}rA(await loadAccts(q))})
+  pai.addEventListener('blur',function(){setTimeout(function(){pdd.classList.remove('show')},200)})
+  pdd.addEventListener('mousedown',function(e){var t=e.target.closest('.ac-it');if(!t)return;sA(parseInt(t.dataset.index))})
+})()}
+
+// Pill toggles
+// §13: flipping Per line -> Combined seeds the combined field from the current
+// rollup. Zeroing it would silently discard what the user already entered.
+function seedCombinedFromRollup(name){
+  if(name!=='discount')return;   // charges scope is per-charge; a tax rate has no single rollup
+  var sum=0;
+  qsa('#itemsBody tr').forEach(function(tr){
+    var amt=parseFloat((tr.querySelector('[data-col="amount"]')?.value||'0').replace(/,/g,''))||0;
+    var da=parseFloat(tr.querySelector('[data-col="discount_amount"]')?.value)||0;
+    var dp=parseFloat(tr.querySelector('[data-col="discount_pct"]')?.value)||0;
+    sum+=da>0?da:(amt*dp/100);
+  });
+  if(sum>0){var gv=document.getElementById('globalDiscVal');if(gv)gv.value=sum.toFixed(2);
+            var gp=document.getElementById('globalDiscPct');if(gp)gp.value=0}
+}
+qsa('.pill-b').forEach(function(b){b.addEventListener('click',function(){if(this.disabled)return;var g=this.closest('.pill');var name=(g.id||'').replace('Mode','');var oldMode=getMode(name);var newMode=this.dataset.value;g.querySelectorAll('.pill-b').forEach(function(x){x.classList.remove('active')});this.classList.add('active');if(oldMode==='individual'&&newMode==='general')seedCombinedFromRollup(name);refreshCols();recalc()})})
+function refreshCols(){var d=getMode('discount'),c=getMode('charges'),t=getMode('tax'),id=d==='individual',ic=c==='individual',it=t==='individual';qsa('.c-disc').forEach(function(el){el.style.display=id?'':'none'});qsa('.c-net').forEach(function(el){el.style.display=id?'':'none'});qsa('.c-chg').forEach(function(el){el.style.display=ic?'':'none'});qsa('.c-tax').forEach(function(el){el.style.display=it?'':'none'});qsa('#itemsBody tr').forEach(function(tr){qsa('.row-disc input',tr).forEach(function(i){i.disabled=!id||!editable});qsa('.row-chg input',tr).forEach(function(i){i.disabled=!ic||!editable});qsa('.row-tax input',tr).forEach(function(i){i.disabled=!it||!editable})})}
+
+// Product autocomplete per row
+function setupDescInput(inp){var row=inp.closest('tr'),drop=row.querySelector('.ac-dd'),hl=-1,list=[];
+function render(l){hl=-1;if(!l||!l.length){drop.classList.remove('show');return}drop.innerHTML=l.map(function(p,i){return'<div class="ac-it" data-index="'+i+'" data-id="'+p.id+'" data-name="'+p.name+'" data-sku="'+p.sku+'" data-price="'+p.unit_price+'" data-stock="'+p.current_stock+'" data-unit="'+p.unit+'"><span class="ac-n">'+p.name+'</span><span class="ac-s">'+p.sku+' &bull; Stock: '+p.current_stock+'</span></div>'}).join('');drop.classList.add('show')}
+inp.addEventListener('keydown',async function(e){if(e.key===' '){e.preventDefault();list=await loadProducts('');render(list);return}if(e.key==='ArrowDown'){e.preventDefault();hl=Math.min(hl+1,list.length-1);hlr();return}if(e.key==='ArrowUp'){e.preventDefault();hl=Math.max(hl-1,0);hlr();return}if(e.key==='Enter'){if(e.shiftKey)return;e.preventDefault();if(drop.classList.contains('show')&&hl>=0&&list[hl]){selP(hl);return}var inputs=row.querySelectorAll('.ri:not(:disabled):not(.rc)'),last=inputs[inputs.length-1];if(e.target===last){addRow({});setTimeout(function(){var nr=document.getElementById('itemsBody').lastElementChild,ni=nr.querySelectorAll('.ri:not(:disabled):not(.rc)');if(ni.length)ni[0].focus()},50)}return}if(e.key==='Escape'){drop.classList.remove('show');return}})
+inp.addEventListener('input',async function(){var q=this.value.trim();if(!q.length){drop.classList.remove('show');return}list=await loadProducts(q);render(list)})
+inp.addEventListener('blur',function(){setTimeout(function(){drop.classList.remove('show')},200)})
+if(inp.tagName==='TEXTAREA'){inp.addEventListener('input',function(){this.style.height='auto';this.style.height=this.scrollHeight+'px'})}
+function hlr(){drop.querySelectorAll('.ac-it').forEach(function(e,i){e.classList.toggle('hl',i===hl)})}
+function selP(i){var p=list[i];if(!p)return;row.dataset.productId=p.id;row.querySelector('.ac-code').value=p.sku;inp.value=p.name;row.querySelector('.ac-unit').textContent=p.unit;row.querySelector('[data-col="unit_price"]').value=p.unit_price;row.querySelector('.info-badge').innerHTML='Stock: <strong>'+p.current_stock+'</strong>';drop.classList.remove('show');recalcRow(row);recalc();var qty=row.querySelector('[data-col="quantity"]');if(qty)qty.focus()}
+drop.addEventListener('mousedown',function(e){var t=e.target.closest('.ac-it');if(!t)return;hl=parseInt(t.dataset.index);selP(hl)})}
+
+// Row management
+function addRow(data){var tbody=document.getElementById('itemsBody'),tr=document.createElement('tr');rowCount++;var d=getMode('discount'),c=getMode('charges'),t=getMode('tax'),id=d==='individual',ic=c==='individual',it=t==='individual',dis=editable?'':'disabled';tr.dataset.productId=(data&&data.product_id)||'';
+tr.innerHTML='<td class="rn">'+rowCount+'</td><td><input type="text" class="ri ac-code" data-col="code" placeholder="SKU" value="'+((data&&data.product&&data.product.sku)||(data&&data.product_sku)||'')+'" '+dis+'></td><td><div class="ac-wrap"><textarea class="ri ac-desc-input" data-col="description" placeholder="Search or Space..." rows="1" style="resize:none;overflow:hidden" '+dis+'>'+esc(data&&data.description||'')+'</textarea><div class="ac-dd"></div><div class="info-badge" style="font-size:10px;color:var(--light);"></div></div></td><td><input type="number" class="ri num" data-col="quantity" value="'+((data&&data.quantity)||1)+'" min="0.01" step="any" '+dis+'></td><td><span class="ri rc ac-unit">'+((data&&data.unit)||'pcs')+'</span></td><td><input type="number" class="ri num" data-col="unit_price" value="'+((data&&data.unit_price)||0)+'" step="0.01" min="0" '+dis+'></td><td><input type="text" class="ri rc num" data-col="amount" value="0" readonly></td><td class="c-disc" style="'+(id?'':'display:none;')+'"><div class="row-disc"><input type="number" class="ri num" data-col="discount_pct" value="'+((data&&data.discount_pct)||0)+'" step="0.01" min="0" max="100" '+(editable&&id?'':'disabled')+'></div></td><td class="c-disc" style="'+(id?'':'display:none;')+'"><div class="row-disc"><input type="number" class="ri num" data-col="discount_amount" value="'+((data&&data.discount_amount)||0)+'" step="0.01" min="0" '+(editable&&id?'':'disabled')+'></div></td><td class="c-chg" style="'+(ic?'':'display:none;')+'"><div class="row-chg"><input type="number" class="ri num" data-col="delivery" value="'+((data&&data.delivery)||0)+'" step="0.01" min="0" '+(editable&&ic?'':'disabled')+'></div></td><td class="c-chg" style="'+(ic?'':'display:none;')+'"><div class="row-chg"><input type="number" class="ri num" data-col="installation" value="'+((data&&data.installation)||0)+'" step="0.01" min="0" '+(editable&&ic?'':'disabled')+'></div></td><td class="c-tax" style="'+(it?'':'display:none;')+'"><div class="row-tax"><input type="number" class="ri num" data-col="sales_tax_pct" value="'+((data&&data.sales_tax_pct)||0)+'" step="0.01" min="0" max="100" '+(editable&&it?'':'disabled')+'></div></td><td class="c-net" style="'+(id?'':'display:none;')+'"><input type="text" class="ri rc num" data-col="net_amount" value="0" readonly></td><td><div class="ra"><button type="button" class="del" onclick="removeRow(this)">&times;</button></div></td>';
+var ci=tr.querySelector('.ac-code');if(ci){ci.addEventListener('input',function(){var v=this.value.trim().toLowerCase();if(v.length===1)autoAddCheck();var m=allProducts.find(function(p){return p.sku.toLowerCase()===v});if(m){tr.dataset.productId=m.id;tr.querySelector('.ac-desc-input').value=m.name;tr.querySelector('.ac-unit').textContent=m.unit;tr.querySelector('[data-col="unit_price"]').value=m.unit_price;tr.querySelector('.info-badge').innerHTML='Stock: <strong>'+m.current_stock+'</strong>';recalcRow(tr);recalc()}})}
+var di=tr.querySelector('.ac-desc-input');if(di){setupDescInput(di)}
+qsa('.ri:not(.rc):not(.ac-code)',tr).forEach(function(el){el.addEventListener('input',function(){recalcRow(tr);recalc()});el.addEventListener('change',function(){recalcRow(tr);recalc()})});
+if(editable)setTimeout(function(){var f=tr.querySelector('.ac-code');if(f)f.focus()},30);return tr}
+function autoAddCheck(){var rows=qsa('#itemsBody tr');if(!rows.length)return;var last=rows[rows.length-1],code=last.querySelector('.ac-code')?.value||'',desc=last.querySelector('.ac-desc-input')?.value||'';if(code.length||desc.length)addRow({})}
+function removeRow(btn){var tr=btn.closest('tr');var tbody=document.getElementById('itemsBody');if(tbody.children.length<=1)return;tr.remove();renumberRows();recalc()}
+function renumberRows(){qsa('#itemsBody .rn').forEach(function(e,i){e.textContent=i+1})}
+function clearAllRows(){document.getElementById('itemsBody').innerHTML='';rowCount=0;addRow({});recalc();toast('Cleared all lines','info')}
+document.getElementById('addLineBtn')?.addEventListener('click',function(){addRow({})})
+document.getElementById('clearAllBtn')?.addEventListener('click',function(){showConfirm('Clear All Lines','Remove all rows?',clearAllRows)})
+
+// Charges
+function renderCharges(){
+  var container=document.getElementById('chargesList');container.innerHTML='';
+  var total=0;
+  charges.forEach(function(chg,i){
+    var row=document.createElement('div');row.className='chg-row';
+    row.innerHTML='<div class="ac-wrap"><input type="text" class="inp inp-sm chg-acct" value="'+(chg._display||'')+'" placeholder="Search ledger account..." autocomplete="off"><input type="hidden" class="chg-acct-id" value="'+(chg.charge_account_id||'')+'"><div class="ac-dd" style="position:absolute;top:100%;left:0;right:0;background:#fff;border:1px solid var(--border);z-index:200;max-height:180px;overflow-y:auto;display:none;"></div></div>'+
+    '<input type="number" class="inp inp-sm num chg-amount" value="'+(chg.amount||0)+'" step="0.01" min="0" style="text-align:right;">'+
+    '<select class="inp inp-sm num chg-scope" style="text-align:center;"><option value="general" '+(chg.scope!=='individual'?'selected':'')+'>Combined</option><option value="individual" '+(chg.scope==='individual'?'selected':'')+'>Per line</option></select>'+
+    '<select class="inp inp-sm num chg-treatment" style="text-align:center;"><option value="bill" '+((chg.treatment||'bill')==='bill'?'selected':'')+'>Bill</option><option value="absorb" '+(chg.treatment==='absorb'?'selected':'')+'>Absorb</option><option value="expense" '+(chg.treatment==='expense'?'selected':'')+'>Expense</option></select>'+
+    '<div class="chg-sw"><label class="tgl"><input type="checkbox" class="chg-st"'+(chg.st_taxable!==false?' checked':'')+'><span class="tgl-s"></span></label></div>'+
+    '<div class="chg-sw"><label class="tgl"><input type="checkbox" class="chg-wht"'+(chg.wht_taxable?' checked':'')+'><span class="tgl-s"></span></label></div>'+
+    '<button type="button" style="background:none;border:none;color:#dc2626;cursor:pointer;font-size:16px;padding:2px;" onclick="removeCharge(this,'+i+')">&times;</button>';
+    container.appendChild(row);
+    total+=parseFloat(chg.amount||0);
+    setupChargeAccountAutocomplete(row.querySelector('.chg-acct'));
+    // Only a BILLED charge can sit in a tax base — it is the only one the
+    // customer is actually charged for. Absorb/expense stay out of both.
+    var tsel=row.querySelector('.chg-treatment');
+    function syncSwitches(){
+      var billed=tsel.value==='bill';
+      row.querySelectorAll('.chg-st,.chg-wht').forEach(function(cb){cb.disabled=!billed;if(!billed)cb.checked=false});
+      row.style.opacity=billed?'1':'.75';
+    }
+    tsel.addEventListener('change',syncSwitches);syncSwitches();
+  });
+  document.getElementById('chargesCount').textContent=charges.length?'('+charges.length+')':'';
+}
+function setupChargeAccountAutocomplete(inp){
+  var row=inp.closest('.chg-row'),drop=row.querySelector('.ac-dd'),hl=-1,list=[];
+  async function loadAccts(q){return fetchJSON('/inventory/sales/api/accounts?q='+encodeURIComponent(q))}
+  function render(l){hl=-1;if(!l||!l.length){drop.classList.remove('show');return}drop.innerHTML=l.map(function(a,i){return'<div class="ac-it" data-index="'+i+'" data-id="'+a.id+'" data-code="'+a.code+'" data-name="'+a.name+'"><span class="ac-n">'+a.code+' — '+a.name+'</span><span class="ac-s">'+a.type+'</span></div>'}).join('');drop.classList.add('show')}
+  function selectItem(i){var t=list[i];if(!t)return;row.querySelector('.chg-acct-id').value=t.id;inp.value=t.code+' — '+t.name;drop.classList.remove('show')}
+  inp.addEventListener('keydown',async function(e){if(e.key===' '&&!this.value){e.preventDefault();list=await loadAccts('');render(list);return}if(e.key==='ArrowDown'){e.preventDefault();hl=Math.min(hl+1,list.length-1);hlr();return}if(e.key==='ArrowUp'){e.preventDefault();hl=Math.max(hl-1,0);hlr();return}if(e.key==='Enter'&&drop.classList.contains('show')&&hl>=0){e.preventDefault();selectItem(hl);return}if(e.key==='Escape'){drop.classList.remove('show')}})
+  inp.addEventListener('input',async function(){var q=this.value.trim();if(!q){drop.classList.remove('show');return}list=await loadAccts(q);render(list)})
+  inp.addEventListener('blur',function(){setTimeout(function(){drop.classList.remove('show')},200)})
+  drop.addEventListener('mousedown',function(e){var t=e.target.closest('.ac-it');if(!t)return;hl=parseInt(t.dataset.index);selectItem(hl)})
+  function hlr(){drop.querySelectorAll('.ac-it').forEach(function(e,i){e.classList.toggle('hl',i===hl)})}
+}
+function addChargeRow(){charges.push({charge_account_id:'',_display:'',amount:0,scope:'general',treatment:'bill',st_taxable:true,wht_taxable:false,extra_taxable:false});renderCharges()}
+function removeCharge(btn,idx){charges.splice(idx,1);renderCharges()}
+document.getElementById('addChargeBtn')?.addEventListener('click',addChargeRow);
+document.getElementById('chargesBtn')?.addEventListener('click',function(){openChargesModal()});
+function openChargesModal(){renderCharges();document.getElementById('chargesModal').classList.add('show')}
+function closeChargesModal(){
+  var rows=document.querySelectorAll('#chargesList .chg-row');
+  charges=[];
+  rows.forEach(function(row){
+    var id=row.querySelector('.chg-acct-id')?.value;
+    if(id){
+      var amt=parseFloat(row.querySelector('.chg-amount')?.value)||0;
+      if(amt>0){
+        var treat=row.querySelector('.chg-treatment')?.value||'bill',billed=treat==='bill';
+        charges.push({charge_account_id:id,_display:row.querySelector('.chg-acct')?.value||'',
+          description:(row.querySelector('.chg-acct')?.value||'Charge').split(' — ').pop(),
+          amount:amt,scope:row.querySelector('.chg-scope')?.value||'general',treatment:treat,
+          st_taxable:billed&&!!row.querySelector('.chg-st')?.checked,
+          wht_taxable:billed&&!!row.querySelector('.chg-wht')?.checked,extra_taxable:false})
+      }
+    }
+  });
+  document.getElementById('chargesModal').classList.remove('show');recalc()
+}
+
+// Order sourcing modal
+document.getElementById('fromOrdersBtn')?.addEventListener('click',async function(){
+  var cid=document.getElementById('customerId').value;
+  if(!cid){toast('Select a customer first','error');return}
+  var container=document.getElementById('ordersList');
+  container.innerHTML='<p style="color:var(--light);font-size:13px;text-align:center;padding:24px;">Loading...</p>';
+  document.getElementById('orderModal').classList.add('show');
+  var orders=await loadOrders(cid);
+  if(!orders||!orders.length){container.innerHTML='<p style="color:var(--light);font-size:13px;text-align:center;padding:24px;">No approved orders found for this customer</p>';return}
+  container.innerHTML=orders.map(function(o){
+    var itemsHtml=o.items.map(function(i){return'<div style="display:flex;justify-content:space-between;font-size:11px;padding:2px 0;"><span>'+esc(i.product_name||i.product_sku)+'</span><span>'+i.ordered_qty+' x '+parseFloat(i.unit_price).toFixed(2)+'</span></div>'}).join('');
+    return '<div class="order-it" onclick="importOrderItems('+o.id+')"><div><div class="order-so">'+esc(o.so_number)+'</div><div class="order-date">'+o.order_date+'</div><div class="order-items-preview">'+itemsHtml+'</div></div><div class="order-amnt">'+parseFloat(o.total_amount).toFixed(2)+'</div></div>'
+  }).join('')
+});
+function closeOrderModal(){document.getElementById('orderModal').classList.remove('show')}
+async function importOrderItems(orderId){
+  var orders=await loadOrders(document.getElementById('customerId').value);
+  var order=orders.find(function(o){return o.id==orderId});
+  if(!order)return;
+  order.items.forEach(function(i){addRow({product_id:i.product_id,product:{sku:i.product_sku},description:i.product_name,quantity:i.ordered_qty,unit_price:i.unit_price})});
+  closeOrderModal();toast('Items imported from '+order.so_number,'success')
+}
+
+// Calculation engine
+function recalcRow(tr){
+  var qty=parseFloat(tr.querySelector('[data-col="quantity"]')?.value)||0;
+  var price=parseFloat(tr.querySelector('[data-col="unit_price"]')?.value)||0;
+  var discPct=parseFloat(tr.querySelector('[data-col="discount_pct"]')?.value)||0;
+  var discAmt=parseFloat(tr.querySelector('[data-col="discount_amount"]')?.value)||0;
+  var delivery=parseFloat(tr.querySelector('[data-col="delivery"]')?.value)||0;
+  var installation=parseFloat(tr.querySelector('[data-col="installation"]')?.value)||0;
+  var taxPct=parseFloat(tr.querySelector('[data-col="sales_tax_pct"]')?.value)||0;
+  var lineTotal=qty*price;
+  tr.querySelector('[data-col="amount"]').value=fmt(lineTotal);
+  var d=getMode('discount');
+  if(d==='individual'){
+    var calcdDisc=discAmt||(lineTotal*discPct/100);
+    tr.querySelector('[data-col="discount_amount"]').value=calcdDisc.toFixed(2);
+    var netAmt=lineTotal-calcdDisc+delivery+installation;
+    tr.querySelector('[data-col="net_amount"]').value=fmt(netAmt);
+  }
+}
+// Charge pools from the last recalc, read back by collectData().
+var lastBilled=0,lastAbsorb=0,lastExpense=0;
+function r2(n){return Math.round(n*100)/100}
+function chargeName(c){var s=c.description||c._display||'Charge';return s.indexOf(' — ')>0?s.split(' — ').pop():s}
+// §9: every charge gets its own line in the totals panel, right below Sales Tax,
+// so the customer can see what each one is and how it was treated.
+function renderChargeSummary(){
+  var box=document.getElementById('chargesSummaryContainer');if(!box)return;box.innerHTML='';
+  charges.forEach(function(c){
+    var a=parseFloat(c.amount)||0;if(!(a>0)||!c.charge_account_id)return;
+    var t=c.treatment||'bill',billed=t==='bill',tags=[];
+    if(billed){tags.push((c.scope||'general')==='individual'?'per line':'combined');
+               if(c.st_taxable)tags.push('ST');if(c.wht_taxable)tags.push('WHT')}
+    else tags.push(t==='absorb'?'included in item values':'not billed');
+    var d=document.createElement('div');d.className='sl';
+    var dim=billed?'':'color:var(--light);';
+    d.innerHTML='<span class="sll" style="'+dim+'">'+esc(chargeName(c))+
+      ' <span style="font-size:9px;color:var(--light);">('+tags.join(' · ')+')</span></span>'+
+      '<span class="slv" style="width:70px;text-align:right;min-width:auto;'+dim+'">'+fmt(a)+'</span>';
+    box.appendChild(d);
+  });
+  var cnt=document.getElementById('chargesCount');
+  if(cnt)cnt.textContent=charges.length?'('+charges.length+')':'';
+}
+function recalc(){
+  var subtotal=0,disc=0,tax=0,netTotal=0;
+  var dMode=getMode('discount'),cMode=getMode('charges'),tMode=getMode('tax');
+  var gDiscPct=parseFloat(document.getElementById('globalDiscPct')?.value)||0;
+  var gDiscVal=parseFloat(document.getElementById('globalDiscVal')?.value)||0;
+  var gTaxPct=parseFloat(document.getElementById('globalSalesTaxPct')?.value)||0;
+  var fTaxPct=parseFloat(document.getElementById('furtherTaxPct')?.value)||0;
+  var whtPct=parseFloat(document.getElementById('withholdingTaxPct')?.value)||0;
+
+  var lineNets=[];
+  document.querySelectorAll('#itemsBody tr').forEach(function(tr){
+    var amt=parseFloat((tr.querySelector('[data-col="amount"]')?.value||'0').replace(/,/g,''))||0;
+    subtotal+=amt;
+    var lineDisc=0;
+    if(dMode==='individual'){
+      var da=parseFloat(tr.querySelector('[data-col="discount_amount"]')?.value)||0;
+      var dp=parseFloat(tr.querySelector('[data-col="discount_pct"]')?.value)||0;
+      lineDisc=da>0?da:(amt*dp/100);
+      disc+=lineDisc;
+    }
+    lineNets.push({tr:tr,net:Math.max(0,amt-lineDisc)});
+  });
+  subtotal=r2(subtotal);
+
+  // Combined discount
+  if(dMode==='general'){disc=gDiscVal>0?gDiscVal:(subtotal*gDiscPct/100)}
+  disc=r2(disc);
+
+  // Charge pools by treatment (§6.5): only BILL adds to what the customer pays;
+  // ABSORB is already inside item value; EXPENSE is ours to bear, never billed.
+  var absorbTotal=0,billedTotal=0,expenseTotal=0,stCharges=0,whtCharges=0,perLineBilled=0;
+  charges.forEach(function(c){
+    var a=parseFloat(c.amount)||0;if(!(a>0)||!c.charge_account_id)return;
+    var t=c.treatment||'bill';
+    if(t==='absorb'){absorbTotal+=a}
+    else if(t==='expense'){expenseTotal+=a}
+    else{billedTotal+=a;if(c.st_taxable)stCharges+=a;if(c.wht_taxable)whtCharges+=a;
+         if((c.scope||'general')==='individual')perLineBilled+=a}
+  });
+  lastBilled=r2(billedTotal);lastAbsorb=r2(absorbTotal);lastExpense=r2(expenseTotal);
+
+  // Per-line-scope billed charges shown pro-rata by net value (display only).
+  var netSum=lineNets.reduce(function(s,l){return s+l.net},0);
+  lineNets.forEach(function(l){
+    l.chgShare=(cMode==='individual'&&netSum>0)?r2(perLineBilled*l.net/netSum):0;
+    var cell=l.tr.querySelector('[data-col="addcharges"]');
+    if(cell){if(cell.tagName==='INPUT')cell.value=fmt(l.chgShare);else cell.textContent=fmt(l.chgShare)}
+  });
+
+  // Absorbed charges ride inside the goods value, so they enter every base.
+  var effectiveSubtotal=r2(subtotal+absorbTotal);
+  var salesTaxBase=r2(effectiveSubtotal-disc+stCharges);
+
+  // Sales tax
+  if(tMode==='general'){tax=salesTaxBase*gTaxPct/100}
+  else{tax=0;lineNets.forEach(function(l){
+    var tp=parseFloat(l.tr.querySelector('[data-col="sales_tax_pct"]')?.value)||0;
+    tax+=(l.net+l.chgShare)*tp/100})}
+  tax=r2(tax);
+
+  // Further tax: percentage of the SALES-TAX BASE only — never of sales tax
+  // itself and never of the charges that sit outside that base.
+  var applyFT=document.getElementById('settingsApplyFurtherTax')?.checked;
+  var fTax=applyFT?r2(salesTaxBase*fTaxPct/100):0;
+
+  // Withholding tax is deducted at source from the goods value; it is never
+  // compounded onto sales tax or further tax.
+  var applyWHT=document.getElementById('settingsApplyWHT')?.checked;
+  var whtBase=r2(effectiveSubtotal-disc+whtCharges);
+  var wht=applyWHT?r2(whtBase*whtPct/100):0;
+
+  netTotal=r2(effectiveSubtotal-disc+billedTotal+tax+fTax-wht);
+
+  document.getElementById('summarySubtotal').textContent=fmt(subtotal);
+  var absRow=document.getElementById('absorbedRow');
+  if(absRow){absRow.style.display=absorbTotal>0?'':'none';
+    var av=document.getElementById('summaryAbsorbed');if(av)av.textContent=fmt(absorbTotal)}
+  var expRow=document.getElementById('expenseRow');
+  if(expRow){expRow.style.display=expenseTotal>0?'':'none';
+    var ev=document.getElementById('summaryExpense');if(ev)ev.textContent=fmt(expenseTotal)}
+  var tvEl=document.getElementById('summaryTaxableValue');if(tvEl)tvEl.textContent=fmt(salesTaxBase);
+  renderChargeSummary();
+  var tcRow=document.getElementById('totalChargesRow');
+  if(tcRow)tcRow.style.display=billedTotal>0?'':'none';
+  document.getElementById('summaryDiscount').textContent='-'+fmt(disc);
+  document.getElementById('summaryChargesTotal').textContent=fmt(billedTotal);
+  document.getElementById('summarySalesTax').textContent=fmt(tax);
+  document.getElementById('summaryFurtherTax').textContent=fmt(fTax);
+  document.getElementById('summaryWithholdingTax').textContent='-'+fmt(wht);
+  document.getElementById('summaryNetTotal').textContent=fmt(netTotal);
+}
+
 function fmt(v){var n=parseFloat(v)||0;return n.toLocaleString('en-PK',{minimumFractionDigits:2,maximumFractionDigits:2})}
 
-function addRow(data) {
-  var tbody = document.getElementById('itemsBody');
-  var tr = document.createElement('tr');
-  rowCount++;
-  tr.innerHTML =
-    '<td class="rn">' + rowCount + '</td>' +
-    '<td><input type="text" class="ri" data-col="code" placeholder="SKU" value="' + ((data && data.sku) || '') + '"></td>' +
-    '<td><select name="product_id[]" class="ri" data-col="product" required style="cursor:pointer;">' +
-      '<option value="">Select Product</option>' +
-      products.map(function(p) {
-        var sel = (data && data.product_id == p.id) ? 'selected' : '';
-        return '<option value="' + p.id + '" data-price="' + p.unit_price + '" data-stock="' + p.current_stock + '" ' + sel + '>' + p.name + ' (' + p.sku + ') - Stock: ' + p.current_stock + '</option>';
-      }).join('') +
-    '</select></td>' +
-    '<td><input type="number" name="quantity[]" class="ri" data-col="quantity" value="' + ((data && data.quantity) || 1) + '" min="1" required></td>' +
-    '<td><input type="number" step="0.01" name="unit_price[]" class="ri" data-col="unit_price" value="' + ((data && data.unit_price) || 0) + '" min="0" required></td>' +
-    '<td><input type="text" class="ri rc" data-col="amount" value="0" readonly></td>' +
-    '<td><button type="button" style="background:none;border:none;color:#dc2626;cursor:pointer;font-size:16px;padding:2px;" onclick="removeRow(this)">&times;</button></td>';
-  tbody.appendChild(tr);
+// Load existing items
+if(existingOrderItems&&existingOrderItems.length){
+  existingOrderItems.forEach(function(it){addRow(it)})
+}else{
+  addRow({})
+}
+recalc();
 
-  tr.querySelectorAll('input[data-col], select[data-col]').forEach(function(el) {
-    el.addEventListener('input', function() { recalcRow(tr); recalcTotal(); });
-    el.addEventListener('change', function() { recalcRow(tr); recalcTotal(); });
+// Save
+function collectData(action){
+  var items=[];
+  document.querySelectorAll('#itemsBody tr').forEach(function(tr){
+    var pid=tr.dataset.productId;
+    if(!pid)return;
+    items.push({
+      product_id:parseInt(pid),description:tr.querySelector('[data-col="description"]')?.value||'',
+      quantity:parseFloat(tr.querySelector('[data-col="quantity"]')?.value)||0,
+      unit:tr.querySelector('.ac-unit')?.textContent||'pcs',
+      unit_price:parseFloat(tr.querySelector('[data-col="unit_price"]')?.value)||0,
+      discount_pct:parseFloat(tr.querySelector('[data-col="discount_pct"]')?.value)||0,
+      discount_amount:parseFloat(tr.querySelector('[data-col="discount_amount"]')?.value)||0,
+      delivery:parseFloat(tr.querySelector('[data-col="delivery"]')?.value)||0,
+      installation:parseFloat(tr.querySelector('[data-col="installation"]')?.value)||0,
+      sales_tax_pct:parseFloat(tr.querySelector('[data-col="sales_tax_pct"]')?.value)||0,
+      total_before_discount:parseFloat((tr.querySelector('[data-col="amount"]')?.value||'0').replace(/,/g,''))||0,
+      total_after_discount:parseFloat((tr.querySelector('[data-col="net_amount"]')?.value||'0').replace(/,/g,''))||0,
+      total_price:parseFloat((tr.querySelector('[data-col="amount"]')?.value||'0').replace(/,/g,''))||0,
+    })
   });
-
-  var sel = tr.querySelector('select[data-col="product"]');
-  if (sel) {
-    sel.addEventListener('change', function() {
-      var opt = this.options[this.selectedIndex];
-      var price = opt?.dataset?.price || 0;
-      var priceInput = tr.querySelector('[data-col="unit_price"]');
-      if (priceInput && !parseFloat(priceInput.value)) { priceInput.value = price; recalcRow(tr); recalcTotal(); }
-    });
+  function g(id){return document.getElementById(id)?.value||0}
+  function gb(id){return document.getElementById(id)?.checked||false}
+  return {
+    id:g('orderId')||null,
+    action:action||'save',
+    so_number:g('soNumber'),
+    customer_id:g('customerId'),
+    party_account_id:g('partyAccountId')||null,
+    order_date:g('orderDate'),
+    expected_date:g('expectedDate'),
+    discount_mode:getMode('discount'),
+    charges_mode:getMode('charges'),
+    tax_mode:getMode('tax'),
+    global_discount_pct:g('globalDiscPct'),
+    global_discount_value:g('globalDiscVal'),
+    global_delivery:0,
+    global_installation:0,
+    global_sales_tax_pct:g('globalSalesTaxPct'),
+    further_tax_pct:g('furtherTaxPct'),
+    apply_further_tax:gb('settingsApplyFurtherTax'),
+    withholding_tax_pct:g('withholdingTaxPct'),
+    apply_withholding_tax:gb('settingsApplyWHT'),
+    notes:g('orderNotes'),
+    subtotal:parseFloat((document.getElementById('summarySubtotal')?.textContent||'0').replace(/,/g,''))||0,
+    total_discount:parseFloat((document.getElementById('summaryDiscount')?.textContent||'0').replace(/,/g,'').replace('-',''))||0,
+    total_charges:parseFloat((document.getElementById('summaryChargesTotal')?.textContent||'0').replace(/,/g,''))||0,
+    total_tax:parseFloat((document.getElementById('summarySalesTax')?.textContent||'0').replace(/,/g,''))||0,
+    total_further_tax:parseFloat((document.getElementById('summaryFurtherTax')?.textContent||'0').replace(/,/g,''))||0,
+    total_withholding_tax:parseFloat((document.getElementById('summaryWithholdingTax')?.textContent||'0').replace(/,/g,'').replace('-',''))||0,
+    total_amount:parseFloat((document.getElementById('summaryNetTotal')?.textContent||'0').replace(/,/g,''))||0,
+    items:items,charges:charges,
   }
-  return tr;
 }
 
-function removeRow(btn) {
-  var tr = btn.closest('tr');
-  var tbody = document.getElementById('itemsBody');
-  if (tbody.children.length <= 1) return;
-  tr.remove();
-  document.querySelectorAll('#itemsBody .rn').forEach(function(el, i) { el.textContent = i + 1; });
-  recalcTotal();
+async function saveOrder(action){
+  var data=collectData(action);
+  if(!data.customer_id){toast('Select a customer','error');return}
+  if(!data.items.length){toast('Add at least one item','error');return}
+  var btn=document.getElementById(action==='approve'?'saveApproveBtn':'saveBtn');
+  if(btn)btn.disabled=true;
+  try{
+    var r=await fetch('/inventory/sales/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
+    var res=await r.json();
+    if(res.ok){
+      toast(res.message,'success');
+      if(res.status==='approved'){setTimeout(function(){window.location.href='/inventory/sales/'+res.id},800)}
+      else{document.getElementById('orderId').value=res.id;document.getElementById('soNumber').value=res.number||''}
+    }else{toast(res.error||'Save failed','error')}
+  }catch(e){toast('Network error','error')}
+  if(btn)btn.disabled=false
 }
+document.getElementById('saveBtn')?.addEventListener('click',function(){saveOrder('save')});
+document.getElementById('saveApproveBtn')?.addEventListener('click',function(){saveOrder('approve')});
+document.getElementById('saveChangesBtn')?.addEventListener('click',function(){saveOrder('save')});
+document.getElementById('approveBtn')?.addEventListener('click',function(){saveOrder('approve')});
 
-function recalcRow(tr) {
-  var qty = parseFloat(tr.querySelector('[data-col="quantity"]').value) || 0;
-  var price = parseFloat(tr.querySelector('[data-col="unit_price"]').value) || 0;
-  tr.querySelector('[data-col="amount"]').value = fmt(qty * price);
+async function unapproveOrder(){
+  var id=document.getElementById('orderId').value;
+  if(!id)return;
+  showConfirm('Unapprove Order','Unapprove this order?',async function(){
+    try{
+      var r=await fetch('/inventory/sales/unapprove/'+id,{method:'POST'});
+      var res=await r.json();
+      if(res.ok){toast(res.message,'success');setTimeout(function(){window.location.reload()},600)}else{toast(res.error,'error')}
+    }catch(e){toast('Network error','error')}
+  })
 }
-
-function recalcTotal() {
-  var total = 0;
-  document.querySelectorAll('#itemsBody tr').forEach(function(tr) {
-    total += parseFloat((tr.querySelector('[data-col="amount"]').value||'0').replace(/,/g,'')) || 0;
-  });
-  document.getElementById('soTotal').textContent = 'Rs. '+fmt(total);
+document.getElementById('unapproveBtn')?.addEventListener('click',unapproveOrder);
+async function deleteOrder(){
+  var id=document.getElementById('orderId').value;
+  if(!id)return;
+  try{
+    var r=await fetch('/inventory/sales/delete/'+id,{method:'POST'});
+    var res=await r.json();
+    if(res.ok){toast(res.message,'success');setTimeout(function(){window.location.href='/inventory/sales/list'},600)}else{toast(res.error,'error')}
+  }catch(e){toast('Network error','error')}
 }
-
-addRow({});
 </script>
 {% endblock %}

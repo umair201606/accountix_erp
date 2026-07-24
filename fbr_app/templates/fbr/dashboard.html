@@ -1,0 +1,165 @@
+{% extends "fbr/base_fbr.html" %}
+{% block title %}FBR Invoice Dashboard{% endblock %}
+{% block page_title %}FBR Digital Invoicing — Submissions{% endblock %}
+{% block content %}
+{% include "_flash.html" %}
+
+{% if not config.is_active or not config.access_token %}
+<div class="card" style="border-color:var(--amber);">
+  <div class="card-body" style="text-align:center;padding:32px;">
+    <p style="font-size:15px;color:var(--muted);margin-bottom:12px;">&#9888; FBR Digital Invoicing is not configured yet.</p>
+    <a href="{{ url_for('fbr_settings.index') }}" class="btn btn-accent">Go to FBR Settings</a>
+  </div>
+</div>
+{% else %}
+
+<div class="page-header">
+  <div>
+    <span class="badge badge-{{ 'success' if config.is_sandbox() else 'info' }}" style="font-size:11px;">
+      {{ config.environment|upper }}
+    </span>
+    <span class="badge badge-{{ 'success' if config.is_active else 'default' }}">
+      {{ 'ACTIVE' if config.is_active else 'INACTIVE' }}
+    </span>
+  </div>
+  <div style="display:flex;gap:8px;">
+    <a href="{{ url_for('fbr_settings.index') }}" class="btn btn-primary btn-sm">Settings</a>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-body" style="padding-bottom:8px;">
+    <form method="GET" style="display:inline-block;">
+      <select name="status" class="form-control" style="width:200px;display:inline-block;" onchange="this.form.submit()">
+        <option value="">All Status</option>
+        {% for s in ['pending', 'success', 'failed', 'processing'] %}
+        <option value="{{ s }}" {% if request.args.get('status') == s %}selected{% endif %}>{{ s|title }}</option>
+        {% endfor %}
+      </select>
+    </form>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Invoice</th>
+          <th>FBR Invoice No.</th>
+          <th>Type</th>
+          <th>Status</th>
+          <th>Attempts</th>
+          <th>Submitted At</th>
+          <th>Submitted By</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in records %}
+        <tr>
+          <td>{{ r.id }}</td>
+          <td>
+            <a href="{{ url_for('inv_invoices.invoice_form', id=r.inv_invoice_id) }}" style="font-weight:600;">
+              {{ r.invoice.invoice_number if r.invoice else '#' ~ r.inv_invoice_id }}
+            </a>
+          </td>
+          <td class="mono">{{ r.fbr_invoice_number or '-' }}</td>
+          <td>{{ r.invoice_type }}</td>
+          <td>
+            {% set sc = 'success' if r.status == 'success' else ('danger' if r.status == 'failed' else ('warning' if r.status == 'pending' else 'info')) %}
+            <span class="badge badge-{{ sc }}">{{ r.status|title }}</span>
+            {% if r.error_message and r.status == 'failed' %}
+            <span class="mono" style="display:block;font-size:10px;color:var(--red);margin-top:2px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="{{ r.error_message }}">{{ r.error_message }}</span>
+            {% endif %}
+          </td>
+          <td>{{ r.attempt_count }}</td>
+          <td>{{ r.submitted_at.strftime('%Y-%m-%d %H:%M') if r.submitted_at else '-' }}</td>
+          <td>{{ r.submitter.full_name if r.submitter else '-' }}</td>
+          <td>
+            <button type="button" class="btn btn-sm btn-info" onclick="viewJSON({{ r.id }})">JSON</button>
+            {% if r.status == 'failed' %}
+            <button type="button" class="btn btn-sm btn-warning" onclick="retrySubmit({{ r.id }})">Retry</button>
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="9" style="text-align:center;padding:24px;color:var(--muted);">No FBR submissions yet. Submit an invoice from the sales invoice page.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+<div class="modal-overlay" id="jsonModal" style="display:none;">
+  <div class="modal-content" style="max-width:800px;">
+    <div class="modal-header">
+      <h3>FBR Submission JSON</h3>
+      <button type="button" class="modal-close" onclick="closeJSON()">&times;</button>
+    </div>
+    <div style="display:flex;gap:8px;margin-bottom:12px;">
+      <button type="button" class="btn btn-sm btn-primary" id="jsonReqTab" onclick="showJSONTab('req')">Request</button>
+      <button type="button" class="btn btn-sm btn-outline" id="jsonResTab" onclick="showJSONTab('res')">Response</button>
+    </div>
+    <pre id="jsonContent" class="mono" style="background:var(--ledger-dim);padding:14px;border-radius:4px;font-size:12px;overflow:auto;max-height:60vh;border:1px solid var(--line);white-space:pre-wrap;"></pre>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+var _jsonRecord = null;
+var _jsonTab = 'req';
+
+async function viewJSON(recordId) {
+  var r = await fetch('{{ url_for("fbr_dashboard.view_record", record_id=0) }}'.replace('0', recordId));
+  _jsonRecord = await r.json();
+  _jsonTab = 'req';
+  document.getElementById('jsonModal').style.display = 'flex';
+  renderJSONTab();
+}
+
+function renderJSONTab() {
+  var content = document.getElementById('jsonContent');
+  var reqTab = document.getElementById('jsonReqTab');
+  var resTab = document.getElementById('jsonResTab');
+  if (_jsonTab === 'req') {
+    content.textContent = _jsonRecord.request_json || '{}';
+    reqTab.className = 'btn btn-sm btn-primary';
+    resTab.className = 'btn btn-sm btn-outline';
+  } else {
+    content.textContent = _jsonRecord.response_json || '{}';
+    resTab.className = 'btn btn-sm btn-primary';
+    reqTab.className = 'btn btn-sm btn-outline';
+  }
+}
+
+function showJSONTab(tab) {
+  _jsonTab = tab;
+  renderJSONTab();
+}
+
+function closeJSON() {
+  document.getElementById('jsonModal').style.display = 'none';
+}
+
+async function retrySubmit(recordId) {
+  if (!confirm('Retry this FBR submission?')) return;
+  try {
+    var r = await fetch('{{ url_for("fbr_dashboard.retry_submission", record_id=0) }}'.replace('0', recordId), { method: 'POST' });
+    var data = await r.json();
+    if (data.ok) {
+      location.reload();
+    } else {
+      alert('Retry failed: ' + (data.error || 'Unknown error'));
+      location.reload();
+    }
+  } catch (e) {
+    alert('Retry error: ' + e.message);
+  }
+}
+
+document.getElementById('jsonModal').addEventListener('click', function(e) {
+  if (e.target === this) closeJSON();
+});
+</script>
+{% endblock %}

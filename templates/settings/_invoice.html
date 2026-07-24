@@ -1,0 +1,164 @@
+<form method="POST" action="{{ url_for('settings.save_invoicing') }}">
+
+  <!-- §11.2 — Tax application defaults & order tolerance ─────────────────── -->
+  <div class="set-card" style="margin-bottom:16px;">
+    <h3>Tax Application Defaults</h3>
+    <p class="hint">Document-wide tax defaults and the over-invoicing tolerance (§11.2).
+      Every order and invoice inherits these and may override them per document.</p>
+    <div class="fgrid">
+      <div class="fgroup">
+        <label class="lbl">Default Sales Tax %</label>
+        <input type="number" name="default_sales_tax_pct" class="inp" step="0.01" min="0" max="100"
+               value="{{ invoice_settings.default_sales_tax_pct }}">
+      </div>
+      <div class="fgroup">
+        <label class="lbl">Default Discount %</label>
+        <input type="number" name="default_discount_pct" class="inp" step="0.01" min="0" max="100"
+               value="{{ invoice_settings.default_discount_pct }}">
+      </div>
+      <div class="fgroup">
+        <label class="lbl">Default Further Tax %</label>
+        <input type="number" name="default_further_tax_pct" class="inp" step="0.01" min="0" max="100"
+               value="{{ invoice_settings.default_further_tax_pct }}">
+        <div class="help">Apply further tax defaults to <strong>Off</strong>, and turns on
+          automatically for unregistered customers.</div>
+      </div>
+      <div class="fgroup">
+        <label class="lbl">Default Withholding Tax %</label>
+        <input type="number" name="default_withholding_tax_pct" class="inp" step="0.01" min="0" max="100"
+               value="{{ invoice_settings.default_withholding_tax_pct }}">
+        <div class="help">Apply withholding is defaulted per partner class on the document itself.</div>
+      </div>
+    </div>
+    <div class="fgrid">
+      <div class="fgroup">
+        <label class="lbl">Over-invoicing Tolerance %</label>
+        <input type="number" name="over_invoice_tolerance_pct" class="inp" step="0.01" min="0" max="100"
+               value="{{ invoice_settings.over_invoice_tolerance_pct }}">
+        <div class="help">Used by §4.4 — how far an invoice may exceed the quantities/values of the
+          orders it is created from before the save is blocked.</div>
+      </div>
+      <div class="fgroup">
+        <label class="lbl">Withholding Base</label>
+        <div class="radio-row">
+          <label class="radio-card">
+            <input type="radio" name="withholding_base" value="taxable"
+                   {{ 'checked' if invoice_settings.withholding_base != 'gross' }}>
+            <span class="rc-h">Taxable value</span>
+            <div class="rc-d">Withhold on the net taxable amount (before sales tax).</div>
+          </label>
+          <label class="radio-card">
+            <input type="radio" name="withholding_base" value="gross"
+                   {{ 'checked' if invoice_settings.withholding_base == 'gross' }}>
+            <span class="rc-h">Gross</span>
+            <div class="rc-d">Withhold on the gross amount (inclusive of sales tax).</div>
+          </label>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Default calculation scopes ─────────────────────────────────────────── -->
+  <div class="set-card" style="margin-bottom:16px;">
+    <h3>Default Calculation Scopes</h3>
+    <p class="hint">Whether discount, charges and tax are entered once for the whole document
+      (Combined) or line by line (Per item). Documents may switch scope unless the matching
+      per-line toggle below is hidden.</p>
+    <div class="fgrid">
+      <div class="fgroup">
+        <label class="lbl">Default Discount Mode</label>
+        <select name="default_discount_mode" class="sel">
+          <option value="general" {{ 'selected' if invoice_settings.default_discount_mode == 'general' }}>Combined</option>
+          <option value="individual" {{ 'selected' if invoice_settings.default_discount_mode == 'individual' }}>Per Item</option>
+        </select>
+      </div>
+      <div class="fgroup">
+        <label class="lbl">Default Charges Mode</label>
+        <select name="default_charges_mode" class="sel">
+          <option value="general" {{ 'selected' if invoice_settings.default_charges_mode == 'general' }}>Combined</option>
+          <option value="individual" {{ 'selected' if invoice_settings.default_charges_mode == 'individual' }}>Per Item</option>
+        </select>
+      </div>
+      <div class="fgroup">
+        <label class="lbl">Default Tax Mode</label>
+        <select name="default_tax_mode" class="sel">
+          <option value="general" {{ 'selected' if invoice_settings.default_tax_mode == 'general' }}>Combined</option>
+          <option value="individual" {{ 'selected' if invoice_settings.default_tax_mode == 'individual' }}>Per Item</option>
+        </select>
+      </div>
+      <div class="fgroup">
+        <label class="lbl">Default Party Mode</label>
+        <select name="default_party_mode" class="sel">
+          <option value="relevant" {{ 'selected' if invoice_settings.default_party_mode == 'relevant' }}>Customer/Supplier Only</option>
+          <option value="all" {{ 'selected' if invoice_settings.default_party_mode == 'all' }}>Any Ledger Account</option>
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <!-- §11.3 — Form-field visibility ──────────────────────────────────────── -->
+  <div class="set-card" style="margin-bottom:16px;">
+    <h3>Form-field Visibility</h3>
+    <p class="hint">Controls which fields and toggles appear on the day-to-day creation form (§11.3).
+      Hiding a control removes it entirely and forces its behaviour — most businesses use only a
+      subset, and hiding the rest keeps data-entry staff from options that don't apply.</p>
+    <div class="fgrid">
+      <div class="fgroup">
+        <label class="lbl">Controls &amp; toggles</label>
+        <div style="display:flex;flex-direction:column;gap:8px;font-size:13px;padding:6px 0;">
+          <label><input type="checkbox" name="create_from_orders_enabled" {{ 'checked' if invoice_settings.create_from_orders_enabled }}> Create-from-orders picker <span class="rc-d">— off = no order sourcing (blank documents only)</span></label>
+          <label><input type="checkbox" name="per_line_discount_enabled" {{ 'checked' if invoice_settings.per_line_discount_enabled }}> Per-line discount toggle <span class="rc-d">— off = Combined discount only</span></label>
+          <label><input type="checkbox" name="show_charges_column" {{ 'checked' if invoice_settings.show_charges_column }}> Additional Charges button <span class="rc-d">— off = a no-charges document</span></label>
+          <label><input type="checkbox" name="per_line_tax_enabled" {{ 'checked' if invoice_settings.per_line_tax_enabled }}> Per-line tax toggle <span class="rc-d">— off = Combined tax only</span></label>
+        </div>
+      </div>
+      <div class="fgroup">
+        <label class="lbl">Fields &amp; blocks</label>
+        <div style="display:flex;flex-direction:column;gap:8px;font-size:13px;padding:6px 0;">
+          <label><input type="checkbox" name="show_withholding_tax" {{ 'checked' if invoice_settings.show_withholding_tax }}> Withholding tax field</label>
+          <label><input type="checkbox" name="show_further_tax" {{ 'checked' if invoice_settings.show_further_tax }}> Further tax field</label>
+          <label><input type="checkbox" name="show_transport_block" {{ 'checked' if invoice_settings.show_transport_block }}> Transport / logistics block <span class="rc-d">— relevant to businesses shipping physical goods</span></label>
+        </div>
+      </div>
+    </div>
+    <div class="fgrid">
+      <div class="fgroup">
+        <label class="lbl">Grid columns</label>
+        <div style="display:flex;gap:16px;flex-wrap:wrap;font-size:13px;padding:6px 0;">
+          <label><input type="checkbox" name="show_discount_column" {{ 'checked' if invoice_settings.show_discount_column }}> Show Discount Column</label>
+          <label><input type="checkbox" name="show_tax_column" {{ 'checked' if invoice_settings.show_tax_column }}> Show Tax Column</label>
+        </div>
+      </div>
+      <div class="fgroup">
+        <label class="lbl">Behaviour</label>
+        <div style="display:flex;gap:16px;flex-wrap:wrap;font-size:13px;padding:6px 0;">
+          <label><input type="checkbox" name="auto_add_line" {{ 'checked' if invoice_settings.auto_add_line }}> Auto-add empty line</label>
+          <label><input type="checkbox" name="require_approval" {{ 'checked' if invoice_settings.require_approval }}> Require approval to post</label>
+          <label><input type="checkbox" name="allow_partial_payment" {{ 'checked' if invoice_settings.allow_partial_payment }}> Allow partial payment</label>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- §11.1 — Charge-ledger defaults (guidance) ──────────────────────────── -->
+  <div class="set-card" style="margin-bottom:16px;">
+    <h3>Charge-ledger Defaults</h3>
+    <p class="hint">Per-ledger seed values for the Additional Charges form of §6.1 (§11.1).</p>
+    <div class="help" style="background:#f8fafc;border:1px solid var(--line);border-radius:8px;
+                             padding:12px 14px;line-height:1.6;">
+      Each chargeable ledger carries one row of defaults: its <strong>default treatment</strong> and the
+      <strong>default state of the tax-base switches</strong> used when the charge is billed. Each switch is
+      independent, and every default remains overridable per charge, per document, in the Additional Charges
+      form itself.
+      <br><br>
+      <em>Note (assumption):</em> the per-ledger defaults table is authored on each charge ledger's own
+      account record, not on this document-wide settings screen, because <code>InvoiceSettings</code> holds
+      no per-ledger rows. This panel documents the intended behaviour; the switches above set the
+      document-wide tax and calculation defaults that those charges inherit.
+    </div>
+  </div>
+
+  <div class="set-actions">
+    <button type="submit" class="btn btn-primary">Save Invoice Settings</button>
+  </div>
+</form>

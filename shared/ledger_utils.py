@@ -20,6 +20,7 @@ POSTING_ACCOUNTS = {
     "loans":             ("Long-term Loans — General", "liability", ["2200", "221"]),
     "wht_payable":       ("WHT Payable", "liability", ["6400", "214"]),
     "sales_tax_payable": ("Output Sales Tax", "liability", ["6500", "213"]),
+    "further_tax_payable": ("Further Tax Payable", "liability", []),
     "revenue":           ("Sales — General", "revenue", ["4000", "411"]),
     "cogs":              ("Cost of Goods Sold", "expense", ["5000", "511"]),
     "inventory_variance": ("Inventory Cost Variance", "expense", ["5900"]),

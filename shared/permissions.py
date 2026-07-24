@@ -51,6 +51,10 @@ MODULES = [
         ("journal_vouchers", "Journal Vouchers (JV)"),
         ("chart_of_accounts", "Chart of Accounts"),
     ]),
+    ("fbr", "FBR Digital Invoicing", "has_fbr_access", [
+        ("fbr_dashboard", "Dashboard"),
+        ("fbr_settings", "Settings"),
+    ]),
 ]
 
 # Accounting voucher type -> section key (used to enforce per-voucher rights)

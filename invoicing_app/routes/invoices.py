@@ -4,18 +4,25 @@ from datetime import datetime, date
 from decimal import Decimal
 from inventory_app.extensions import db
 from inventory_app.models.invoice import InvInvoice, InvInvoiceItem
+from inventory_app.models.additional_charge import AdditionalCharge
 from inventory_app.models.customer import InvCustomer
 from inventory_app.models.product import InvProduct
 from inventory_app.models.stock_movement import InvStockMovement
-from inventory_app.models.sales_order import InvSalesOrder
+from inventory_app.models.sales_order import InvSalesOrder, InvSalesOrderItem
 from shared.ledger_utils import post_journal_entry, reverse_journal_entry, posting_account, party_account
 from shared.models.ledger import ChartOfAccount
 from shared.models.company_settings import CompanyInfo, ReportSettings
+from shared.models.invoice_settings import InvoiceSettings
 from shared.models.invoice_template import InvoiceTemplate, render_invoice_template, build_totals_table
 from shared.permissions import deny_json, deny_page
 from shared.costing import record_out, reverse_voucher_stock
 
 inv_inv_bp = Blueprint("inv_invoices", __name__, url_prefix="/inventory/invoices")
+
+
+# The v3 §8 chain lives in one place so the posted journal, the printed
+# invoice and the FBR payload can never disagree about the same invoice.
+from shared.invoice_totals import sales_totals as _sales_totals  # noqa: E402
 
 
 def next_voucher():
@@ -38,6 +45,7 @@ def invoice_form(id):
     customers = InvCustomer.query.filter_by(is_active=True).order_by(InvCustomer.name).all()
     products = InvProduct.query.filter_by(is_active=True).order_by(InvProduct.name).all()
     invoice_items = []
+    invoice_charges = []
     if invoice:
         for it in invoice.items.all():
             product = it.product
@@ -55,6 +63,28 @@ def invoice_form(id):
                 "sales_tax_pct": it.sales_tax_pct,
                 "total_before_discount": it.total_before_discount,
                 "total_after_discount": it.total_after_discount,
+            })
+        for chg in invoice.charges_list:
+            code = chg.charge_account.code if chg.charge_account else ""
+            name = chg.charge_account.name if chg.charge_account else ""
+            invoice_charges.append({
+                "id": chg.id,
+                "charge_account_id": chg.charge_account_id,
+                "account_code": code,
+                "account_name": name,
+                # The modal's account picker renders from _display, so reopening
+                # a saved invoice has to hand it back the same "code — name".
+                "_display": f"{code} — {name}" if code else name,
+                "description": chg.description,
+                "amount": chg.amount,
+                "scope": chg.scope,
+                "treatment": chg.treatment or "bill",
+                "st_taxable": bool(chg.st_taxable),
+                "wht_taxable": bool(chg.wht_taxable),
+                "extra_taxable": bool(chg.extra_taxable),
+                # Legacy keys kept for any reader still looking for them.
+                "taxable": chg.taxable,
+                "tax_base": chg.tax_base,
             })
     rs = ReportSettings.get()
     company = CompanyInfo.get()
@@ -135,8 +165,11 @@ def invoice_form(id):
                 cells += f"<td style='{tdr}'>{da:.2f}</td>"
             cells += f"<td style='{tdr}'>{amt_excl:.2f}</td>"
             if show_tax_col:
+                # Per-unit sales tax (distinct from the line's Total Sales Tax
+                # column below — the two must not render the same figure twice).
+                pu_tax = tax_amt / (it.quantity or 1)
                 cells += f"<td style='{tdr}'>{tp:.1f}%</td>"
-                cells += f"<td style='{tdr}'>{tax_amt:.2f}</td>"
+                cells += f"<td style='{tdr}'>{pu_tax:.2f}</td>"
             if show_chg_col:
                 cells += f"<td style='{tdr}'>{it.delivery:.2f}</td>"
                 cells += f"<td style='{tdr}'>{it.installation:.2f}</td>"
@@ -232,7 +265,10 @@ def invoice_form(id):
             "commission": "0.00",
             "freight": "0.00",
             "loading_unloading": "0.00",
-            "withholding_tax": "0.00",
+            "taxable_value": f"{_sales_totals(invoice)['sales_tax_base']:.2f}",
+            "additional_charges": f"{invoice.total_charges or 0:.2f}",
+            "further_tax": f"{invoice.total_further_tax or 0:.2f}",
+            "withholding_tax": f"{invoice.total_withholding_tax or 0:.2f}",
             "notes": invoice.notes or "",
         }
         # Build totals table — respect invoice mode per section
@@ -249,15 +285,18 @@ def invoice_form(id):
                 display_opts["show_installation"] = False
         ctx["totals_table"] = build_totals_table("sales", display_opts,
                                                   invoice_template_obj.accent_color or "#0f766e")
-        # Calculate grand total
-        net = (invoice.subtotal or 0) - (invoice.total_discount or 0) + (invoice.total_tax or 0) + (invoice.global_delivery or 0) + (invoice.global_installation or 0)
-        ctx["grand_total"] = f"{net:.2f}"
+        # The printed total must be the figure that was posted, not a second
+        # derivation of it — recomputing here from a few legacy fields silently
+        # dropped additional charges, further tax and withholding.
+        ctx["grand_total"] = f"{invoice.total_amount or 0:.2f}"
         rendered_template = render_invoice_template(invoice_template_obj.body_html, ctx)
 
     return render_template("invoices/form_inv.html",
                            invoice=invoice, invoice_items=invoice_items,
+                           invoice_charges=invoice_charges,
                            customers=customers,
                            party_mode=rs.party_mode("sales"),
+                           invoice_settings=InvoiceSettings.get(),
                            invoice_template_text=rs.template_text("sales"),
                            rendered_template=rendered_template,
                            products=products, now=datetime.utcnow())
@@ -322,6 +361,7 @@ def save_invoice():
 
     inv.customer_id = data.get("customer_id")
     inv.party_account_id = data.get("party_account_id") or None
+    inv.sales_order_id = data.get("sales_order_id") or None
     inv.due_date = datetime.strptime(data.get("due_date"), "%Y-%m-%d") if data.get("due_date") else None
     inv.discount_mode = data.get("discount_mode", "general")
     inv.charges_mode = data.get("charges_mode", "general")
@@ -332,11 +372,17 @@ def save_invoice():
     inv.global_delivery = float(data.get("global_delivery", 0))
     inv.global_installation = float(data.get("global_installation", 0))
     inv.global_sales_tax_pct = float(data.get("global_sales_tax_pct", 0))
+    inv.further_tax_pct = float(data.get("further_tax_pct", 0))
+    inv.apply_further_tax = bool(data.get("apply_further_tax", False))
+    inv.withholding_tax_pct = float(data.get("withholding_tax_pct", 0))
+    inv.apply_withholding_tax = bool(data.get("apply_withholding_tax", False))
     inv.notes = data.get("notes", "")
     inv.subtotal = float(data.get("subtotal", 0))
     inv.total_discount = float(data.get("total_discount", 0))
     inv.total_charges = float(data.get("total_charges", 0))
     inv.total_tax = float(data.get("total_tax", 0))
+    inv.total_further_tax = float(data.get("total_further_tax", 0))
+    inv.total_withholding_tax = float(data.get("total_withholding_tax", 0))
     inv.total_amount = float(data.get("total_amount", 0))
 
     if action == "approve":
@@ -389,6 +435,43 @@ def save_invoice():
                     created_by=current_user.id)
                 total_cogs += line_cogs
 
+    # Save additional charges
+    AdditionalCharge.query.filter_by(doc_type="SI", doc_id=inv.id).delete()
+    for chg in data.get("charges", []):
+        if float(chg.get("amount", 0)) > 0 and chg.get("charge_account_id"):
+            treatment = chg.get("treatment", "bill")
+            if treatment not in ("bill", "absorb", "expense"):
+                treatment = "bill"
+            # Only a billed charge can sit in a tax base — the other two are
+            # never invoiced to the customer, so they cannot be taxed to them.
+            billed = treatment == "bill"
+            st = billed and bool(chg.get("st_taxable", chg.get("taxable", True)))
+            db.session.add(AdditionalCharge(
+                doc_type="SI", doc_id=inv.id,
+                charge_account_id=int(chg["charge_account_id"]),
+                description=chg.get("description", ""),
+                amount=float(chg["amount"]),
+                scope=chg.get("scope", "general"),
+                treatment=treatment,
+                st_taxable=st,
+                wht_taxable=billed and bool(chg.get("wht_taxable", False)),
+                extra_taxable=bool(chg.get("extra_taxable", False)),
+                # Legacy mirrors so pre-v3 readers still see something sane.
+                taxable=st,
+                tax_base=chg.get("tax_base", "after_discount"),
+            ))
+    db.session.flush()
+
+    # Re-derive the money from what was just persisted. The browser computes the
+    # same figures for display, but a posted journal must not depend on a
+    # client-supplied number — recompute, store, and post from the server value.
+    totals = _sales_totals(inv)
+    inv.total_charges = totals["billed"]
+    inv.total_tax = totals["sales_tax"]
+    inv.total_further_tax = totals["further_tax"]
+    inv.total_withholding_tax = totals["wht"]
+    inv.total_amount = totals["net_receivable"]
+
     if action == "approve":
         # Receivable posts to the customer's own subledger account (or an
         # explicit override), so the customer's ledger carries the balance.
@@ -398,22 +481,78 @@ def save_invoice():
         rev_acc = posting_account("revenue")
         cogs_acc = posting_account("cogs")
         inv_acc = posting_account("inventory")
-        # Split output sales tax into its own liability so revenue is stated
-        # net of tax (Dr Receivable = gross, Cr Revenue = net, Cr Output Tax).
-        total = float(inv.total_amount or 0)
-        output_tax = float(inv.total_tax or 0)
-        revenue = round(total - output_tax, 2)
+        out_tax_acc = posting_account("sales_tax_payable")
+
+        # v3 §12. Revenue is stated at the full goods value; the discount is a
+        # contra-revenue debit rather than a netted-down credit, so both the
+        # gross sale and what was given away stay visible. Each billed charge
+        # is credited to the ledger account chosen for it instead of being
+        # buried in revenue, and each tax sits in its own liability.
+        #
+        #   Dr Receivable        net receivable (what the customer owes)
+        #   Dr WHT Receivable    tax the customer withholds and remits for us
+        #   Dr Discounts Allowed discount given
+        #        Cr Revenue                 subtotal + absorbed charges
+        #        Cr <charge account>        each billed charge
+        #        Cr Output Sales Tax        sales tax
+        #        Cr Further Tax Payable     further tax
+        t = totals
         lines = [
-            {"account_id": ar_acc.id, "debit": total, "credit": 0,
+            {"account_id": ar_acc.id, "debit": t["net_receivable"], "credit": 0,
              "description": f"AR - {inv.invoice_number}"},
-            {"account_id": rev_acc.id, "debit": 0, "credit": revenue,
+            {"account_id": rev_acc.id, "debit": 0, "credit": t["effective_subtotal"],
              "description": f"Revenue - {inv.invoice_number}"},
         ]
-        if output_tax > 0:
-            out_tax_acc = posting_account("sales_tax_payable")
+        if t["discount"] > 0:
+            disc_acc = ChartOfAccount.query.filter_by(code="4-02-02-01-0001").first() \
+                or posting_account("sales_returns")
             lines.append(
-                {"account_id": out_tax_acc.id, "debit": 0, "credit": output_tax,
+                {"account_id": disc_acc.id, "debit": t["discount"], "credit": 0,
+                 "description": f"Discount allowed - {inv.invoice_number}"},
+            )
+        for row in t["pools"]["billed_rows"]:
+            lines.append(
+                {"account_id": row.charge_account_id, "debit": 0,
+                 "credit": round(float(row.amount), 2),
+                 "description": f"{row.description or 'Charge'} - {inv.invoice_number}"},
+            )
+        if t["sales_tax"] > 0 and out_tax_acc:
+            lines.append(
+                {"account_id": out_tax_acc.id, "debit": 0, "credit": t["sales_tax"],
                  "description": f"Output Tax - {inv.invoice_number}"},
+            )
+        if t["further_tax"] > 0:
+            # Further tax is its own liability — netting it into Output Sales
+            # Tax would misstate both on the sales-tax return.
+            ft_acc = posting_account("further_tax_payable")
+            lines.append(
+                {"account_id": ft_acc.id, "debit": 0, "credit": t["further_tax"],
+                 "description": f"Further Tax - {inv.invoice_number}"},
+            )
+        if t["wht"] > 0:
+            # Withholding on a sale is tax the customer pays over on our behalf:
+            # an asset we reclaim, not a liability we owe.
+            wht_recv_acct = ChartOfAccount.query.filter_by(code="1-01-05-02-0001").first()
+            if wht_recv_acct is None:
+                from shared.ledger_utils import get_or_create_account
+                wht_recv_acct = get_or_create_account(
+                    "1-01-05-02-0001", "WHT Receivable", "asset")
+            lines.append(
+                {"account_id": wht_recv_acct.id, "debit": t["wht"], "credit": 0,
+                 "description": f"WHT Receivable - {inv.invoice_number}"},
+            )
+        # Charges we bear ourselves are never billed, so they cannot ride in the
+        # receivable — they are their own expense/accrual pair.
+        for row in t["pools"]["expense_rows"]:
+            amt = round(float(row.amount), 2)
+            accrued_acc = posting_account("accrued")
+            lines.append(
+                {"account_id": row.charge_account_id, "debit": amt, "credit": 0,
+                 "description": f"{row.description or 'Charge'} (absorbed cost) - {inv.invoice_number}"},
+            )
+            lines.append(
+                {"account_id": accrued_acc.id, "debit": 0, "credit": amt,
+                 "description": f"{row.description or 'Charge'} accrued - {inv.invoice_number}"},
             )
         # total_cogs accumulated above from the costing engine (historic cost
         # of each item at issue time — not the static product cost_price).
@@ -571,3 +710,47 @@ def api_customers():
         "id": c.id, "name": c.name, "city": c.city or "",
         "phone": c.phone or "", "address": c.address or "",
     } for c in customers])
+
+
+@inv_inv_bp.route("/api/orders/<int:customer_id>")
+@login_required
+def api_orders_for_customer(customer_id):
+    orders = InvSalesOrder.query.filter_by(customer_id=customer_id, status="approved").all()
+    result = []
+    for o in orders:
+        items = []
+        for i in o.items.all():
+            items.append({
+                "id": i.id,
+                "product_id": i.product_id,
+                "product_name": i.product.name if i.product else "",
+                "product_sku": i.product.sku if i.product else "",
+                "ordered_qty": i.quantity,
+                "unit_price": i.unit_price,
+            })
+        result.append({
+            "id": o.id,
+            "so_number": o.so_number,
+            "order_date": o.order_date.strftime("%Y-%m-%d") if o.order_date else "",
+            "total_amount": o.total_amount,
+            "items": items,
+        })
+    return jsonify(result)
+
+
+@inv_inv_bp.route("/api/accounts")
+@login_required
+def api_charge_accounts():
+    q = request.args.get("q", "").strip()
+    query = ChartOfAccount.query.filter_by(is_active=True, level=5)
+    if q:
+        query = query.filter(
+            db.or_(
+                ChartOfAccount.name.ilike(f"%{q}%"),
+                ChartOfAccount.code.ilike(f"%{q}%"),
+            )
+        )
+    accts = query.order_by(ChartOfAccount.code).limit(30).all()
+    return jsonify([{
+        "id": a.id, "code": a.code, "name": a.name, "type": a.type,
+    } for a in accts])

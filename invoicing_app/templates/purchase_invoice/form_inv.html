@@ -3,6 +3,7 @@
 {% set is_new = status == 'new' %}
 {% set is_unapproved = status == 'unapproved' %}
 {% set is_approved = status == 'approved' %}
+{% set editable = not is_approved %}
 {% block title %}{{ 'Approved' if is_approved else ('Unapproved' if is_unapproved else 'New') }} Purchase Invoice{% endblock %}
 {% block page_title %}{{ 'Approved' if is_approved else ('Unapproved' if is_unapproved else 'New') }} Purchase Invoice{% endblock %}
 {% block extra_css %}
@@ -30,7 +31,6 @@ body{background:var(--bg);font-family:Inter,-apple-system,BlinkMacSystemFont,'Se
 .ac-it:hover,.ac-it.hl{background:var(--primary-light)}
 .ac-it .ac-n{font-weight:600}
 .ac-it .ac-s{font-size:11px;color:var(--light)}
-/* Pill toggles */
 .pills{display:flex;gap:16px;align-items:center}
 .pill-g{display:flex;align-items:center;gap:6px}
 .pill-lbl{font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.3px}
@@ -41,7 +41,6 @@ body{background:var(--bg);font-family:Inter,-apple-system,BlinkMacSystemFont,'Se
 .pill-b:not(:last-child){border-right:none}
 .pill-b.active{background:var(--primary-light);border-color:var(--primary);color:var(--primary);z-index:1}
 .pill-b:disabled{opacity:.4;cursor:not-allowed}
-/* Table */
 .tb-w{overflow-x:auto;border:1px solid var(--border);border-radius:5px;-webkit-overflow-scrolling:touch}
 .tb-w::after{content:'\2190  Scroll for more columns  \2192';display:block;text-align:center;font-size:10px;color:var(--light);padding:2px;background:#f8fafc;border-top:1px solid var(--border)}
 .tb{width:100%;border-collapse:collapse;font-size:13px}
@@ -56,22 +55,19 @@ body{background:var(--bg);font-family:Inter,-apple-system,BlinkMacSystemFont,'Se
 .tb .desc-col{min-width:200px}
 .tb .num{text-align:right}
 .tb th.num{padding-right:14px}
-/* Row actions */
 .ra{display:flex;gap:2px;justify-content:center;align-items:center}
 .ra button{width:22px;height:22px;border-radius:50%;border:1px solid var(--border);background:#fff;color:var(--muted);font-size:13px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;transition:all .12s}
 .ra button:hover{border-color:var(--primary);color:var(--primary)}
 .ra button.del:hover{border-color:var(--danger);color:var(--danger)}
-/* Grid actions */
 .ga{display:flex;gap:8px;padding:8px 12px;border-top:1px solid var(--border);background:#fafafa;align-items:center}
 .bsm{padding:5px 14px;font-size:11px;border-radius:5px;border:1px solid var(--border);background:#fff;color:var(--text);cursor:pointer;font-weight:600;transition:all .12s;font-family:inherit}
 .bsm:hover{background:#f1f5f9;border-color:var(--primary);color:var(--primary)}
 .bsm-d{color:var(--danger);border-color:#fecaca}
 .bsm-d:hover{background:#fef2f2;border-color:var(--danger)}
-/* Bottom section */
 .btm{display:grid;grid-template-columns:1fr 1fr;gap:0}
 .btm-l{padding:16px 20px;border-right:1px solid var(--border)}
 .btm-r{padding:16px 20px;background:#fafbfc}
-.sl{display:flex;align-items:center;justify-content:space-between;padding:4px 0;font-size:13px;gap:8px}
+.sl{display:flex;align-items:center;justify-content:space-between;padding:3px 0;font-size:13px;gap:8px}
 .sl .sll{color:var(--muted);white-space:nowrap}
 .sl .slv{font-weight:600;min-width:60px;text-align:right}
 .sl .sli{width:60px;text-align:center;padding:3px 6px;font-size:12px;border:1px solid var(--border);border-radius:4px;outline:none;font-family:inherit;background:#fff}
@@ -81,7 +77,6 @@ body{background:var(--bg);font-family:Inter,-apple-system,BlinkMacSystemFont,'Se
 .sl .sli-pct{width:50px;text-align:center}
 .tl{border-top:2px solid var(--text);margin-top:4px;padding-top:8px}
 .tl .slv{font-size:20px;font-weight:800}
-/* Action bar */
 .ab{display:flex;gap:10px;justify-content:flex-end;align-items:center;padding:14px 20px;border-top:1px solid var(--border)}
 .btn{padding:8px 22px;border:none;font-size:13px;font-weight:600;cursor:pointer;border-radius:5px;transition:all .12s;display:inline-flex;align-items:center;gap:5px;font-family:inherit}
 .btn:disabled{opacity:.5;cursor:not-allowed}
@@ -93,12 +88,10 @@ body{background:var(--bg);font-family:Inter,-apple-system,BlinkMacSystemFont,'Se
 .btn-d:hover:not(:disabled){background:#dc2626}
 .btn-s{background:var(--success);color:#fff}
 .btn-s:hover:not(:disabled){background:#16a34a}
-/* Badge */
 .bdg{display:inline-block;padding:3px 12px;font-size:11px;font-weight:700;border-radius:12px}
 .bdg-new{background:#f1f5f9;color:var(--muted)}
 .bdg-unapproved{background:#fef3c7;color:#92400e}
 .bdg-approved{background:#dcfce7;color:#16a34a}
-/* Approved banner */
 .ap-b{background:#f0fdf4;border:1px solid #bbf7d0;border-radius:var(--radius);padding:10px 16px;margin-bottom:16px;display:flex;justify-content:space-between;align-items:center;font-size:13px;color:#166534}
 .ap-b .ap-t{font-weight:700;display:flex;align-items:center;gap:6px}
 .toast-c{position:fixed;top:16px;right:16px;z-index:3000;display:flex;flex-direction:column;gap:6px}
@@ -108,10 +101,49 @@ body{background:var(--bg);font-family:Inter,-apple-system,BlinkMacSystemFont,'Se
 .toast-i{background:var(--primary)}
 .modal-o{display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:2000;justify-content:center;align-items:center}
 .modal-o.show{display:flex}
-.modal-b{background:#fff;padding:24px;border-radius:var(--radius);width:420px;max-width:90vw;box-shadow:0 10px 40px rgba(0,0,0,.15)}
+.modal-b{background:#fff;padding:24px;border-radius:var(--radius);width:620px;max-width:90vw;max-height:80vh;overflow-y:auto;box-shadow:0 10px 40px rgba(0,0,0,.15)}
 .modal-b h3{margin:0 0 12px;font-size:16px}
 .modal-acts{display:flex;gap:8px;justify-content:flex-end;margin-top:16px}
-/* Mobile responsive */
+.modal-big{width:780px}
+.side-panel{position:fixed;top:0;right:-420px;width:400px;height:100vh;background:#fff;z-index:2500;box-shadow:-4px 0 24px rgba(0,0,0,.12);transition:right .25s ease;display:flex;flex-direction:column}
+.side-panel.open{right:0}
+.sp-h{padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted)}
+.sp-h button{background:none;border:none;font-size:20px;cursor:pointer;color:var(--muted);line-height:1}
+.sp-b{flex:1;overflow-y:auto;padding:16px 20px}
+.sp-overlay{position:fixed;inset:0;background:rgba(0,0,0,.3);z-index:2499;display:none}
+.sp-overlay.show{display:block}
+.accordion{border:1px solid var(--border);border-radius:5px;margin-bottom:8px;overflow:hidden}
+.acc-h{padding:10px 14px;background:#f8fafc;cursor:pointer;font-size:12px;font-weight:700;color:var(--muted);display:flex;align-items:center;justify-content:space-between;user-select:none;text-transform:uppercase;letter-spacing:.3px}
+.acc-h:hover{background:#f1f5f9}
+.acc-h .arrow{transition:transform .2s;font-size:10px}
+.acc-h.open .arrow{transform:rotate(90deg)}
+.acc-b{padding:12px 14px;display:none;border-top:1px solid var(--border)}
+.acc-b.open{display:block}
+.flex-row{display:flex;gap:8px;align-items:center}
+.flex-1{flex:1}
+.tgl{position:relative;display:inline-block;width:36px;height:20px;vertical-align:middle}
+.tgl input{opacity:0;width:0;height:0}
+.tgl-s{position:absolute;cursor:pointer;inset:0;background:#cbd5e1;border-radius:10px;transition:.2s}
+.tgl-s:before{position:absolute;content:'';height:16px;width:16px;left:2px;bottom:2px;background:#fff;border-radius:50%;transition:.2s}
+.tgl input:checked+.tgl-s{background:var(--primary)}
+.tgl input:checked+.tgl-s:before{transform:translateX(16px)}
+.chg-row{display:grid;grid-template-columns:1fr 90px 78px 90px 42px 42px 30px;gap:6px;padding:6px 0;border-bottom:1px solid #f1f5f9;align-items:center}
+.chg-row .inp-sm{font-size:11px;padding:4px 6px}
+.chg-sw{display:flex;justify-content:center}
+.chg-row .tgl{width:32px;height:18px}
+.chg-row .tgl-s:before{height:14px;width:14px}
+.chg-row .tgl input:checked+.tgl-s:before{transform:translateX(14px)}
+.chg-hdr{display:grid;grid-template-columns:1fr 90px 78px 90px 42px 42px 30px;gap:6px;padding:4px 0;font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.3px;border-bottom:2px solid var(--border)}
+.chg-tgl{display:flex;justify-content:center;align-items:center}
+.memo-row{opacity:.7;font-style:italic}
+.order-it{padding:8px 12px;border:1px solid var(--border);border-radius:5px;margin-bottom:6px;cursor:pointer;transition:all .1s;display:flex;justify-content:space-between;align-items:center}
+.order-it:hover{border-color:var(--primary);background:var(--primary-light)}
+.order-so{font-weight:700;font-size:13px}
+.order-date{font-size:11px;color:var(--muted)}
+.order-amnt{font-weight:600;font-size:13px}
+.order-items-preview{font-size:11px;color:var(--muted);margin-top:4px}
+.print-template-text{display:none}
+.rendered-template{display:none}
 @media(max-width:768px){
   .wrap{padding:12px}
   .card-h{padding:10px 14px;flex-wrap:wrap;gap:8px}
@@ -129,6 +161,10 @@ body{background:var(--bg);font-family:Inter,-apple-system,BlinkMacSystemFont,'Se
   .ab{flex-wrap:wrap}
   .btn{width:100%;justify-content:center}
   .hdr-g>div>div{grid-template-columns:1fr!important}
+  .side-panel{width:100%;right:-100%}
+  .side-panel.open{right:0}
+  .chg-row{grid-template-columns:1fr 72px 66px 78px 38px 38px 26px}
+  .chg-hdr{grid-template-columns:1fr 72px 66px 78px 38px 38px 26px;font-size:8px}
 }
 @media(max-width:480px){
   .wrap{padding:8px}
@@ -137,14 +173,12 @@ body{background:var(--bg);font-family:Inter,-apple-system,BlinkMacSystemFont,'Se
   .tb-w{border-radius:0;border-left:none;border-right:none}
   .modal-b{width:95vw;padding:16px}
 }
-.print-template-text{display:none}
-.rendered-template{display:none}
 @media print{
 .rendered-template{display:block}
 .no-template-print{display:none}
 .rendered-template .print-template-text{display:block;margin-top:12px;padding:10px 12px;border-top:1px solid #cbd5e1;font-size:9.5px;line-height:1.5}
 @page{margin:14mm}
-.sidebar,.topbar,.ab,.ga,.toast-c,.ac-dd,.btn,.ra,.modal-o,.tb-w::after,.vtype-pills,.sli,.pills,.app-flash-wrap{display:none!important}
+.side-panel,.sp-overlay,.sidebar,.topbar,.ab,.ga,.toast-c,.ac-dd,.btn,.ra,.modal-o,.tb-w::after,.vtype-pills,.sli,.pills,.app-flash-wrap{display:none!important}
 .wrap{padding:0;max-width:none}
 .card{box-shadow:none;border:1px solid #cbd5e1;margin-bottom:10px}
 .card-h{font-size:10px;padding:6px 12px;background:#f1f5f9!important;-webkit-print-color-adjust:exact;print-color-adjust:exact}
@@ -173,6 +207,7 @@ body{background:#fff;font-size:10px}
   {% endif %}
   <div class="{% if rendered_template %}no-template-print{% endif %}">
   <div class="toast-c" id="toastContainer"></div>
+  <div class="sp-overlay" id="spOverlay" onclick="closeSidePanel()"></div>
   <input type="hidden" id="invoiceId" value="{{ invoice.id if invoice else '' }}">
   <input type="hidden" id="invoiceStatus" value="{{ status }}">
   {% set editable = not is_approved %}
@@ -231,27 +266,34 @@ body{background:#fff;font-size:10px}
     </div>
   </div>
 
-  <!-- OPTIONS BAR: Pill toggles right-aligned above items table -->
+  <!-- OPTIONS BAR: Pill toggles + action buttons -->
   <div class="card">
     <div class="card-h">
       <span>Items</span>
-      <div class="pills">
-        <div class="pill-g"><span class="pill-lbl">Discount</span>
-          <div class="pill" id="discountMode">
-            <button type="button" class="pill-b {{ 'active' if not invoice or invoice.discount_mode == 'general' else '' }}" data-value="general" {{ 'disabled' if not editable else '' }}>Combined</button>
-            <button type="button" class="pill-b {{ 'active' if invoice and invoice.discount_mode == 'individual' else '' }}" data-value="individual" {{ 'disabled' if not editable else '' }}>Per Item</button>
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+        {% if editable %}
+        <button type="button" class="bsm" id="fromOrdersBtn" title="Import items from approved purchase orders">From Orders</button>
+        <button type="button" class="bsm" id="chargesBtn">Charges <span style="font-size:10px;color:var(--light);font-weight:400;" id="chargesCount"></span></button>
+        <button type="button" class="bsm" onclick="openSidePanel()">&#9881; Settings</button>
+        {% endif %}
+        <div class="pills">
+          <div class="pill-g"><span class="pill-lbl">Discount</span>
+            <div class="pill" id="discountMode">
+              <button type="button" class="pill-b {{ 'active' if not invoice or invoice.discount_mode == 'general' else '' }}" data-value="general" {{ 'disabled' if not editable else '' }}>Combined</button>
+              <button type="button" class="pill-b {{ 'active' if invoice and invoice.discount_mode == 'individual' else '' }}" data-value="individual" {{ 'disabled' if not editable else '' }}>Per Item</button>
+            </div>
           </div>
-        </div>
-        <div class="pill-g"><span class="pill-lbl">Expenses</span>
-          <div class="pill" id="expensesMode">
-            <button type="button" class="pill-b {{ 'active' if not invoice or invoice.expenses_mode == 'general' else '' }}" data-value="general" {{ 'disabled' if not editable else '' }}>Combined</button>
-            <button type="button" class="pill-b {{ 'active' if invoice and invoice.expenses_mode == 'individual' else '' }}" data-value="individual" {{ 'disabled' if not editable else '' }}>Per Item</button>
+          <div class="pill-g"><span class="pill-lbl">Expenses</span>
+            <div class="pill" id="expensesMode">
+              <button type="button" class="pill-b {{ 'active' if not invoice or invoice.expenses_mode == 'general' else '' }}" data-value="general" {{ 'disabled' if not editable else '' }}>Combined</button>
+              <button type="button" class="pill-b {{ 'active' if invoice and invoice.expenses_mode == 'individual' else '' }}" data-value="individual" {{ 'disabled' if not editable else '' }}>Per Item</button>
+            </div>
           </div>
-        </div>
-        <div class="pill-g"><span class="pill-lbl">Tax</span>
-          <div class="pill" id="taxMode">
-            <button type="button" class="pill-b {{ 'active' if not invoice or invoice.tax_mode == 'general' else '' }}" data-value="general" {{ 'disabled' if not editable else '' }}>Combined</button>
-            <button type="button" class="pill-b {{ 'active' if invoice and invoice.tax_mode == 'individual' else '' }}" data-value="individual" {{ 'disabled' if not editable else '' }}>Per Item</button>
+          <div class="pill-g"><span class="pill-lbl">Tax</span>
+            <div class="pill" id="taxMode">
+              <button type="button" class="pill-b {{ 'active' if not invoice or invoice.tax_mode == 'general' else '' }}" data-value="general" {{ 'disabled' if not editable else '' }}>Combined</button>
+              <button type="button" class="pill-b {{ 'active' if invoice and invoice.tax_mode == 'individual' else '' }}" data-value="individual" {{ 'disabled' if not editable else '' }}>Per Item</button>
+            </div>
           </div>
         </div>
       </div>
@@ -298,7 +340,7 @@ body{background:#fff;font-size:10px}
       <div class="btm">
         <div class="btm-l">
           <label class="lbl">Notes / Comments</label>
-          <textarea id="invoiceNotes" class="inp" rows="4" {{ 'disabled' if not editable else '' }}>{{ invoice.notes if invoice else '' }}</textarea>
+          <textarea id="invoiceNotes" class="inp" rows="5" {{ 'disabled' if not editable else '' }}>{{ invoice.notes if invoice else '' }}</textarea>
         </div>
         <div class="btm-r">
           <div class="sl"><span class="sll">Subtotal</span><span class="slv" id="summarySubtotal">0.00</span></div>
@@ -311,46 +353,28 @@ body{background:#fff;font-size:10px}
               <span class="slv" id="summaryDiscount" style="color:var(--danger);width:70px;text-align:right;min-width:auto;">-0.00</span>
             </span>
           </div>
+          <!-- Absorbed carriage inward (per-item columns + absorb charges): a memo; already inside item cost -->
+          <div class="sl memo-row" id="carriageRow" style="display:none;"><span class="sll">Carriage inward (absorbed)</span><span class="slv" id="summaryCarriage">0.00</span></div>
+          <div class="sl" style="border-top:1px dashed var(--border);padding-top:6px;margin-top:2px;"><span class="sll" style="font-weight:700;">Taxable value</span><span class="slv" id="summaryTaxableValue" style="font-weight:700;">0.00</span></div>
           <div class="sl">
-            <span class="sll">Commission</span>
-            <span style="display:flex;align-items:center;gap:4px;">
-              <span class="sli sli-amt" style="width:60px;"><input type="number" class="sli" style="border:none;padding:0;margin:0;width:100%;background:transparent;text-align:right;" id="globalCommission" step="0.01" min="0" value="{{ invoice.global_commission if invoice else '0' }}" {{ 'disabled' if not editable else '' }}></span>
-              <span class="slv" id="summaryCommission" style="width:70px;text-align:right;min-width:auto;">0.00</span>
-            </span>
-          </div>
-          <div class="sl">
-            <span class="sll">Freight</span>
-            <span style="display:flex;align-items:center;gap:4px;">
-              <input type="number" class="sli sli-amt" id="globalFreight" step="0.01" min="0" value="{{ invoice.global_freight if invoice else '0' }}" {{ 'disabled' if not editable else '' }}>
-              <span class="slv" id="summaryFreight" style="width:70px;text-align:right;min-width:auto;">0.00</span>
-            </span>
-          </div>
-          <div class="sl">
-            <span class="sll">Loading/Unld</span>
-            <span style="display:flex;align-items:center;gap:4px;">
-              <input type="number" class="sli sli-amt" id="globalLoading" step="0.01" min="0" value="{{ invoice.global_loading if invoice else '0' }}" {{ 'disabled' if not editable else '' }}>
-              <span class="slv" id="summaryLoading" style="width:70px;text-align:right;min-width:auto;">0.00</span>
-            </span>
-          </div>
-          <div class="sl" style="border-top:1px dashed var(--border);padding-top:6px;margin-top:2px;"><span class="sll" style="font-weight:700;">Total Expenses</span><span class="slv" id="summaryExpensesTotal" style="font-weight:700;">0.00</span></div>
-          <div class="sl">
-            <span class="sll">Sales Tax</span>
+            <span class="sll">Input sales tax</span>
             <span style="display:flex;align-items:center;gap:4px;">
               <span style="color:var(--muted);font-size:11px;">%</span>
               <input type="number" class="sli sli-pct" id="globalSalesTaxPct" placeholder="%" step="0.01" min="0" max="100" value="{{ invoice.global_sales_tax_pct if invoice else '0' }}" {{ 'disabled' if not editable else '' }}>
               <span class="slv" id="summarySalesTax" style="width:70px;text-align:right;min-width:auto;">0.00</span>
             </span>
           </div>
-          <div class="sl" style="display:none;"><span class="sll">Subtotal Tax</span><span class="slv" id="summaryTaxTotal" style="width:70px;text-align:right;">0.00</span></div>
-          <div class="sl">
-            <span class="sll">W/H Tax</span>
+          <!-- Every additional charge, itemised below the input-sales-tax line (§6.5 / §9) -->
+          <div id="chargesSummaryContainer"></div>
+          <div class="sl" id="withholdingTaxRow" style="display:none;">
+            <span class="sll">Withholding (from supplier)</span>
             <span style="display:flex;align-items:center;gap:4px;">
               <span style="color:var(--muted);font-size:11px;">%</span>
               <input type="number" class="sli sli-pct" id="globalWithholdingTaxPct" placeholder="%" step="0.01" min="0" max="100" value="{{ invoice.global_withholding_tax_pct if invoice else '0' }}" {{ 'disabled' if not editable else '' }}>
               <span class="slv" id="summaryWithholdingTax" style="color:var(--danger);width:70px;text-align:right;min-width:auto;">-0.00</span>
             </span>
           </div>
-          <div class="sl tl"><span class="sll" style="font-weight:700;">Net Payable</span><span class="slv" id="summaryNetPayable" style="font-size:20px;font-weight:800;">0.00</span></div>
+          <div class="sl tl"><span class="sll" style="font-weight:700;">Amount payable</span><span class="slv" id="summaryNetPayable" style="font-size:20px;font-weight:800;">0.00</span></div>
         </div>
       </div>
     </div>
@@ -380,6 +404,69 @@ body{background:#fff;font-size:10px}
   </div>
 </div>
 
+<!-- ADDITIONAL CHARGES MODAL -->
+<div class="modal-o" id="chargesModal">
+  <div class="modal-b modal-big">
+    <h3>Additional Charges</h3>
+    <p style="font-size:12px;color:var(--muted);margin-bottom:12px;">Each charge picks a ledger account, a scope (Combined / Per item), a treatment, and its tax bases. <strong>Bill</strong> = the supplier's own charge line (adds to what we owe). <strong>Absorb</strong> = carriage inward, capitalised into item cost. <strong>Expense</strong> = we bear it (posts to the expense ledger). ST / WHT switch each billed charge into the input-sales-tax and withholding bases.</p>
+    <div class="chg-hdr">
+      <span>Charge Type / Account</span><span class="num">Amount</span><span style="text-align:center;">Scope</span><span style="text-align:center;">Treatment</span><span style="text-align:center;">ST</span><span style="text-align:center;">WHT</span><span></span>
+    </div>
+    <div id="chargesList"></div>
+    <button type="button" class="bsm" id="addChargeBtn" style="margin-top:8px;">+ Add Charge</button>
+    <div class="modal-acts">
+      <button type="button" class="btn btn-o" onclick="closeChargesModal()">Done</button>
+    </div>
+  </div>
+</div>
+
+<!-- ORDER SOURCING MODAL -->
+<div class="modal-o" id="orderModal">
+  <div class="modal-b modal-big">
+    <h3>Import from Purchase Orders</h3>
+    <p style="font-size:12px;color:var(--muted);margin-bottom:12px;">Select approved purchase orders for this supplier to copy items into this invoice.</p>
+    <div id="ordersList" style="max-height:400px;overflow-y:auto;">
+      <p style="color:var(--light);font-size:13px;text-align:center;padding:24px;">Select a supplier first, then click "From Orders"</p>
+    </div>
+    <div class="modal-acts">
+      <button type="button" class="btn btn-o" onclick="closeOrderModal()">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- SETTINGS SIDE PANEL -->
+<div class="side-panel" id="sidePanel">
+  <div class="sp-h"><span>Additional Settings</span><button onclick="closeSidePanel()">&times;</button></div>
+  <div class="sp-b">
+    <div class="accordion">
+      <div class="acc-h open" onclick="toggleAccordion(this)"><span>General</span><span class="arrow">&#9654;</span></div>
+      <div class="acc-b open">
+        <div class="lbl">Invoice Date</div>
+        <input type="date" class="inp inp-sm" id="settingsInvDate" {{ 'disabled' if not editable else '' }}>
+        <div class="lbl" style="margin-top:8px;">Time</div>
+        <input type="time" class="inp inp-sm" id="settingsInvTime" {{ 'disabled' if not editable else '' }}>
+      </div>
+    </div>
+    <div class="accordion">
+      <div class="acc-h" onclick="toggleAccordion(this)"><span>Tax Settings</span><span class="arrow">&#9654;</span></div>
+      <div class="acc-b">
+        <!-- No further tax here: it is a sales-side levy, never charged to us
+             on a purchase. Withholding on the purchase side is tax we deduct
+             from the supplier and owe onward, so it lives here instead. -->
+        <div class="lbl">Withholding Tax</div>
+        <div class="flex-row">
+          <label class="tgl"><input type="checkbox" id="settingsApplyWHT" {{ 'checked' if invoice and invoice.apply_withholding_tax else '' }} {{ 'disabled' if not editable else '' }}><span class="tgl-s"></span></label>
+          <span style="font-size:12px;color:var(--muted);">Deduct withholding tax from the supplier</span>
+        </div>
+        <div class="lbl" style="margin-top:8px;">Sales Tax %</div>
+        <input type="number" class="inp inp-sm" id="settingsSalesTaxPct" step="0.01" min="0" max="100" value="{{ invoice.global_sales_tax_pct if invoice else '0' }}" {{ 'disabled' if not editable else '' }}>
+        <div class="lbl" style="margin-top:8px;">W/H Tax %</div>
+        <input type="number" class="inp inp-sm" id="settingsWHTaxPct" step="0.01" min="0" max="100" value="{{ invoice.global_withholding_tax_pct if invoice else '0' }}" {{ 'disabled' if not editable else '' }}>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div class="modal-o" id="confirmModal">
   <div class="modal-b">
     <h3 id="confirmTitle">Confirm</h3>
@@ -397,7 +484,7 @@ body{background:#fff;font-size:10px}
 // ============================================================
 // STATE
 // ============================================================
-let allProducts = [], rowCount = 0;
+let allProducts = [], rowCount = 0, charges = [];
 const editable = {{ 'false' if is_approved else 'true' }};
 var confirmCallback = null;
 
@@ -413,8 +500,39 @@ document.getElementById('confirmOkBtn').addEventListener('click',function(){var 
 async function fetchJSON(u){var r=await fetch(u);return r.json()}
 async function loadProducts(q){return fetchJSON('/inventory/purchase-invoice/api/products?q='+encodeURIComponent(q))}
 async function loadSuppliers(q){return fetchJSON('/inventory/purchase-invoice/api/suppliers?q='+encodeURIComponent(q))}
+async function loadAccounts(q){return fetchJSON('/inventory/purchase-invoice/api/accounts?q='+encodeURIComponent(q))}
 
+// ============================================================
+// SIDE PANEL
+// ============================================================
+function openSidePanel(){document.getElementById('spOverlay').classList.add('show');document.getElementById('sidePanel').classList.add('open')}
+function closeSidePanel(){document.getElementById('spOverlay').classList.remove('show');document.getElementById('sidePanel').classList.remove('open')}
+function toggleAccordion(h){h.classList.toggle('open');var b=h.nextElementSibling;if(b)b.classList.toggle('open')}
+
+document.addEventListener('DOMContentLoaded',function(){
+  var sd=document.getElementById('settingsInvDate'),md=document.getElementById('invDate');
+  if(sd&&md){sd.value=md.value;md.addEventListener('input',function(){sd.value=this.value});sd.addEventListener('input',function(){md.value=this.value})}
+  var st=document.getElementById('settingsInvTime'),mt=document.getElementById('invTime');
+  if(st&&mt){st.value=mt.value;mt.addEventListener('input',function(){st.value=this.value});st.addEventListener('input',function(){mt.value=this.value})}
+  var sst=document.getElementById('settingsSalesTaxPct'),mst=document.getElementById('globalSalesTaxPct');
+  if(sst&&mst){sst.value=mst.value;mst.addEventListener('input',function(){sst.value=this.value;recalc()});sst.addEventListener('input',function(){mst.value=this.value;recalc()})}
+  var swt=document.getElementById('settingsWHTaxPct'),mwt=document.getElementById('globalWithholdingTaxPct');
+  if(swt&&mwt){swt.value=mwt.value;mwt.addEventListener('input',function(){swt.value=this.value;recalc()});swt.addEventListener('input',function(){mwt.value=this.value;recalc()})}
+  var whtCb=document.getElementById('settingsApplyWHT');
+  if(whtCb){var whtRow=document.getElementById('withholdingTaxRow');if(whtRow)whtRow.style.display=whtCb.checked?'':'none'}
+});
+
+document.getElementById('settingsApplyWHT')?.addEventListener('change',function(){
+  var row=document.getElementById('withholdingTaxRow'),inp=document.getElementById('globalWithholdingTaxPct');
+  if(!row)return;
+  if(this.checked){row.style.display=''}else{row.style.display='none';if(inp)inp.value=0;
+    var s=document.getElementById('settingsWHTaxPct');if(s)s.value=0}
+  recalc();
+})
+
+// ============================================================
 // SUPPLIER AUTOCOMPLETE
+// ============================================================
 var si=document.getElementById('supplierSearch'),sd=document.getElementById('supplierDropdown'),sid=document.getElementById('supplierId'),sa=document.getElementById('billingAddress'),shl=-1,sl=[];
 function rSup(l){sl=l;shl=-1;if(!l||!l.length){sd.classList.remove('show');return}sd.innerHTML=l.map(function(s,i){return'<div class="ac-it" data-index="'+i+'" data-id="'+s.id+'" data-name="'+s.name.replace(/'/g,"\\'")+'" data-addr="'+(s.address||'').replace(/'/g,"\\'")+'"><span class="ac-n">'+s.name+'</span><span class="ac-s">'+(s.city||'')+' '+(s.phone||'')+'</span></div>'}).join('');sd.classList.add('show')}
 si.addEventListener('keydown',async function(e){if(!editable)return;if(e.key===' '){e.preventDefault();rSup(await loadSuppliers(''));return}if(e.key==='ArrowDown'){e.preventDefault();shl=Math.min(shl+1,sl.length-1);hSup();return}if(e.key==='ArrowUp'){e.preventDefault();shl=Math.max(shl-1,0);hSup();return}if(e.key==='Enter'&&sd.classList.contains('show')&&shl>=0){sSup(shl);return}if(e.key==='Escape'){sd.classList.remove('show');return}})
@@ -424,7 +542,7 @@ function hSup(){sd.querySelectorAll('.ac-it').forEach(function(e,i){e.classList.
 function sSup(i){var t=sl[i];if(!t)return;sid.value=t.id;si.value=t.name;sd.classList.remove('show');if(sa&&t.address)sa.value=t.address}
 sd.addEventListener('mousedown',function(e){var t=e.target.closest('.ac-it');if(!t)return;shl=parseInt(t.dataset.index);sSup(shl)})
 
-// OPTIONAL PARTY-ACCOUNT OVERRIDE (settings: invoice party mode = all)
+// PARTY ACCOUNT OVERRIDE
 var pai=document.getElementById('partyAccountSearch');
 if(pai){(function(){
   var pdd=document.getElementById('partyAccountDropdown'),pid=document.getElementById('partyAccountId'),phl=-1,pl=[];
@@ -438,60 +556,263 @@ if(pai){(function(){
 })()}
 
 // PILL TOGGLES
-qsa('.pill-b').forEach(function(b){b.addEventListener('click',function(){if(this.disabled)return;var g=this.closest('.pill');g.querySelectorAll('.pill-b').forEach(function(x){x.classList.remove('active')});this.classList.add('active');refreshCols();recalc()})})
+// §13: flipping Per line -> Combined seeds the combined field from the current
+// rollup. Zeroing it would silently discard what the user already entered.
+function seedCombinedFromRollup(name){
+  var sum=0;
+  if(name==='discount'){
+    qsa('#itemsBody tr').forEach(function(tr){
+      var amt=cv(tr.querySelector('[data-col="amount"]')?.value);
+      var da=parseFloat(tr.querySelector('[data-col="discount_amount"]')?.value)||0;
+      var dp=parseFloat(tr.querySelector('[data-col="discount_pct"]')?.value)||0;
+      sum+=da>0?da:(amt*dp/100);
+    });
+    if(sum>0){var gv=document.getElementById('globalDiscVal');if(gv)gv.value=sum.toFixed(2);
+              var gp=document.getElementById('globalDiscPct');if(gp)gp.value=0}
+  }else if(name==='expenses'){
+    // Roll the per-line carriage columns up into their combined counterparts.
+    ['commission','freight','loading_unloading'].forEach(function(col,i){
+      var s=0;
+      qsa('#itemsBody tr').forEach(function(tr){s+=parseFloat(tr.querySelector('[data-col="'+col+'"]')?.value)||0});
+      var target=['globalCommission','globalFreight','globalLoading'][i];
+      var el=document.getElementById(target);
+      if(el&&s>0)el.value=s.toFixed(2);
+    });
+  }
+}
+qsa('.pill-b').forEach(function(b){b.addEventListener('click',function(){if(this.disabled)return;var g=this.closest('.pill');var name=(g.id||'').replace('Mode','');var oldMode=getMode(name);var newMode=this.dataset.value;g.querySelectorAll('.pill-b').forEach(function(x){x.classList.remove('active')});this.classList.add('active');if(oldMode==='individual'&&newMode==='general')seedCombinedFromRollup(name);refreshCols();recalc()})})
 function refreshCols(){var d=getMode('discount'),e=getMode('expenses'),t=getMode('tax'),id=d==='individual',ie=e==='individual',it=t==='individual';qsa('.c-disc').forEach(function(el){el.style.display=id?'':'none'});qsa('.c-exp').forEach(function(el){el.style.display=ie?'':'none'});qsa('.c-tax').forEach(function(el){el.style.display=it?'':'none'});qsa('#itemsBody tr').forEach(function(tr){qsa('.row-disc input',tr).forEach(function(i){i.disabled=!id||!editable});qsa('.row-exp input',tr).forEach(function(i){i.disabled=!ie||!editable});qsa('.row-tax input',tr).forEach(function(i){i.disabled=!it||!editable})})}
 
-// PRODUCT AUTOCOMPLETE PER ROW
+// PRODUCT AUTOCOMPLETE
 function setupDescInput(inp){var row=inp.closest('tr'),drop=row.querySelector('.ac-dd'),hl=-1,list=[];
 function render(l){hl=-1;if(!l||!l.length){drop.classList.remove('show');return}drop.innerHTML=l.map(function(p,i){return'<div class="ac-it" data-index="'+i+'" data-id="'+p.id+'" data-name="'+p.name+'" data-sku="'+p.sku+'" data-price="'+p.unit_price+'" data-stock="'+p.current_stock+'" data-unit="'+p.unit+'"><span class="ac-n">'+p.name+'</span><span class="ac-s">'+p.sku+' &bull; Stock: '+p.current_stock+'</span></div>'}).join('');drop.classList.add('show')}
 inp.addEventListener('keydown',async function(e){if(e.key===' '){e.preventDefault();list=await loadProducts('');render(list);return}if(e.key==='ArrowDown'){e.preventDefault();hl=Math.min(hl+1,list.length-1);hlr();return}if(e.key==='ArrowUp'){e.preventDefault();hl=Math.max(hl-1,0);hlr();return}if(e.key==='Enter'){if(e.shiftKey)return;e.preventDefault();if(drop.classList.contains('show')&&hl>=0&&list[hl]){selP(hl);return}var inputs=row.querySelectorAll('.ri:not(:disabled):not(.rc)'),last=inputs[inputs.length-1];if(e.target===last){addRow({});setTimeout(function(){var nr=document.getElementById('itemsBody').lastElementChild,ni=nr.querySelectorAll('.ri:not(:disabled):not(.rc)');if(ni.length)ni[0].focus()},50)}return}if(e.key==='Escape'){drop.classList.remove('show');return}})
 inp.addEventListener('input',async function(){var q=this.value.trim();if(!q.length){drop.classList.remove('show');return}list=await loadProducts(q);render(list)})
 inp.addEventListener('blur',function(){setTimeout(function(){drop.classList.remove('show')},200)})
-if(inp.tagName==='TEXTAREA'){inp.addEventListener('input',function(){this.style.height='auto';this.style.height=this.scrollHeight+'px'})}
 function hlr(){drop.querySelectorAll('.ac-it').forEach(function(e,i){e.classList.toggle('hl',i===hl)})}
 function selP(i){var p=list[i];if(!p)return;row.dataset.productId=p.id;row.querySelector('.ac-code').value=p.sku;inp.value=p.name;row.querySelector('.ac-unit').textContent=p.unit;row.querySelector('[data-col="unit_price"]').value=p.unit_price;row.querySelector('.info-badge').innerHTML='Stock: <strong>'+p.current_stock+'</strong>';drop.classList.remove('show');recalcRow(row);recalc();var qty=row.querySelector('[data-col="quantity"]');if(qty)qty.focus()}
 drop.addEventListener('mousedown',function(e){var t=e.target.closest('.ac-it');if(!t)return;hl=parseInt(t.dataset.index);selP(hl)})}
 
 // ROW MANAGEMENT
 function addRow(data){var tbody=document.getElementById('itemsBody'),tr=document.createElement('tr');rowCount++;var d=getMode('discount'),e=getMode('expenses'),t=getMode('tax'),id=d==='individual',ie=e==='individual',it=t==='individual',dis=editable?'':'disabled';tr.dataset.productId=(data&&data.product_id)||'';
-tr.innerHTML='<td class="rn">'+rowCount+'</td><td><input type="text" class="ri ac-code" data-col="code" placeholder="SKU" value="'+((data&&data.product&&data.product.sku)||'')+'" '+dis+'></td><td><div class="ac-wrap"><textarea class="ri ac-desc-input" data-col="description" placeholder="Search or Space..." rows="1" style="resize:none;overflow:hidden" '+dis+'>'+esc(data&&data.description||'')+'</textarea><div class="ac-dd"></div><div class="info-badge" style="font-size:10px;color:var(--light);"></div></div></td><td><input type="number" class="ri num" data-col="quantity" value="'+((data&&data.quantity)||1)+'" min="0.01" step="any" '+dis+'></td><td><span class="ri rc ac-unit">'+((data&&data.unit)||'pcs')+'</span></td><td><input type="number" class="ri num" data-col="unit_price" value="'+((data&&data.unit_price)||0)+'" step="0.01" min="0" '+dis+'></td><td><input type="text" class="ri rc num" data-col="amount" value="0" readonly></td><td class="c-disc" style="'+(id?'':'display:none;')+'"><div class="row-disc"><input type="number" class="ri num" data-col="discount_pct" value="'+((data&&data.discount_pct)||0)+'" step="0.01" min="0" max="100" '+(editable&&id?'':'disabled')+'></div></td><td class="c-disc" style="'+(id?'':'display:none;')+'"><div class="row-disc"><input type="number" class="ri num" data-col="discount_amount" value="'+((data&&data.discount_amount)||0)+'" step="0.01" min="0" '+(editable&&id?'':'disabled')+'></div></td><td class="c-exp" style="'+(ie?'':'display:none;')+'"><div class="row-exp"><input type="number" class="ri num" data-col="commission" value="'+((data&&data.commission)||0)+'" step="0.01" min="0" '+(editable&&ie?'':'disabled')+'></div></td><td class="c-exp" style="'+(ie?'':'display:none;')+'"><div class="row-exp"><input type="number" class="ri num" data-col="freight" value="'+((data&&data.freight)||0)+'" step="0.01" min="0" '+(editable&&ie?'':'disabled')+'></div></td><td class="c-exp" style="'+(ie?'':'display:none;')+'"><div class="row-exp"><input type="number" class="ri num" data-col="loading_unloading" value="'+((data&&data.loading_unloading)||0)+'" step="0.01" min="0" '+(editable&&ie?'':'disabled')+'></div></td><td class="c-tax" style="'+(it?'':'display:none;')+'"><div class="row-tax"><input type="number" class="ri num" data-col="sales_tax_pct" value="'+((data&&data.sales_tax_pct)||0)+'" step="0.01" min="0" max="100" '+(editable&&it?'':'disabled')+'></div></td><td><input type="text" class="ri rc num" data-col="net_amount" value="0" readonly></td><td><div class="ra">'+(editable?'<button class="del" onclick="removeRow(this)" title="Delete row">&times;</button>':'')+'</div></td>';tbody.appendChild(tr)
-var di=tr.querySelector('.ac-desc-input');if(di)setupDescInput(di);tr.querySelectorAll('input[data-col]').forEach(function(inp){inp.addEventListener('input',function(){recalcRow(tr);recalc()});inp.addEventListener('change',function(){recalcRow(tr);recalc()})})
+tr.innerHTML='<td class="rn">'+rowCount+'</td><td><input type="text" class="ri ac-code" data-col="code" placeholder="SKU" value="'+((data&&data.product&&data.product.sku)||'')+'" '+dis+'></td><td><div class="ac-wrap"><textarea class="ri ac-desc-input" data-col="description" placeholder="Search or Space..." rows="1" style="resize:none;overflow:hidden" '+dis+'>'+esc(data&&data.description||'')+'</textarea><div class="ac-dd"></div><div class="info-badge" style="font-size:10px;color:var(--light);"></div></div></td><td><input type="number" class="ri num" data-col="quantity" value="'+((data&&data.quantity)||1)+'" min="0.01" step="any" '+dis+'></td><td><span class="ri rc ac-unit">'+((data&&data.unit)||'pcs')+'</span></td><td><input type="number" class="ri num" data-col="unit_price" value="'+((data&&data.unit_price)||0)+'" step="0.01" min="0" '+dis+'></td><td><input type="text" class="ri rc num" data-col="amount" value="0" readonly></td><td class="c-disc" style="'+(id?'':'display:none;')+'"><div class="row-disc"><input type="number" class="ri num" data-col="discount_pct" value="'+((data&&data.discount_pct)||0)+'" step="0.01" min="0" max="100" '+(editable&&id?'':'disabled')+'></div></td><td class="c-disc" style="'+(id?'':'display:none;')+'"><div class="row-disc"><input type="number" class="ri num" data-col="discount_amount" value="'+((data&&data.discount_amount)||0)+'" step="0.01" min="0" '+(editable&&id?'':'disabled')+'></div></td><td class="c-exp" style="'+(ie?'':'display:none;')+'"><div class="row-exp"><input type="number" class="ri num" data-col="commission" value="'+((data&&data.commission)||0)+'" step="0.01" min="0" '+(editable&&ie?'':'disabled')+'></div></td><td class="c-exp" style="'+(ie?'':'display:none;')+'"><div class="row-exp"><input type="number" class="ri num" data-col="freight" value="'+((data&&data.freight)||0)+'" step="0.01" min="0" '+(editable&&ie?'':'disabled')+'></div></td><td class="c-exp" style="'+(ie?'':'display:none;')+'"><div class="row-exp"><input type="number" class="ri num" data-col="loading_unloading" value="'+((data&&data.loading_unloading)||0)+'" step="0.01" min="0" '+(editable&&ie?'':'disabled')+'></div></td><td class="c-tax" style="'+(it?'':'display:none;')+'"><div class="row-tax"><input type="number" class="ri num" data-col="sales_tax_pct" value="'+((data&&data.sales_tax_pct)||0)+'" step="0.01" min="0" max="100" '+(editable&&it?'':'disabled')+'></div></td><td><input type="text" class="ri rc num" data-col="net_amount" value="0" readonly></td><td><div class="ra"><button type="button" onclick="removeRow(this)">&times;</button><button type="button" class="del" onclick="addRowAfter(this)" title="Duplicate this row">+</button></div></td>';tbody.appendChild(tr);var di=tr.querySelector('.ac-desc-input');if(di)setupDescInput(di);tr.querySelectorAll('input[data-col]').forEach(function(inp){inp.addEventListener('input',function(){recalcRow(tr);recalc()});inp.addEventListener('change',function(){recalcRow(tr);recalc()})})
 var ci=tr.querySelector('.ac-code');if(ci){ci.addEventListener('input',function(){var v=this.value.trim().toLowerCase();if(v.length===1)autoAddCheck();var m=allProducts.find(function(p){return p.sku.toLowerCase()===v});if(m){tr.dataset.productId=m.id;tr.querySelector('.ac-desc-input').value=m.name;tr.querySelector('.ac-unit').textContent=m.unit;tr.querySelector('[data-col="unit_price"]').value=m.unit_price;tr.querySelector('.info-badge').innerHTML='Stock: <strong>'+m.current_stock+'</strong>';recalcRow(tr);recalc()}})}
 if(di){di.addEventListener('input',function(){if(this.value.length===1)autoAddCheck()})}
 if(editable)setTimeout(function(){var f=tr.querySelector('.ac-code');if(f)f.focus()},30);return tr}
-function autoAddCheck(){var rows=qsa('#itemsBody tr');if(!rows.length)return;var last=rows[rows.length-1],code=last.querySelector('.ac-code')?.value||'',desc=last.querySelector('.ac-desc-input')?.value||'';if(code.length||desc.length)addRow({})}
+function addRowAfter(btn){var tr=btn.closest('tr');addRow({product_id:tr.dataset.productId})}
+function autoAddCheck(){var rows=qsa('#itemsBody tr');if(!rows.length)return;var last=rows[rows.length-1];if((last.querySelector('.ac-code')?.value||'')||(last.querySelector('.ac-desc-input')?.value||''))addRow({})}
 function removeRow(btn){var tr=btn.closest('tr');var tbody=document.getElementById('itemsBody');if(tbody.children.length<=1)return;tr.remove();renumberRows();recalc()}
 function renumberRows(){qsa('#itemsBody .rn').forEach(function(e,i){e.textContent=i+1})}
 function clearAllRows(){document.getElementById('itemsBody').innerHTML='';rowCount=0;addRow({});recalc();toast('Cleared all lines','info')}
 document.getElementById('addLineBtn')?.addEventListener('click',function(){addRow({})})
 document.getElementById('clearAllBtn')?.addEventListener('click',function(){showConfirm('Clear All Lines','This will remove all rows. Are you sure?',clearAllRows)})
 
+// ============================================================
+// CHARGES MANAGEMENT
+// ============================================================
+function renderCharges(){
+  var container=document.getElementById('chargesList');container.innerHTML='';
+  charges.forEach(function(chg,i){
+    var row=document.createElement('div');row.className='chg-row';
+    row.innerHTML='<div class="ac-wrap" style="position:relative;"><input type="text" class="inp inp-sm chg-acct" value="'+(chg._display||'')+'" placeholder="Search ledger account..." autocomplete="off"><input type="hidden" class="chg-acct-id" value="'+(chg.charge_account_id||'')+'"><div class="ac-dd" style="position:absolute;top:100%;left:0;right:0;background:#fff;border:1px solid var(--border);z-index:200;max-height:180px;overflow-y:auto;display:none;"></div></div>'+
+    '<input type="number" class="inp inp-sm num chg-amount" value="'+(chg.amount||0)+'" step="0.01" min="0" style="text-align:right;">'+
+    '<select class="inp inp-sm chg-scope" style="text-align:center;"><option value="general"'+(chg.scope==='general'?' selected':'')+'>Combined</option><option value="individual"'+(chg.scope==='individual'?' selected':'')+'>Per Line</option></select>'+
+    '<select class="inp inp-sm chg-treatment" style="text-align:center;"><option value="bill"'+((chg.treatment||'bill')==='bill'?' selected':'')+'>Bill</option><option value="absorb"'+(chg.treatment==='absorb'?' selected':'')+'>Absorb</option><option value="expense"'+(chg.treatment==='expense'?' selected':'')+'>Expense</option></select>'+
+    '<div class="chg-sw"><label class="tgl"><input type="checkbox" class="chg-st"'+(chg.st_taxable!==false?' checked':'')+'><span class="tgl-s"></span></label></div>'+
+    '<div class="chg-sw"><label class="tgl"><input type="checkbox" class="chg-wht"'+(chg.wht_taxable?' checked':'')+'><span class="tgl-s"></span></label></div>'+
+    '<button type="button" class="bsm bsm-d" style="padding:2px 8px;line-height:1.4;" onclick="removeCharge('+i+')">&times;</button>';
+    container.appendChild(row);
+    setTimeout(function(){setupChargeAcct(row.querySelector('.chg-acct'),i)},10);
+    // Only a supplier-billed charge can sit in the input-tax / withholding base.
+    // Absorbed carriage is already inside item cost; an expense we bear is not
+    // on the supplier's invoice at all.
+    var tsel=row.querySelector('.chg-treatment');
+    function syncSwitches(){
+      var billed=tsel.value==='bill';
+      row.querySelectorAll('.chg-st,.chg-wht').forEach(function(cb){cb.disabled=!billed;if(!billed)cb.checked=false});
+      row.style.opacity=billed?'1':'.75';
+    }
+    tsel.addEventListener('change',syncSwitches);syncSwitches();
+  });
+  document.getElementById('chargesCount').textContent=charges.length?'('+charges.length+' charges)':'';
+  recalcChargeSummary();
+}
+function setupChargeAcct(inp,idx){
+  var row=inp.closest('.chg-row'),drop=row.querySelector('.ac-dd'),hl=-1,list=[],hid=row.querySelector('.chg-acct-id');
+  async function doSearch(q){list=await loadAccounts(q);hl=-1;if(!list||!list.length){drop.classList.remove('show');return}drop.innerHTML=list.map(function(a,i){return'<div class="ac-it" data-index="'+i+'"><span class="ac-n">'+a.code+' — '+a.name+'</span><span class="ac-s">'+a.type+'</span></div>'}).join('');drop.classList.add('show')}
+  inp.addEventListener('keydown',function(e){if(e.key===' '&&!this.value){e.preventDefault();doSearch('');return}if(e.key==='ArrowDown'){e.preventDefault();hl=Math.min(hl+1,list.length-1);dohl();return}if(e.key==='ArrowUp'){e.preventDefault();hl=Math.max(hl-1,0);dohl();return}if(e.key==='Enter'&&drop.classList.contains('show')&&hl>=0){e.preventDefault();sel(hl);return}if(e.key==='Escape'){drop.classList.remove('show')}});
+  inp.addEventListener('input',function(){var q=this.value.trim();if(!q.length){drop.classList.remove('show');hid.value='';return}doSearch(q)});
+  inp.addEventListener('blur',function(){setTimeout(function(){drop.classList.remove('show')},200)});
+  function dohl(){drop.querySelectorAll('.ac-it').forEach(function(e,i){e.classList.toggle('hl',i===hl)})}
+  function sel(i){var a=list[i];if(!a)return;hid.value=a.id;inp.value=a.code+' — '+a.name;charges[idx].charge_account_id=a.id;charges[idx]._display=a.code+' — '+a.name;drop.classList.remove('show')}
+  drop.addEventListener('mousedown',function(e){var t=e.target.closest('.ac-it');if(!t)return;hl=parseInt(t.dataset.index);sel(hl)})}
+function addChargeRow(){charges.push({charge_account_id:'',amount:0,scope:'general',treatment:'bill',st_taxable:true,wht_taxable:false,extra_taxable:false,_display:''});renderCharges()}
+function removeCharge(i){charges.splice(i,1);renderCharges();recalc()}
+document.getElementById('addChargeBtn')?.addEventListener('click',addChargeRow);
+document.getElementById('chargesBtn')?.addEventListener('click',function(){if(!editable)return;if(!sid.value){toast('Select a supplier first','error');return}renderCharges();document.getElementById('chargesModal').classList.add('show')});
+function closeChargesModal(){
+  qsa('#chargesList .chg-row').forEach(function(row,i){
+    if(charges[i]){var t=row.querySelector('.chg-treatment')?.value||'bill',billed=t==='bill';
+      charges[i].charge_account_id=parseInt(row.querySelector('.chg-acct-id')?.value)||'';
+      charges[i].amount=parseFloat(row.querySelector('.chg-amount')?.value)||0;
+      charges[i].scope=row.querySelector('.chg-scope')?.value||'general';
+      charges[i].treatment=t;
+      charges[i].st_taxable=billed&&!!row.querySelector('.chg-st')?.checked;
+      charges[i].wht_taxable=billed&&!!row.querySelector('.chg-wht')?.checked;
+      charges[i]._display=row.querySelector('.chg-acct')?.value||''}
+  });
+  document.getElementById('chargesModal').classList.remove('show');recalcChargeSummary();recalc();
+}
+function chargeName(c){var s=c.description||c._display||'Charge';return s.indexOf(' — ')>0?s.split(' — ').pop():s}
+// §9: itemise every charge under the input-sales-tax line, showing how each one
+// was treated so the payable is auditable against the supplier's invoice.
+function recalcChargeSummary(){
+  var box=document.getElementById('chargesSummaryContainer');if(!box)return;box.innerHTML='';
+  charges.forEach(function(c){
+    var a=parseFloat(c.amount)||0;if(!(a>0)||!c.charge_account_id)return;
+    var t=c.treatment||'bill',billed=t==='bill',tags=[];
+    if(billed){tags.push((c.scope||'general')==='individual'?'per line':'combined');
+               if(c.st_taxable)tags.push('ST');if(c.wht_taxable)tags.push('WHT')}
+    else tags.push(t==='absorb'?'capitalised into item cost':'expense, not on payable');
+    var d=document.createElement('div');d.className='sl'+(billed?'':' memo-row');
+    var dim=billed?'':'color:var(--light);';
+    d.innerHTML='<span class="sll" style="'+dim+'">'+esc(chargeName(c))+
+      ' <span style="font-size:9px;color:var(--light);">('+tags.join(' · ')+')</span></span>'+
+      '<span class="slv" style="width:70px;text-align:right;min-width:auto;'+dim+'">'+fmt(a)+'</span>';
+    box.appendChild(d);
+  });
+}
+function collectCharges(){return charges.filter(function(c){return c.charge_account_id&&parseFloat(c.amount)>0}).map(function(c){
+  var t=c.treatment||'bill',billed=t==='bill';
+  return{charge_account_id:parseInt(c.charge_account_id),amount:parseFloat(c.amount)||0,
+    scope:c.scope||'general',treatment:t,st_taxable:billed&&!!c.st_taxable,
+    wht_taxable:billed&&!!c.wht_taxable,extra_taxable:false,description:chargeName(c)}})}
+
+// ============================================================
+// ORDER SOURCING
+// ============================================================
+document.getElementById('fromOrdersBtn')?.addEventListener('click',async function(){
+  if(!editable)return;
+  var sidVal=parseInt(document.getElementById('supplierId').value);
+  if(!sidVal){toast('Select a supplier first','error');return}
+  var orders=await fetchJSON('/inventory/purchase-invoice/api/orders/'+sidVal);
+  var container=document.getElementById('ordersList');container.innerHTML='';
+  if(!orders.length){container.innerHTML='<p style="color:var(--light);font-size:13px;text-align:center;padding:24px;">No approved orders for this supplier</p>';document.getElementById('orderModal').classList.add('show');return}
+  orders.forEach(function(o){
+    var div=document.createElement('div');div.className='order-it';
+    div.innerHTML='<div><div class="order-so">'+esc(o.po_number)+'</div><div class="order-date">'+esc(o.order_date)+'</div><div class="order-items-preview">'+o.items.length+' item(s)</div></div><div class="order-amnt">Rs. '+fmt(o.total_amount)+'</div>';
+    div.addEventListener('click',function(){importOrder(o)});
+    container.appendChild(div);
+  });
+  document.getElementById('orderModal').classList.add('show');
+});
+function closeOrderModal(){document.getElementById('orderModal').classList.remove('show')}
+function importOrder(order){
+  showConfirm('Import from '+order.po_number,'This will replace current items with '+order.items.length+' item(s) from this order. Continue?',function(){
+    document.getElementById('itemsBody').innerHTML='';rowCount=0;
+    order.items.forEach(function(item){addRow({product_id:item.product_id,quantity:item.ordered_qty,unit_price:item.unit_price});var tr=document.getElementById('itemsBody').lastElementChild;if(tr){tr.querySelector('.ac-desc-input').value=item.product_name||'';tr.querySelector('.ac-code').value=item.product_sku||'';tr.dataset.productId=item.product_id}});
+    closeOrderModal();renumberRows();recalc();toast('Imported '+order.items.length+' items from '+order.po_number,'success');
+  });
+}
+
+// ============================================================
 // CALCULATIONS
-// Per-row: amount = qty × rate (comma-fmt)
-// Per-row net = (amount - discount) + expenses + tax_on(after_discount+expenses)
+// ============================================================
 function recalcRow(tr){var qty=parseFloat(tr.querySelector('[data-col="quantity"]')?.value)||0,price=parseFloat(tr.querySelector('[data-col="unit_price"]')?.value)||0,amt=qty*price;tr.querySelector('[data-col="amount"]').value=fmt(amt);var dp=parseFloat(tr.querySelector('[data-col="discount_pct"]')?.value)||0,da=parseFloat(tr.querySelector('[data-col="discount_amount"]')?.value)||0;if(dp>0&&da===0){da=amt*dp/100;var dai=tr.querySelector('[data-col="discount_amount"]');if(dai)dai.value=da.toFixed(2)}var ta=Math.max(0,amt-da);tr.querySelector('[data-col="net_amount"]').value=fmt(ta)}
-// Summary: subtotal - discount + expenses = taxBase; salesTax on taxBase; WHT on taxBase
-function recalc(){var subtotal=0,totalDisc=0,totalExp=0,totalSalesTax=0,d=getMode('discount'),e=getMode('expenses'),t=getMode('tax');qsa('#itemsBody tr').forEach(function(tr){var amt=cv(tr.querySelector('[data-col="amount"]')?.value),na=cv(tr.querySelector('[data-col="net_amount"]')?.value);subtotal+=amt;if(d==='individual'){var damt=parseFloat(tr.querySelector('[data-col="discount_amount"]')?.value)||0,dpct=parseFloat(tr.querySelector('[data-col="discount_pct"]')?.value)||0;totalDisc+=damt>0?damt:(amt*dpct/100)}if(e==='individual'){totalExp+=parseFloat(tr.querySelector('[data-col="commission"]')?.value)||0;totalExp+=parseFloat(tr.querySelector('[data-col="freight"]')?.value)||0;totalExp+=parseFloat(tr.querySelector('[data-col="loading_unloading"]')?.value)||0}if(t==='individual'){var st=parseFloat(tr.querySelector('[data-col="sales_tax_pct"]')?.value)||0;var baseTa=cv(tr.querySelector('[data-col="net_amount"]')?.value)+(parseFloat(tr.querySelector('[data-col="commission"]')?.value)||0)+(parseFloat(tr.querySelector('[data-col="freight"]')?.value)||0)+(parseFloat(tr.querySelector('[data-col="loading_unloading"]')?.value)||0);totalSalesTax+=baseTa*st/100}});subtotal=Math.round(subtotal*100)/100;document.getElementById('summarySubtotal').textContent=fmt(subtotal)
-if(d==='general'){var gPct=parseFloat(document.getElementById('globalDiscPct').value)||0,gVal=parseFloat(document.getElementById('globalDiscVal').value)||0;totalDisc=gVal>0?gVal:(subtotal*gPct/100)}document.getElementById('summaryDiscount').textContent='-'+fmt(totalDisc)
-var globalExp=0;if(e==='general'){globalExp+=parseFloat(document.getElementById('globalCommission').value)||0;globalExp+=parseFloat(document.getElementById('globalFreight').value)||0;globalExp+=parseFloat(document.getElementById('globalLoading').value)||0;totalExp=globalExp}
-document.getElementById('summaryCommission').textContent=fmt(parseFloat(document.getElementById('globalCommission').value)||0)
-document.getElementById('summaryFreight').textContent=fmt(parseFloat(document.getElementById('globalFreight').value)||0)
-document.getElementById('summaryLoading').textContent=fmt(parseFloat(document.getElementById('globalLoading').value)||0)
-document.getElementById('summaryExpensesTotal').textContent=fmt(totalExp)
-var taxBase=subtotal-totalDisc+totalExp,salesTax=0,withholdingTax=0;if(t==='general'){var stPct=parseFloat(document.getElementById('globalSalesTaxPct').value)||0;salesTax=taxBase*stPct/100}else{salesTax=totalSalesTax}var whPct=parseFloat(document.getElementById('globalWithholdingTaxPct').value)||0;withholdingTax=taxBase*whPct/100;document.getElementById('summarySalesTax').textContent=fmt(salesTax);document.getElementById('summaryWithholdingTax').textContent='-'+fmt(withholdingTax);document.getElementById('summaryTaxTotal').textContent=fmt(salesTax);document.getElementById('summaryNetPayable').textContent='Rs. '+fmt(taxBase+salesTax-withholdingTax)}
+// Charge pools from the last recalc, read back by collectData().
+var lastBilled=0,lastAbsorb=0,lastExpense=0,lastTaxBase=0;
+function r2(n){return Math.round(n*100)/100}
+function gv(id){var el=document.getElementById(id);return el?(parseFloat(el.value)||0):0}
+function recalc(){
+  var d=getMode('discount'),e=getMode('expenses'),t=getMode('tax');
+  var subtotal=0,totalDisc=0,lineCarriage=0,lines=[];
+  qsa('#itemsBody tr').forEach(function(tr){
+    var amt=cv(tr.querySelector('[data-col="amount"]')?.value);subtotal+=amt;
+    var lineDisc=0;
+    if(d==='individual'){
+      var damt=parseFloat(tr.querySelector('[data-col="discount_amount"]')?.value)||0,
+          dpct=parseFloat(tr.querySelector('[data-col="discount_pct"]')?.value)||0;
+      lineDisc=damt>0?damt:(amt*dpct/100);totalDisc+=lineDisc;
+    }
+    // Per-line commission / freight / loading are carriage inward: they are
+    // capitalised into item cost, so they behave exactly like an ABSORB charge.
+    var car=0;
+    if(e==='individual'){
+      car=(parseFloat(tr.querySelector('[data-col="commission"]')?.value)||0)
+         +(parseFloat(tr.querySelector('[data-col="freight"]')?.value)||0)
+         +(parseFloat(tr.querySelector('[data-col="loading_unloading"]')?.value)||0);
+      lineCarriage+=car;
+    }
+    lines.push({tr:tr,net:Math.max(0,amt-lineDisc),carriage:car});
+  });
+  subtotal=r2(subtotal);
+  if(d==='general'){var gVal=gv('globalDiscVal');totalDisc=gVal>0?gVal:(subtotal*gv('globalDiscPct')/100)}
+  totalDisc=r2(totalDisc);
+  if(e==='general')lineCarriage=gv('globalCommission')+gv('globalFreight')+gv('globalLoading');
+
+  // Charge pools by treatment. BILL = the supplier's own charge line (raises
+  // the payable). ABSORB = carriage inward, capitalised into item cost.
+  // EXPENSE = a cost we bear that is not on the supplier's invoice at all.
+  var absorbCharges=0,billedTotal=0,expenseTotal=0,stCharges=0,whtCharges=0,perLineBilled=0;
+  charges.forEach(function(c){
+    var a=parseFloat(c.amount)||0;if(!(a>0)||!c.charge_account_id)return;
+    var tr=c.treatment||'bill';
+    if(tr==='absorb'){absorbCharges+=a}
+    else if(tr==='expense'){expenseTotal+=a}
+    else{billedTotal+=a;if(c.st_taxable)stCharges+=a;if(c.wht_taxable)whtCharges+=a;
+         if((c.scope||'general')==='individual')perLineBilled+=a}
+  });
+  var absorbTotal=r2(lineCarriage+absorbCharges);
+  lastBilled=r2(billedTotal);lastAbsorb=absorbTotal;lastExpense=r2(expenseTotal);
+
+  var effectiveGoods=r2(subtotal+absorbTotal);
+  var inputTaxBase=r2(effectiveGoods-totalDisc+stCharges);
+  lastTaxBase=inputTaxBase;
+
+  // Input sales tax
+  var inputTax=0;
+  if(t==='general'){inputTax=inputTaxBase*gv('globalSalesTaxPct')/100}
+  else{
+    var netSum=lines.reduce(function(s,l){return s+l.net},0);
+    lines.forEach(function(l){
+      var stp=parseFloat(l.tr.querySelector('[data-col="sales_tax_pct"]')?.value)||0;
+      var share=(netSum>0)?perLineBilled*l.net/netSum:0;
+      inputTax+=(l.net+l.carriage+share)*stp/100;
+    });
+  }
+  inputTax=r2(inputTax);
+
+  // Withholding we deduct from the supplier — never compounded onto input tax.
+  var whtRow=document.getElementById('withholdingTaxRow');
+  var applyWht=whtRow&&whtRow.style.display!=='none';
+  var whtBase=r2(effectiveGoods-totalDisc+whtCharges);
+  var wht=applyWht?r2(whtBase*gv('globalWithholdingTaxPct')/100):0;
+
+  // A purchase invoice never carries further tax — it is a sales-side levy.
+  var netPayable=r2(effectiveGoods-totalDisc+billedTotal+inputTax-wht);
+
+  document.getElementById('summarySubtotal').textContent=fmt(subtotal);
+  document.getElementById('summaryDiscount').textContent='-'+fmt(totalDisc);
+  var carRow=document.getElementById('carriageRow');
+  if(carRow){carRow.style.display=absorbTotal>0?'':'none';
+    var cvEl=document.getElementById('summaryCarriage');if(cvEl)cvEl.textContent=fmt(absorbTotal)}
+  document.getElementById('summaryTaxableValue').textContent=fmt(inputTaxBase);
+  document.getElementById('summarySalesTax').textContent=fmt(inputTax);
+  recalcChargeSummary();
+  document.getElementById('summaryWithholdingTax').textContent='-'+fmt(wht);
+  document.getElementById('summaryNetPayable').textContent='Rs. '+fmt(netPayable);
+}
 
 // COLLECT DATA
-function collectData(){var items=[];qsa('#itemsBody tr').forEach(function(tr){items.push({product_id:tr.dataset.productId||null,description:tr.querySelector('.ac-desc-input')?.value||'',quantity:parseFloat(tr.querySelector('[data-col="quantity"]')?.value)||0,unit:tr.querySelector('.ac-unit')?.textContent||'pcs',unit_price:parseFloat(tr.querySelector('[data-col="unit_price"]')?.value)||0,discount_pct:parseFloat(tr.querySelector('[data-col="discount_pct"]')?.value)||0,discount_amount:parseFloat(tr.querySelector('[data-col="discount_amount"]')?.value)||0,commission:parseFloat(tr.querySelector('[data-col="commission"]')?.value)||0,freight:parseFloat(tr.querySelector('[data-col="freight"]')?.value)||0,loading_unloading:parseFloat(tr.querySelector('[data-col="loading_unloading"]')?.value)||0,sales_tax_pct:parseFloat(tr.querySelector('[data-col="sales_tax_pct"]')?.value)||0,total_before_discount:cv(tr.querySelector('[data-col="amount"]')?.value),total_after_discount:cv(tr.querySelector('[data-col="net_amount"]')?.value),comments:tr.querySelector('[data-col="comments"]')?.value||''})});return{id:document.getElementById('invoiceId').value||null,invoice_number:document.getElementById('invVoucher').value,supplier_id:parseInt(document.getElementById('supplierId').value)||null,party_account_id:parseInt(document.getElementById('partyAccountId')?.value)||null,driver_name:document.getElementById('driverName').value,driver_contact:document.getElementById('driverContact').value,vehicle_number:document.getElementById('vehicleNumber').value,gate_pass:'',discount_mode:getMode('discount'),expenses_mode:getMode('expenses'),tax_mode:getMode('tax'),global_discount_pct:parseFloat(document.getElementById('globalDiscPct').value)||0,global_discount_value:parseFloat(document.getElementById('globalDiscVal').value)||0,global_commission:parseFloat(document.getElementById('globalCommission').value)||0,global_freight:parseFloat(document.getElementById('globalFreight').value)||0,global_loading:parseFloat(document.getElementById('globalLoading').value)||0,global_sales_tax_pct:parseFloat(document.getElementById('globalSalesTaxPct').value)||0,global_withholding_tax_pct:parseFloat(document.getElementById('globalWithholdingTaxPct').value)||0,subtotal:cv(document.getElementById('summarySubtotal').textContent),total_discount:cv(document.getElementById('summaryDiscount').textContent),total_expenses:cv(document.getElementById('summaryExpensesTotal').textContent),total_tax:cv(document.getElementById('summaryTaxTotal').textContent),net_payable:cv(document.getElementById('summaryNetPayable').textContent),notes:document.getElementById('invoiceNotes').value,items:items}}
+function collectData(){var items=[];qsa('#itemsBody tr').forEach(function(tr){items.push({product_id:tr.dataset.productId||null,description:tr.querySelector('.ac-desc-input')?.value||'',quantity:parseFloat(tr.querySelector('[data-col="quantity"]')?.value)||0,unit:tr.querySelector('.ac-unit')?.textContent||'pcs',unit_price:parseFloat(tr.querySelector('[data-col="unit_price"]')?.value)||0,discount_pct:parseFloat(tr.querySelector('[data-col="discount_pct"]')?.value)||0,discount_amount:parseFloat(tr.querySelector('[data-col="discount_amount"]')?.value)||0,commission:parseFloat(tr.querySelector('[data-col="commission"]')?.value)||0,freight:parseFloat(tr.querySelector('[data-col="freight"]')?.value)||0,loading_unloading:parseFloat(tr.querySelector('[data-col="loading_unloading"]')?.value)||0,sales_tax_pct:parseFloat(tr.querySelector('[data-col="sales_tax_pct"]')?.value)||0,total_before_discount:cv(tr.querySelector('[data-col="amount"]')?.value),total_after_discount:cv(tr.querySelector('[data-col="net_amount"]')?.value),comments:''})});return{id:document.getElementById('invoiceId').value||null,supplier_id:parseInt(document.getElementById('supplierId').value)||null,party_account_id:parseInt(document.getElementById('partyAccountId')?.value)||null,driver_name:document.getElementById('driverName').value,driver_contact:document.getElementById('driverContact').value,vehicle_number:document.getElementById('vehicleNumber').value,discount_mode:getMode('discount'),expenses_mode:getMode('expenses'),tax_mode:getMode('tax'),global_discount_pct:parseFloat(document.getElementById('globalDiscPct').value)||0,global_discount_value:parseFloat(document.getElementById('globalDiscVal').value)||0,global_commission:parseFloat(document.getElementById('globalCommission')?.value)||0,global_freight:parseFloat(document.getElementById('globalFreight')?.value)||0,global_loading:parseFloat(document.getElementById('globalLoading')?.value)||0,global_sales_tax_pct:parseFloat(document.getElementById('globalSalesTaxPct').value)||0,global_withholding_tax_pct:parseFloat(document.getElementById('globalWithholdingTaxPct').value)||0,further_tax_pct:0,apply_further_tax:false,apply_withholding_tax:document.getElementById('withholdingTaxRow')?.style.display!=='none',subtotal:cv(document.getElementById('summarySubtotal').textContent),total_discount:Math.abs(cv(document.getElementById('summaryDiscount').textContent)),total_expenses:lastAbsorb+lastBilled+lastExpense,total_absorbed_charges:lastAbsorb,total_billed_charges:lastBilled,total_expense_charges:lastExpense,taxable_value:lastTaxBase,total_tax:cv(document.getElementById('summarySalesTax').textContent),total_further_tax:0,total_withholding_tax:Math.abs(cv(document.getElementById('summaryWithholdingTax').textContent)),net_payable:cv(document.getElementById('summaryNetPayable').textContent.replace('Rs. ','')),total_amount:cv(document.getElementById('summaryNetPayable').textContent.replace('Rs. ','')),payment_status:'unpaid',notes:document.getElementById('invoiceNotes').value||'',charges:collectCharges(),items:items}}
 
-// DISABLE / REBUILD ACTION BAR
-function disableAll(frozen){qsa('#itemsBody input, #itemsBody button, .inp, .sel, .sli, .btn-p, .btn-s, .btn-d, #saveBtn, #saveApproveBtn, #saveChangesBtn, #approveBtn, #deleteBtn, #unapproveBtn').forEach(function(el){if(frozen){el.disabled=true}else{el.disabled=false}});qsa('.pill-b').forEach(function(b){b.disabled=frozen||!editable});qs('#addLineBtn')&&(qs('#addLineBtn').disabled=frozen||!editable);qs('#clearAllBtn')&&(qs('#clearAllBtn').disabled=frozen||!editable)}
-function rebuildActionBar(st){var bar=qs('.ab');if(!bar)return;var can_approve={{ 'true' if current_user.is_admin() or current_user.is_manager() else 'false' }};bar.innerHTML='';if(st==='approved'){var btns='<button type="button" class="btn btn-d" id="unapproveBtn">Unapprove</button><button type="button" class="btn btn-o" onclick="window.print()">Print</button><a href="{{ url_for("inv_purchase_invoice.list_invoices") }}" class="btn btn-o">New Invoice</a>';bar.innerHTML=btns;var ub=document.getElementById('unapproveBtn');if(ub)ub.addEventListener('click',function(){showConfirm('Unapprove Invoice','Unapprove this invoice? Items will be checked for utilization.',unapproveInvoice)})}else if(st==='unapproved'){var btns='<button type="button" class="btn btn-o" onclick="window.print()">Print</button><button type="button" class="btn btn-d" id="deleteBtn">Delete</button><a href="{{ url_for("inv_purchase_invoice.list_invoices") }}" class="btn btn-o">New Invoice</a>';bar.innerHTML=btns;var db=document.getElementById('deleteBtn');if(db)db.addEventListener('click',function(){showConfirm('Delete Invoice','Are you sure you want to delete this invoice? This action cannot be undone.',deleteInvoice)})}else if(st==='new'){var btns='<button type="button" class="btn btn-p" id="saveBtn">Save</button>';if(can_approve)btns+='<button type="button" class="btn btn-s" id="saveApproveBtn">Save &amp; Approve</button>';btns+='<a href="{{ url_for("inv_purchase_invoice.list_invoices") }}" class="btn btn-o">Cancel</a>';bar.innerHTML=btns;qs('#saveBtn')&&qs('#saveBtn').addEventListener('click',function(){saveInvoice('save')});qs('#saveApproveBtn')&&qs('#saveApproveBtn').addEventListener('click',function(){showConfirm('Save & Approve','Save and approve this invoice? Stock will be updated.',function(){saveInvoice('approve')})})}}
-
-// SAVE / APPROVE / UNAPPROVE
+// SAVE / APPROVE
 function fmt(v){var n=parseFloat(v)||0;return n.toLocaleString('en-PK',{minimumFractionDigits:2,maximumFractionDigits:2})}
 function cv(s){return parseFloat((s||'').replace(/Rs\.\s*/,'').replace(/,/g,''))||0}
+function disableAll(frozen){qsa('#itemsBody input, #itemsBody button, .inp, .sel, .sli, .btn-p, .btn-s, .btn-d, #saveBtn, #saveApproveBtn, #saveChangesBtn, #approveBtn, #deleteBtn, #unapproveBtn').forEach(function(el){if(frozen){el.disabled=true}else{el.disabled=false}});qsa('.pill-b').forEach(function(b){b.disabled=frozen||!editable});qs('#addLineBtn')&&(qs('#addLineBtn').disabled=frozen||!editable);qs('#clearAllBtn')&&(qs('#clearAllBtn').disabled=frozen||!editable);qs('#fromOrdersBtn')&&(qs('#fromOrdersBtn').disabled=frozen||!editable);qs('#chargesBtn')&&(qs('#chargesBtn').disabled=frozen||!editable)}
+function rebuildActionBar(st){var bar=qs('.ab');if(!bar)return;var can_approve={{ 'true' if current_user.is_admin() or current_user.is_manager() else 'false' }};bar.innerHTML='';if(st==='approved'){bar.innerHTML='<button type="button" class="btn btn-d" id="unapproveBtn">Unapprove</button><button type="button" class="btn btn-o" onclick="window.print()">Print</button><a href="{{ url_for("inv_purchase_invoice.list_invoices") }}" class="btn btn-o">New Invoice</a>';var ub=document.getElementById('unapproveBtn');if(ub)ub.addEventListener('click',function(){showConfirm('Unapprove Invoice','Unapprove this invoice? Items will be checked for utilization.',unapproveInvoice)})}else if(st==='unapproved'){bar.innerHTML='<button type="button" class="btn btn-o" onclick="window.print()">Print</button><button type="button" class="btn btn-d" id="deleteBtn">Delete</button><a href="{{ url_for("inv_purchase_invoice.list_invoices") }}" class="btn btn-o">New Invoice</a>';var db=document.getElementById('deleteBtn');if(db)db.addEventListener('click',function(){showConfirm('Delete Invoice','Are you sure you want to delete this invoice? This action cannot be undone.',deleteInvoice)})}else if(st==='new'){bar.innerHTML='<button type="button" class="btn btn-p" id="saveBtn">Save</button>';if(can_approve)bar.innerHTML+='<button type="button" class="btn btn-s" id="saveApproveBtn">Save &amp; Approve</button>';bar.innerHTML+='<a href="{{ url_for("inv_purchase_invoice.list_invoices") }}" class="btn btn-o">Cancel</a>';qs('#saveBtn')&&qs('#saveBtn').addEventListener('click',function(){saveInvoice('save')});qs('#saveApproveBtn')&&qs('#saveApproveBtn').addEventListener('click',function(){showConfirm('Save & Approve','Save and approve this invoice? Stock will be updated.',function(){saveInvoice('approve')})})}}
 async function saveInvoice(action){var data=collectData();if(!data.supplier_id){toast('Please select a supplier','error');return}if(data.items.length===0){toast('Add at least one item','error');return}data.action=action;var r=await fetch('/inventory/purchase-invoice/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});var res=await r.json();if(!res.ok){toast(res.error||'Save failed','error');return}toast(res.message,'success');document.getElementById('invoiceId').value=res.id;document.getElementById('invVoucher').value=res.voucher;var badge=document.getElementById('statusBadge');if(badge){badge.className='bdg bdg-'+res.status;badge.textContent=res.status.charAt(0).toUpperCase()+res.status.slice(1)}if(res.status==='approved'){var eb=document.querySelector('.ap-b');if(!eb){var nb=document.createElement('div');nb.className='ap-b';nb.innerHTML='<span class="ap-t">&#10003; APPROVED</span><span>'+new Date().toLocaleString()+'</span>';var w=document.querySelector('.wrap');if(w)w.insertBefore(nb,w.querySelector('.card'))}}else{var eb2=document.querySelector('.ap-b');if(eb2)eb2.remove()}disableAll(true);rebuildActionBar(res.status);recalc()}
-async function unapproveInvoice(){var id=document.getElementById('invoiceId').value;if(!id)return;var btn=document.getElementById('unapproveBtn');if(btn){btn.disabled=true;btn.textContent='Checking...'}var r=await fetch('/inventory/purchase-invoice/unapprove/'+id,{method:'POST'});var res=await r.json();if(!res.ok){toast(res.error,'error');if(btn){btn.disabled=false;btn.textContent='Unapprove'}return}toast(res.message,'success');var badge=document.getElementById('statusBadge');if(badge){badge.className='bdg bdg-unapproved';badge.textContent='Unapproved'}disableAll(false);rebuildActionBar('unapproved')}
+async function unapproveInvoice(){var id=document.getElementById('invoiceId').value;if(!id)return;var btn=document.getElementById('unapproveBtn');if(btn){btn.disabled=true;btn.textContent='Unapproving...'}var r=await fetch('/inventory/purchase-invoice/unapprove/'+id,{method:'POST'});var res=await r.json();if(!res.ok){toast(res.error,'error');if(btn){btn.disabled=false;btn.textContent='Unapprove'}return}toast(res.message,'success');var badge=document.getElementById('statusBadge');if(badge){badge.className='bdg bdg-unapproved';badge.textContent='Unapproved'}disableAll(false);rebuildActionBar('unapproved')}
 document.getElementById('saveBtn')?.addEventListener('click',function(){saveInvoice('save')})
 document.getElementById('saveApproveBtn')?.addEventListener('click',function(){showConfirm('Save & Approve','Save and approve this invoice? Stock will be updated.',function(){saveInvoice('approve')})})
 document.getElementById('saveChangesBtn')?.addEventListener('click',function(){saveInvoice('save')})
@@ -500,10 +821,11 @@ document.getElementById('unapproveBtn')?.addEventListener('click',function(){sho
 async function deleteInvoice(){var id=document.getElementById('invoiceId').value;if(!id){toast('No invoice to delete','error');return}var r=await fetch('/inventory/purchase-invoice/delete/'+id,{method:'POST'});var res=await r.json();if(!res.ok){toast(res.error||'Delete failed','error');return}toast(res.message,'success');setTimeout(function(){window.location.href='{{ url_for("inv_purchase_invoice.list_invoices") }}'},500)}
 
 // GLOBAL INPUT LISTENERS
-['globalDiscPct','globalDiscVal','globalCommission','globalFreight','globalLoading','globalSalesTaxPct','globalWithholdingTaxPct'].forEach(function(id){var el=document.getElementById(id);if(el)el.addEventListener('input',recalc)})
+['globalDiscPct','globalDiscVal','globalSalesTaxPct','globalWithholdingTaxPct'].forEach(function(id){var el=document.getElementById(id);if(el)el.addEventListener('input',recalc)})
 
-// INIT — addRow runs synchronously FIRST, then async setup for products
+// INIT
 {% if invoice_items %}try{var items={{ invoice_items|tojson }};if(items.length===0){addRow({})}else{items.forEach(function(item){addRow(item)})}}catch(e){addRow({})}{% else %}addRow({});{% endif %}
+{% if invoice_charges %}try{charges={{ invoice_charges|tojson }};var _cc=document.getElementById('chargesCount');if(_cc&&charges.length)_cc.textContent='('+charges.length+' charges)'}catch(e){charges=[]}{% endif %}
 (async function init(){try{allProducts=await loadProducts('')}catch(e){console.warn('Product load failed',e)}setTimeout(function(){qsa('#itemsBody tr').forEach(function(tr){recalcRow(tr)});refreshCols();recalc();var d=document.getElementById('invDate');if(d&&!d.value){var n=new Date();d.value=n.getFullYear()+'-'+String(n.getMonth()+1).padStart(2,'0')+'-'+String(n.getDate()).padStart(2,'0')}var t=document.getElementById('invTime');if(t&&!t.value){var n2=new Date();t.value=String(n2.getHours()).padStart(2,'0')+':'+String(n2.getMinutes()).padStart(2,'0')}},50)})();
 </script>
 {% endblock %}

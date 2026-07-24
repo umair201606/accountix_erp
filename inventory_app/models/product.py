@@ -14,6 +14,7 @@ class InvProduct(db.Model):
     reorder_level = db.Column(db.Integer, default=0)
     current_stock = db.Column(db.Integer, default=0)
     unit = db.Column(db.String(20), default="pcs")
+    hs_code = db.Column(db.String(50), default="")
     is_active = db.Column(db.Boolean, default=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

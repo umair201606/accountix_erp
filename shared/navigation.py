@@ -52,6 +52,12 @@ MODULE_META = {
         "badge_bg": "#e0f2f1", "badge_fg": "#0f5257",
         "home": "accounting.dashboard",
     },
+    "fbr": {
+        "label": "FBR Digital Invoicing", "badge": "FBR", "letter": "F",
+        "brand": "linear-gradient(135deg,#b5790a,#d4952e)",
+        "badge_bg": "#faf1de", "badge_fg": "#b5790a",
+        "home": "fbr_dashboard.dashboard",
+    },
     "settings": {
         "label": "Solarkon Settings", "badge": "SETTINGS", "letter": "S",
         "brand": "linear-gradient(135deg,#475569,#64748b)",
@@ -202,6 +208,13 @@ NAV = {
                  "label": "Sales Return",
                  "active": {"prefix": "inv_sales_return"}},
             ]),
+        ],
+    },
+    "fbr": {
+        "flat": [
+            {"endpoint": "fbr_dashboard.dashboard", "icon": "&#9679;", "label": "Dashboard"},
+            {"endpoint": "fbr_settings.index", "icon": "&#9881;", "label": "Settings",
+             "active": {"prefix": "fbr_settings."}, "gate": _admin},
         ],
     },
     "finance": {

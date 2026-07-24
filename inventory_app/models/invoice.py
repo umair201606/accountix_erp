@@ -26,11 +26,17 @@ class InvInvoice(db.Model):
     global_delivery = db.Column(db.Float, default=0)
     global_installation = db.Column(db.Float, default=0)
     global_sales_tax_pct = db.Column(db.Float, default=0)
+    further_tax_pct = db.Column(db.Float, default=0)
+    apply_further_tax = db.Column(db.Boolean, default=False)
+    withholding_tax_pct = db.Column(db.Float, default=0)
+    apply_withholding_tax = db.Column(db.Boolean, default=False)
 
     subtotal = db.Column(db.Float, default=0)
     total_discount = db.Column(db.Float, default=0)
     total_charges = db.Column(db.Float, default=0)
     total_tax = db.Column(db.Float, default=0)
+    total_further_tax = db.Column(db.Float, default=0)
+    total_withholding_tax = db.Column(db.Float, default=0)
     total_amount = db.Column(db.Float, default=0)
     paid_amount = db.Column(db.Float, default=0)
 
@@ -44,6 +50,10 @@ class InvInvoice(db.Model):
     approver = db.relationship("User", foreign_keys=[approved_by])
     items = db.relationship("InvInvoiceItem", backref="invoice",
                             lazy="dynamic", cascade="all, delete-orphan")
+    @property
+    def charges_list(self):
+        from .additional_charge import AdditionalCharge
+        return AdditionalCharge.query.filter_by(doc_type="SI", doc_id=self.id).all()
 
 
 class InvInvoiceItem(db.Model):

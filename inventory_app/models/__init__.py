@@ -10,4 +10,5 @@ from .sales_order import InvSalesOrder, InvSalesOrderItem
 from .sales_return import InvSalesReturn, InvSalesReturnItem
 from .stock_movement import InvStockMovement
 from .invoice import InvInvoice
+from .additional_charge import AdditionalCharge
 from .unit import InvUnit

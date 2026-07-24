@@ -27,6 +27,7 @@ from shared.models.base import User, UserPermission
 from shared.models.company_settings import (CompanyInfo, AccountingPeriod,
                                             ReportSettings, PL_SECTIONS)
 from shared.models.inventory_settings import InventorySettings
+from shared.models.invoice_settings import InvoiceSettings
 from shared.models.invoice_template import (
     InvoiceTemplate, DESIGNS, DESIGN_KEYS, ACCENT_PRESETS, PLACEHOLDER_HELP,
     option_groups, default_options, build_body, render_invoice_template,
@@ -48,6 +49,7 @@ SECTIONS = [
     ("inventory", "Inventory",         "&#128230;", lambda u: u.module_access("inventory")),
     ("purchase",  "Procurement",       "&#128228;", lambda u: u.module_access("invoicing")),
     ("sales",     "Sales",             "&#128229;", lambda u: u.module_access("invoicing")),
+    ("invoicing", "Invoice Defaults",  "&#128207;", lambda u: u.module_access("invoicing")),
     ("templates", "Invoice Templates", "&#128196;", lambda u: u.module_access("invoicing")),
     ("rights",    "Rights & Access",   "&#128273;", lambda u: u.is_admin()),
 ]
@@ -110,6 +112,9 @@ def index():
     elif tab in ("purchase", "sales"):
         ctx["report_settings"] = ReportSettings.get()
         ctx["templates"] = InvoiceTemplate.query.filter_by(type=tab).order_by(InvoiceTemplate.name).all()
+    elif tab == "invoicing":
+        ctx["invoice_settings"] = InvoiceSettings.get()
+        ctx["accounts"] = _postable_accounts()
     elif tab == "templates":
         ctx["sales_templates"] = InvoiceTemplate.query.filter_by(type="sales").order_by(InvoiceTemplate.name).all()
         ctx["purchase_templates"] = InvoiceTemplate.query.filter_by(type="purchase").order_by(InvoiceTemplate.name).all()
@@ -354,6 +359,47 @@ def save_document_settings(doc):
     label = "Procurement" if doc == "purchase" else "Sales"
     flash(f"{label} settings updated.", "success")
     return redirect(url_for("settings.index", tab=doc))
+
+
+@settings_bp.route("/invoicing", methods=["POST"])
+@login_required
+def save_invoicing():
+    denied = _require("invoicing")
+    if denied:
+        return denied
+    s = InvoiceSettings.get()
+    s.default_sales_tax_pct = request.form.get("default_sales_tax_pct", 0, type=float) or 0
+    s.default_further_tax_pct = request.form.get("default_further_tax_pct", 0, type=float) or 0
+    s.default_withholding_tax_pct = request.form.get("default_withholding_tax_pct", 0, type=float) or 0
+    s.default_discount_pct = request.form.get("default_discount_pct", 0, type=float) or 0
+    s.default_charges_mode = request.form.get("default_charges_mode", "general")
+    s.default_discount_mode = request.form.get("default_discount_mode", "general")
+    s.default_tax_mode = request.form.get("default_tax_mode", "general")
+    s.show_discount_column = request.form.get("show_discount_column") == "on"
+    s.show_charges_column = request.form.get("show_charges_column") == "on"
+    s.show_tax_column = request.form.get("show_tax_column") == "on"
+    s.auto_add_line = request.form.get("auto_add_line") == "on"
+    s.require_approval = request.form.get("require_approval") == "on"
+    s.allow_partial_payment = request.form.get("allow_partial_payment") == "on"
+    s.default_party_mode = request.form.get("default_party_mode", "relevant")
+
+    # §11.2 — tax application defaults, over-invoicing tolerance, w/h base
+    s.over_invoice_tolerance_pct = request.form.get(
+        "over_invoice_tolerance_pct", 0, type=float) or 0
+    wh_base = request.form.get("withholding_base", "taxable")
+    s.withholding_base = wh_base if wh_base in ("taxable", "gross") else "taxable"
+
+    # §11.3 — form-field visibility (hiding a control forces its behaviour)
+    s.create_from_orders_enabled = request.form.get("create_from_orders_enabled") == "on"
+    s.per_line_discount_enabled = request.form.get("per_line_discount_enabled") == "on"
+    s.per_line_tax_enabled = request.form.get("per_line_tax_enabled") == "on"
+    s.show_withholding_tax = request.form.get("show_withholding_tax") == "on"
+    s.show_further_tax = request.form.get("show_further_tax") == "on"
+    s.show_transport_block = request.form.get("show_transport_block") == "on"
+
+    db.session.commit()
+    flash("Invoice settings updated.", "success")
+    return redirect(url_for("settings.index", tab="invoicing"))
 
 
 @settings_bp.route("/documents/<doc>/template", methods=["POST"])

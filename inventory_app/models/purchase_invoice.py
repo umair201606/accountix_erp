@@ -28,12 +28,23 @@ class InvPurchaseInvoice(db.Model):
     global_loading = db.Column(db.Float, default=0)
     global_sales_tax_pct = db.Column(db.Float, default=0)
     global_withholding_tax_pct = db.Column(db.Float, default=0)
+    # Further tax exists on sales only (§8); the column is kept so old rows and
+    # the shared mapper still load, but a purchase never sets it.
+    further_tax_pct = db.Column(db.Float, default=0)
+    apply_further_tax = db.Column(db.Boolean, default=False)
+    apply_withholding_tax = db.Column(db.Boolean, default=False)
 
     subtotal = db.Column(db.Float, default=0)
     total_discount = db.Column(db.Float, default=0)
     total_expenses = db.Column(db.Float, default=0)
     total_tax = db.Column(db.Float, default=0)
+    total_further_tax = db.Column(db.Float, default=0)
+    total_withholding_tax = db.Column(db.Float, default=0)
     net_payable = db.Column(db.Float, default=0)
+    total_amount = db.Column(db.Float, default=0)
+    paid_amount = db.Column(db.Float, default=0)
+    payment_status = db.Column(db.String(20), default="unpaid")
+    purchase_order_id = db.Column(db.Integer, db.ForeignKey("inv_purchase_orders.id"))
 
     notes = db.Column(db.Text)
     status = db.Column(db.String(20), default="new")
@@ -47,6 +58,11 @@ class InvPurchaseInvoice(db.Model):
     approver = db.relationship("User", foreign_keys=[approved_by])
     items = db.relationship("InvPurchaseInvoiceItem", backref="invoice",
                             lazy="dynamic", cascade="all, delete-orphan")
+
+    @property
+    def charges_list(self):
+        from .additional_charge import AdditionalCharge
+        return AdditionalCharge.query.filter_by(doc_type="PI", doc_id=self.id).all()
 
 
 class InvPurchaseInvoiceItem(db.Model):

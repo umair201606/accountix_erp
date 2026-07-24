@@ -42,14 +42,21 @@
       <label>Description</label>
       <textarea name="description" class="form-control focus-ring" rows="3">{{ product.description if product else '' }}</textarea>
     </div>
-    <div class="form-group">
-      <label>Category</label>
-      <select name="category_id" class="form-control focus-ring">
-        <option value="">None</option>
-        {% for c in categories %}
-        <option value="{{ c.id }}" {% if product and product.category_id == c.id %}selected{% endif %}>{{ c.name }}</option>
-        {% endfor %}
-      </select>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Category</label>
+        <select name="category_id" class="form-control focus-ring">
+          <option value="">None</option>
+          {% for c in categories %}
+          <option value="{{ c.id }}" {% if product and product.category_id == c.id %}selected{% endif %}>{{ c.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="form-group">
+        <label>HS Code</label>
+        <input type="text" name="hs_code" class="form-control focus-ring" value="{{ product.hs_code if product else '' }}" placeholder="e.g. 8541.4000">
+        <small style="display:block;margin-top:4px;color:#64748b;">Harmonised System tariff code — sent to FBR Digital Invoicing.</small>
+      </div>
     </div>
     <div class="form-row">
       <div class="form-group">

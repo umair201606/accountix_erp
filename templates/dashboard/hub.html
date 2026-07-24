@@ -2,47 +2,59 @@
 {% block title %}Select Module{% endblock %}
 {% block content %}
   {% if has_hr %}
-  <a href="{{ url_for('dashboard') }}" style="display:flex;flex-direction:column;align-items:center;text-align:center;background:#fff;border-radius:10px;padding:36px 20px;text-decoration:none;color:#1f2937;border:1px solid #e5e7eb;transition:all .15s;" onmouseover="this.style.borderColor='#2563eb';this.style.boxShadow='0 4px 12px rgba(37,99,235,.1)';" onmouseout="this.style.borderColor='#e5e7eb';this.style.boxShadow='none';">
-    <div style="font-size:40px;margin-bottom:12px;">&#128188;</div>
-    <h3 style="margin:0 0 6px;font-size:16px;font-weight:600;">HR Management</h3>
-    <p style="margin:0;font-size:12px;color:#6b7280;line-height:1.4;">Employees, Attendance, Leave, Payroll, PF &amp; more</p>
+  <a href="{{ url_for('dashboard') }}" class="mod-card" style="--hover:#2563eb">
+    <div class="mod-ico">&#128188;</div>
+    <h3 class="mod-title">HR Management</h3>
+    <p class="mod-desc">Employees, Attendance, Leave, Payroll, PF &amp; more</p>
   </a>
   {% endif %}
   {% if has_inv %}
-  <a href="{{ url_for('inv_auth.dashboard') }}" style="display:flex;flex-direction:column;align-items:center;text-align:center;background:#fff;border-radius:10px;padding:36px 20px;text-decoration:none;color:#1f2937;border:1px solid #e5e7eb;transition:all .15s;" onmouseover="this.style.borderColor='#2563eb';this.style.boxShadow='0 4px 12px rgba(37,99,235,.1)';" onmouseout="this.style.borderColor='#e5e7eb';this.style.boxShadow='none';">
-    <div style="font-size:40px;margin-bottom:12px;">&#128230;</div>
-    <h3 style="margin:0 0 6px;font-size:16px;font-weight:600;">Inventory Management</h3>
-    <p style="margin:0;font-size:12px;color:#6b7280;line-height:1.4;">Products, Categories, Stock Movements, Vouchers, Reports</p>
+  <a href="{{ url_for('inv_auth.dashboard') }}" class="mod-card" style="--hover:#2563eb">
+    <div class="mod-ico">&#128230;</div>
+    <h3 class="mod-title">Inventory Management</h3>
+    <p class="mod-desc">Products, Categories, Stock Movements, Vouchers, Reports</p>
   </a>
   {% endif %}
   {% if has_invoicing %}
-  <a href="{{ url_for('invoicing.dashboard') }}" style="display:flex;flex-direction:column;align-items:center;text-align:center;background:#fff;border-radius:10px;padding:36px 20px;text-decoration:none;color:#1f2937;border:1px solid #e5e7eb;transition:all .15s;" onmouseover="this.style.borderColor='#0d9488';this.style.boxShadow='0 4px 12px rgba(13,148,136,.1)';" onmouseout="this.style.borderColor='#e5e7eb';this.style.boxShadow='none';">
-    <div style="font-size:40px;margin-bottom:12px;">&#129534;</div>
-    <h3 style="margin:0 0 6px;font-size:16px;font-weight:600;">Invoicing</h3>
-    <p style="margin:0;font-size:12px;color:#6b7280;line-height:1.4;">Suppliers, Customers, Purchase &amp; Sales Orders, Invoices, Returns</p>
+  <a href="{{ url_for('invoicing.dashboard') }}" class="mod-card" style="--hover:#0d9488">
+    <div class="mod-ico">&#129534;</div>
+    <h3 class="mod-title">Invoicing</h3>
+    <p class="mod-desc">Suppliers, Customers, Purchase &amp; Sales, Invoices, Returns</p>
   </a>
   {% endif %}
   {% if has_finance %}
-  <a href="{{ url_for('finance.dashboard') }}" style="display:flex;flex-direction:column;align-items:center;text-align:center;background:#fff;border-radius:10px;padding:36px 20px;text-decoration:none;color:#1f2937;border:1px solid #e5e7eb;transition:all .15s;" onmouseover="this.style.borderColor='#2563eb';this.style.boxShadow='0 4px 12px rgba(37,99,235,.1)';" onmouseout="this.style.borderColor='#e5e7eb';this.style.boxShadow='none';">
-    <div style="font-size:40px;margin-bottom:12px;">&#128176;</div>
-    <h3 style="margin:0 0 6px;font-size:16px;font-weight:600;">Finance Management</h3>
-    <p style="margin:0;font-size:12px;color:#6b7280;line-height:1.4;">Ledger, Trial Balance, P&L, Balance Sheet, Cash Flow, Settings</p>
+  <a href="{{ url_for('finance.dashboard') }}" class="mod-card" style="--hover:#2563eb">
+    <div class="mod-ico">&#128176;</div>
+    <h3 class="mod-title">Finance Management</h3>
+    <p class="mod-desc">Ledger, Trial Balance, P&L, Balance Sheet, Cash Flow</p>
   </a>
   {% endif %}
   {% if has_accounting %}
-  <a href="{{ url_for('accounting.dashboard') }}" style="display:flex;flex-direction:column;align-items:center;text-align:center;background:#fff;border-radius:10px;padding:36px 20px;text-decoration:none;color:#1f2937;border:1px solid #e5e7eb;transition:all .15s;" onmouseover="this.style.borderColor='#0f5257';this.style.boxShadow='0 4px 12px rgba(15,82,87,.1)';" onmouseout="this.style.borderColor='#e5e7eb';this.style.boxShadow='none';">
-    <div style="font-size:40px;margin-bottom:12px;">&#128202;</div>
-    <h3 style="margin:0 0 6px;font-size:16px;font-weight:600;">Accounting</h3>
-    <p style="margin:0;font-size:12px;color:#6b7280;line-height:1.4;">Vouchers (CPV, CRV, BPV, BRV, JV), Chart of Accounts</p>
+  <a href="{{ url_for('accounting.dashboard') }}" class="mod-card" style="--hover:#0f5257">
+    <div class="mod-ico">&#128202;</div>
+    <h3 class="mod-title">Accounting</h3>
+    <p class="mod-desc">Vouchers (CPV, CRV, BPV, BRV, JV), Chart of Accounts</p>
   </a>
   {% endif %}
-  {# Settings is open to everyone — the page itself shows only the sections a
-     user's access allows (always at least their own account). #}
-  <a href="{{ url_for('settings.index') }}" style="display:flex;flex-direction:column;align-items:center;text-align:center;background:#fff;border-radius:10px;padding:36px 20px;text-decoration:none;color:#1f2937;border:1px solid #e5e7eb;transition:all .15s;" onmouseover="this.style.borderColor='#1f2937';this.style.boxShadow='0 4px 12px rgba(31,41,55,.1)';" onmouseout="this.style.borderColor='#e5e7eb';this.style.boxShadow='none';">
-    <div style="font-size:40px;margin-bottom:12px;">&#9881;&#65039;</div>
-    <h3 style="margin:0 0 6px;font-size:16px;font-weight:600;">Settings</h3>
-    <p style="margin:0;font-size:12px;color:#6b7280;line-height:1.4;">
-      {% if has_settings %}Account, company, reports, inventory, invoices &amp; user rights{% else %}Your account{% if has_inv %}, inventory{% endif %}{% if has_invoicing %}, invoices{% endif %}{% endif %}
+  {% if has_fbr %}
+  <a href="{{ url_for('fbr_dashboard.dashboard') }}" class="mod-card" style="--hover:#b5790a">
+    <div class="mod-ico">&#9878;</div>
+    <h3 class="mod-title">FBR Digital Invoicing</h3>
+    <p class="mod-desc">DI submissions, validation, configuration &amp; compliance</p>
+  </a>
+  {% endif %}
+  <a href="{{ url_for('settings.index') }}" class="mod-card" style="--hover:#1f2937">
+    <div class="mod-ico">&#9881;</div>
+    <h3 class="mod-title">Settings</h3>
+    <p class="mod-desc">
+      {% if has_settings %}Account, company, reports, inventory, invoices &amp; rights{% else %}Your account, preferences{% endif %}
     </p>
   </a>
+  <style>
+    .mod-card{display:flex;flex-direction:column;align-items:center;text-align:center;background:#fff;border-radius:10px;padding:36px 20px;text-decoration:none;color:#1f2937;border:1px solid #e5e7eb;transition:border-color .15s,box-shadow .15s}
+    .mod-card:hover{border-color:var(--hover);box-shadow:0 4px 12px rgba(0,0,0,.06)}
+    .mod-ico{font-size:40px;margin-bottom:12px;line-height:1}
+    .mod-title{margin:0 0 6px;font-size:16px;font-weight:600}
+    .mod-desc{margin:0;font-size:12px;color:#6b7280;line-height:1.4}
+  </style>
 {% endblock %}

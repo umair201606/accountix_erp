@@ -1,0 +1,125 @@
+{% extends "fbr/base_fbr.html" %}
+{% block title %}FBR Settings{% endblock %}
+{% block page_title %}FBR Digital Invoicing — Configuration{% endblock %}
+{% block content %}
+{% include "_flash.html" %}
+
+<div class="card">
+  <div class="card-header">FBR API Configuration</div>
+  <div class="card-body">
+    <form method="POST">
+      <div class="form-row">
+        <div class="form-group">
+          <label>Environment</label>
+          <select name="environment" class="form-control">
+            <option value="sandbox" {% if config.environment == 'sandbox' %}selected{% endif %}>Sandbox (Testing)</option>
+            <option value="live" {% if config.environment == 'live' %}selected{% endif %}>Live (Production)</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Active</label>
+          <label class="checkbox-label" style="display:flex;align-items:center;gap:8px;margin-top:6px;">
+            <input type="checkbox" name="is_active" {% if config.is_active %}checked{% endif %}>
+            <span style="font-size:13px;font-weight:400;">Enable FBR Digital Invoicing</span>
+          </label>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label>Access Token</label>
+        <textarea name="access_token" class="form-control form-textarea" rows="3" placeholder="Paste your FBR API access token here">{{ config.access_token }}</textarea>
+      </div>
+
+      <hr style="border:none;border-top:1px solid var(--line);margin:16px 0;">
+
+      <h3 style="font-size:14px;font-weight:700;color:var(--ink);margin-bottom:12px;">&nbsp;Seller Profile</h3>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label>Seller NTN</label>
+          <input type="text" name="seller_ntn" class="form-control" value="{{ config.seller_ntn }}" placeholder="National Tax Number">
+        </div>
+        <div class="form-group">
+          <label>Seller STRN</label>
+          <input type="text" name="seller_strn" class="form-control" value="{{ config.seller_strn }}" placeholder="Sales Tax Registration Number">
+        </div>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label>Seller CNIC</label>
+          <input type="text" name="seller_cnic" class="form-control" value="{{ config.seller_cnic }}" placeholder="CNIC (without dashes)">
+        </div>
+        <div class="form-group">
+          <label>Seller Name</label>
+          <input type="text" name="seller_name" class="form-control" value="{{ config.seller_name }}" placeholder="Owner / Responsible person name">
+        </div>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label>Business Name</label>
+          <input type="text" name="seller_business_name" class="form-control" value="{{ config.seller_business_name }}" placeholder="Registered business name">
+        </div>
+        <div class="form-group">
+          <label>Phone</label>
+          <input type="text" name="seller_phone" class="form-control" value="{{ config.seller_phone }}" placeholder="e.g. 0300-1234567">
+        </div>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label>Email</label>
+          <input type="email" name="seller_email" class="form-control" value="{{ config.seller_email }}" placeholder="seller@example.com">
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label>Address</label>
+        <textarea name="seller_address" class="form-control form-textarea" rows="2" placeholder="Business address">{{ config.seller_address }}</textarea>
+      </div>
+
+      <div style="display:flex;gap:10px;margin-top:16px;">
+        <button type="submit" class="btn btn-primary">Save Configuration</button>
+        <button type="button" class="btn btn-accent" id="testConnectionBtn">Test Connection</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div id="testResult" style="display:none;margin-top:12px;" class="card">
+  <div class="card-body" id="testResultBody"></div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+document.getElementById('testConnectionBtn').addEventListener('click', async function() {
+  var btn = this;
+  btn.disabled = true;
+  btn.textContent = 'Testing...';
+  var resultDiv = document.getElementById('testResult');
+  var resultBody = document.getElementById('testResultBody');
+  resultDiv.style.display = 'none';
+
+  try {
+    var r = await fetch('{{ url_for("fbr_settings.test_connection") }}', { method: 'POST' });
+    var data = await r.json();
+    resultDiv.style.display = 'block';
+    if (data.ok) {
+      resultBody.innerHTML = '<span style="color:var(--green);font-weight:600;">&#10003; ' + data.message + '</span>';
+      resultDiv.style.borderColor = 'var(--green)';
+    } else {
+      resultBody.innerHTML = '<span style="color:var(--red);font-weight:600;">&#10005; ' + data.message + '</span>';
+      resultDiv.style.borderColor = 'var(--red)';
+    }
+  } catch (e) {
+    resultDiv.style.display = 'block';
+    resultBody.innerHTML = '<span style="color:var(--red);font-weight:600;">&#10005; Connection error</span>';
+    resultDiv.style.borderColor = 'var(--red)';
+  }
+  btn.disabled = false;
+  btn.textContent = 'Test Connection';
+});
+</script>
+{% endblock %}

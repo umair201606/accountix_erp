@@ -45,6 +45,7 @@ def create_product():
             reorder_level=request.form.get("reorder_level", 0, type=int),
             current_stock=request.form.get("current_stock", 0, type=int),
             unit=request.form.get("unit", "pcs"),
+            hs_code=request.form.get("hs_code", "").strip(),
         )
         db.session.add(prod)
         db.session.flush()
@@ -72,6 +73,7 @@ def edit_product(id):
         prod.cost_price = request.form.get("cost_price", 0, type=float)
         prod.reorder_level = request.form.get("reorder_level", 0, type=int)
         prod.unit = request.form.get("unit", "pcs")
+        prod.hs_code = request.form.get("hs_code", "").strip()
         prod.is_active = request.form.get("is_active") == "on"
         create_entity_account("product", prod.id, f"{prod.name} ({prod.sku})")
         db.session.commit()
@@ -222,6 +224,8 @@ def upload_excel():
             if len(row) > 8 and row[8] is not None:
                 unit = (str(row[8]).strip())
 
+            hs_code = (str(row[9]).strip()) if len(row) > 9 and row[9] is not None else ""
+
             if not sku and not name:
                 continue
             if not sku:
@@ -257,6 +261,7 @@ def upload_excel():
                 "reorder_level": reorder,
                 "current_stock": stock,
                 "unit": unit,
+                "hs_code": hs_code,
             })
 
         if not rows:
@@ -295,6 +300,7 @@ def batch_editor():
             reorder = r.get("reorder_level", 0)
             stock = r.get("current_stock", 0)
             unit = r.get("unit", "pcs").strip()
+            hs_code = r.get("hs_code", "").strip()
             row_marked = r.get("_delete", False)
 
             if row_marked:
@@ -346,6 +352,7 @@ def batch_editor():
                 reorder_level=reorder,
                 current_stock=stock,
                 unit=unit,
+                hs_code=hs_code,
             )
             db.session.add(prod)
             db.session.flush()
