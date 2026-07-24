@@ -96,55 +96,74 @@
     </div>
   </div>
 
-  <!-- §11.3 — Form-field visibility ──────────────────────────────────────── -->
-  <div class="set-card" style="margin-bottom:16px;">
-    <h3>Form-field Visibility</h3>
-    <p class="hint">Controls which fields and toggles appear on the day-to-day creation form (§11.3).
-      Hiding a control removes it entirely and forces its behaviour — most businesses use only a
-      subset, and hiding the rest keeps data-entry staff from options that don't apply.</p>
-    <div class="fgrid">
-      <div class="fgroup">
-        <label class="lbl">Controls &amp; toggles</label>
-        <div style="display:flex;flex-direction:column;gap:8px;font-size:13px;padding:6px 0;">
-          <label><input type="checkbox" name="create_from_orders_enabled" {{ 'checked' if invoice_settings.create_from_orders_enabled }}> Create-from-orders picker <span class="rc-d">— off = no order sourcing (blank documents only)</span></label>
-          <label><input type="checkbox" name="per_line_discount_enabled" {{ 'checked' if invoice_settings.per_line_discount_enabled }}> Per-line discount toggle <span class="rc-d">— off = Combined discount only</span></label>
-          <label><input type="checkbox" name="show_charges_column" {{ 'checked' if invoice_settings.show_charges_column }}> Additional Charges button <span class="rc-d">— off = a no-charges document</span></label>
-          <label><input type="checkbox" name="per_line_tax_enabled" {{ 'checked' if invoice_settings.per_line_tax_enabled }}> Per-line tax toggle <span class="rc-d">— off = Combined tax only</span></label>
-        </div>
+  <!-- §11.3 — Form-field visibility (Figure 7, right-hand card) ────────── -->
+  <div class="set-card set-boxed">
+    <div class="set-card-hd">Form field visibility</div>
+    <div class="set-card-bd">
+      <div class="tog-row">
+        <span class="tog-l">Create-from-orders picker
+          <span class="tog-d">Off = blank documents only, no order sourcing</span></span>
+        <label class="stog"><input type="checkbox" name="create_from_orders_enabled" {{ 'checked' if invoice_settings.create_from_orders_enabled }}><span class="sl"></span></label>
       </div>
-      <div class="fgroup">
-        <label class="lbl">Fields &amp; blocks</label>
-        <div style="display:flex;flex-direction:column;gap:8px;font-size:13px;padding:6px 0;">
-          <label><input type="checkbox" name="show_withholding_tax" {{ 'checked' if invoice_settings.show_withholding_tax }}> Withholding tax field</label>
-          <label><input type="checkbox" name="show_further_tax" {{ 'checked' if invoice_settings.show_further_tax }}> Further tax field</label>
-          <label><input type="checkbox" name="show_transport_block" {{ 'checked' if invoice_settings.show_transport_block }}> Transport / logistics block <span class="rc-d">— relevant to businesses shipping physical goods</span></label>
-        </div>
+      <div class="tog-row">
+        <span class="tog-l">Per-line discount toggle
+          <span class="tog-d">Off = Combined discount only</span></span>
+        <label class="stog"><input type="checkbox" name="per_line_discount_enabled" {{ 'checked' if invoice_settings.per_line_discount_enabled }}><span class="sl"></span></label>
       </div>
-    </div>
-    <div class="fgrid">
-      <div class="fgroup">
-        <label class="lbl">Grid columns</label>
-        <div style="display:flex;gap:16px;flex-wrap:wrap;font-size:13px;padding:6px 0;">
-          <label><input type="checkbox" name="show_discount_column" {{ 'checked' if invoice_settings.show_discount_column }}> Show Discount Column</label>
-          <label><input type="checkbox" name="show_tax_column" {{ 'checked' if invoice_settings.show_tax_column }}> Show Tax Column</label>
-        </div>
+      <div class="tog-row">
+        <span class="tog-l">Additional Charges button
+          <span class="tog-d">Off = a no-charges document</span></span>
+        <label class="stog"><input type="checkbox" name="show_charges_column" {{ 'checked' if invoice_settings.show_charges_column }}><span class="sl"></span></label>
       </div>
-      <div class="fgroup">
-        <label class="lbl">Behaviour</label>
-        <div style="display:flex;gap:16px;flex-wrap:wrap;font-size:13px;padding:6px 0;">
-          <label><input type="checkbox" name="auto_add_line" {{ 'checked' if invoice_settings.auto_add_line }}> Auto-add empty line</label>
-          <label><input type="checkbox" name="require_approval" {{ 'checked' if invoice_settings.require_approval }}> Require approval to post</label>
-          <label><input type="checkbox" name="allow_partial_payment" {{ 'checked' if invoice_settings.allow_partial_payment }}> Allow partial payment</label>
-        </div>
+      <div class="tog-row">
+        <span class="tog-l">Per-line tax toggle
+          <span class="tog-d">Off = Combined tax only</span></span>
+        <label class="stog"><input type="checkbox" name="per_line_tax_enabled" {{ 'checked' if invoice_settings.per_line_tax_enabled }}><span class="sl"></span></label>
       </div>
+      <div class="tog-row">
+        <span class="tog-l">Withholding tax field</span>
+        <label class="stog"><input type="checkbox" name="show_withholding_tax" {{ 'checked' if invoice_settings.show_withholding_tax }}><span class="sl"></span></label>
+      </div>
+      <div class="tog-row">
+        <span class="tog-l">Further tax field
+          <span class="tog-d">Sales documents only (§8)</span></span>
+        <label class="stog"><input type="checkbox" name="show_further_tax" {{ 'checked' if invoice_settings.show_further_tax }}><span class="sl"></span></label>
+      </div>
+      <div class="tog-row">
+        <span class="tog-l">Transport / logistics block
+          <span class="tog-d">For businesses shipping physical goods</span></span>
+        <label class="stog"><input type="checkbox" name="show_transport_block" {{ 'checked' if invoice_settings.show_transport_block }}><span class="sl"></span></label>
+      </div>
+      <div class="tog-row">
+        <span class="tog-l">Discount column in grid</span>
+        <label class="stog"><input type="checkbox" name="show_discount_column" {{ 'checked' if invoice_settings.show_discount_column }}><span class="sl"></span></label>
+      </div>
+      <div class="tog-row">
+        <span class="tog-l">Tax column in grid</span>
+        <label class="stog"><input type="checkbox" name="show_tax_column" {{ 'checked' if invoice_settings.show_tax_column }}><span class="sl"></span></label>
+      </div>
+      <div class="tog-row">
+        <span class="tog-l">Auto-add empty line</span>
+        <label class="stog"><input type="checkbox" name="auto_add_line" {{ 'checked' if invoice_settings.auto_add_line }}><span class="sl"></span></label>
+      </div>
+      <div class="tog-row">
+        <span class="tog-l">Require approval to post</span>
+        <label class="stog"><input type="checkbox" name="require_approval" {{ 'checked' if invoice_settings.require_approval }}><span class="sl"></span></label>
+      </div>
+      <div class="tog-row">
+        <span class="tog-l">Allow partial payment</span>
+        <label class="stog"><input type="checkbox" name="allow_partial_payment" {{ 'checked' if invoice_settings.allow_partial_payment }}><span class="sl"></span></label>
+      </div>
+      <div class="set-note">Off = the control never appears on the creation form or in the
+        Additional Settings panel; hidden sections are forced to Combined.</div>
     </div>
   </div>
 
+  <div class="set-2col">
   <!-- §11.1 — Charge-ledger defaults ─────────────────────────────────────── -->
-  <div class="set-card" style="margin-bottom:16px;">
-    <h3>Charge-ledger Defaults</h3>
-    <p class="hint">Seed values applied when a ledger is picked in the Additional Charges form (§6.1).
-      Every one of them stays overridable per charge, per document.</p>
+  <div class="set-card set-boxed">
+    <div class="set-card-hd">Charge ledger defaults<span class="sub">seed values when a ledger is added in §6</span></div>
+    <div class="set-card-bd">
     <div style="overflow-x:auto;">
       <table class="cld-tbl">
         <thead>
@@ -174,9 +193,9 @@
               </select>
             </td>
             {% if d.treatment == 'bill' %}
-            <td style="text-align:center;"><input type="checkbox" name="cld_st_{{ d.id }}" {{ 'checked' if d.st_taxable }}></td>
-            <td style="text-align:center;"><input type="checkbox" name="cld_wht_{{ d.id }}" {{ 'checked' if d.wht_taxable }}></td>
-            <td style="text-align:center;"><input type="checkbox" name="cld_extra_{{ d.id }}" {{ 'checked' if d.extra_taxable }}></td>
+            <td style="text-align:center;"><label class="stog"><input type="checkbox" name="cld_st_{{ d.id }}" {{ 'checked' if d.st_taxable }}><span class="sl"></span></label></td>
+            <td style="text-align:center;"><label class="stog"><input type="checkbox" name="cld_wht_{{ d.id }}" {{ 'checked' if d.wht_taxable }}><span class="sl"></span></label></td>
+            <td style="text-align:center;"><label class="stog"><input type="checkbox" name="cld_extra_{{ d.id }}" {{ 'checked' if d.extra_taxable }}><span class="sl"></span></label></td>
             {% else %}
             <td colspan="3" style="text-align:center;color:var(--muted);font-size:12px;">n/a</td>
             {% endif %}
@@ -220,19 +239,84 @@
       <div class="fgroup">
         <label class="lbl">Tax bases (billed charges only)</label>
         <div style="display:flex;gap:14px;flex-wrap:wrap;font-size:13px;padding:6px 0;">
-          <label><input type="checkbox" name="cld_new_st" checked> ST</label>
-          <label><input type="checkbox" name="cld_new_wht"> W/H</label>
-          <label><input type="checkbox" name="cld_new_extra"> Extra</label>
+          <label style="display:inline-flex;align-items:center;gap:6px;"><label class="stog"><input type="checkbox" name="cld_new_st" checked><span class="sl"></span></label> ST</label>
+          <label style="display:inline-flex;align-items:center;gap:6px;"><label class="stog"><input type="checkbox" name="cld_new_wht"><span class="sl"></span></label> W/H</label>
+          <label style="display:inline-flex;align-items:center;gap:6px;"><label class="stog"><input type="checkbox" name="cld_new_extra"><span class="sl"></span></label> Extra</label>
         </div>
       </div>
     </div>
-    <div class="help" style="margin-top:10px;">
+    <div class="set-note">
       ST / W-H / Extra are the default tax-base inclusions for a charge <em>when it is billed</em>.
       Further tax has no switch of its own — applied to a document, it is always computed on the
       sales-tax base. Absorbed and expense-only ledgers have no base switches at all: an absorbed
       amount sits inside the line values and is therefore always taxed with the goods, and an
       expense-only amount never reaches the counterparty.
     </div>
+  </div>
+  </div>
+  <!-- §11.3 — Form-field visibility (Figure 7, right-hand card) ────────── -->
+  <div class="set-card set-boxed">
+    <div class="set-card-hd">Form field visibility</div>
+    <div class="set-card-bd">
+      <div class="tog-row">
+        <span class="tog-l">Create-from-orders picker
+          <span class="tog-d">Off = blank documents only, no order sourcing</span></span>
+        <label class="stog"><input type="checkbox" name="create_from_orders_enabled" {{ 'checked' if invoice_settings.create_from_orders_enabled }}><span class="sl"></span></label>
+      </div>
+      <div class="tog-row">
+        <span class="tog-l">Per-line discount toggle
+          <span class="tog-d">Off = Combined discount only</span></span>
+        <label class="stog"><input type="checkbox" name="per_line_discount_enabled" {{ 'checked' if invoice_settings.per_line_discount_enabled }}><span class="sl"></span></label>
+      </div>
+      <div class="tog-row">
+        <span class="tog-l">Additional Charges button
+          <span class="tog-d">Off = a no-charges document</span></span>
+        <label class="stog"><input type="checkbox" name="show_charges_column" {{ 'checked' if invoice_settings.show_charges_column }}><span class="sl"></span></label>
+      </div>
+      <div class="tog-row">
+        <span class="tog-l">Per-line tax toggle
+          <span class="tog-d">Off = Combined tax only</span></span>
+        <label class="stog"><input type="checkbox" name="per_line_tax_enabled" {{ 'checked' if invoice_settings.per_line_tax_enabled }}><span class="sl"></span></label>
+      </div>
+      <div class="tog-row">
+        <span class="tog-l">Withholding tax field</span>
+        <label class="stog"><input type="checkbox" name="show_withholding_tax" {{ 'checked' if invoice_settings.show_withholding_tax }}><span class="sl"></span></label>
+      </div>
+      <div class="tog-row">
+        <span class="tog-l">Further tax field
+          <span class="tog-d">Sales documents only (§8)</span></span>
+        <label class="stog"><input type="checkbox" name="show_further_tax" {{ 'checked' if invoice_settings.show_further_tax }}><span class="sl"></span></label>
+      </div>
+      <div class="tog-row">
+        <span class="tog-l">Transport / logistics block
+          <span class="tog-d">For businesses shipping physical goods</span></span>
+        <label class="stog"><input type="checkbox" name="show_transport_block" {{ 'checked' if invoice_settings.show_transport_block }}><span class="sl"></span></label>
+      </div>
+      <div class="tog-row">
+        <span class="tog-l">Discount column in grid</span>
+        <label class="stog"><input type="checkbox" name="show_discount_column" {{ 'checked' if invoice_settings.show_discount_column }}><span class="sl"></span></label>
+      </div>
+      <div class="tog-row">
+        <span class="tog-l">Tax column in grid</span>
+        <label class="stog"><input type="checkbox" name="show_tax_column" {{ 'checked' if invoice_settings.show_tax_column }}><span class="sl"></span></label>
+      </div>
+      <div class="tog-row">
+        <span class="tog-l">Auto-add empty line</span>
+        <label class="stog"><input type="checkbox" name="auto_add_line" {{ 'checked' if invoice_settings.auto_add_line }}><span class="sl"></span></label>
+      </div>
+      <div class="tog-row">
+        <span class="tog-l">Require approval to post</span>
+        <label class="stog"><input type="checkbox" name="require_approval" {{ 'checked' if invoice_settings.require_approval }}><span class="sl"></span></label>
+      </div>
+      <div class="tog-row">
+        <span class="tog-l">Allow partial payment</span>
+        <label class="stog"><input type="checkbox" name="allow_partial_payment" {{ 'checked' if invoice_settings.allow_partial_payment }}><span class="sl"></span></label>
+      </div>
+      <div class="set-note">Off = the control never appears on the creation form or in the
+        Additional Settings panel; hidden sections are forced to Combined.</div>
+    </div>
+  </div>
+
   </div>
 
   <div class="set-actions">

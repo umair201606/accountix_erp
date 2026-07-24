@@ -222,6 +222,9 @@ body{background:#fff;font-size:10px}
 .chg-radios label,.chg-checks label{display:inline-flex;align-items:center;gap:5px;font-size:11px;cursor:pointer;color:var(--dark)}
 .chg-checks{display:flex;flex-wrap:wrap;gap:14px}
 .chg-foot{margin-top:12px;padding-top:10px;border-top:2px solid var(--border);text-align:right;font-size:12px}
+.chips{display:flex;flex-wrap:wrap;gap:6px;padding:6px 0 0}
+.chip{display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border:1px solid var(--border);border-radius:12px;font-size:10px;color:var(--dark);background:#f8fafc}
+.chip-k{font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.3px;font-size:9px}
 </style>
 {% endblock %}
 
@@ -302,12 +305,8 @@ body{background:#fff;font-size:10px}
         <button type="button" class="bsm" id="chargesBtn">Charges <span style="font-size:10px;color:var(--light);font-weight:400;" id="chargesCount"></span></button>
         <button type="button" class="bsm" onclick="openSidePanel()">&#9881; Settings</button>
         {% endif %}
-        <div class="pills">
-          <div class="pill-g"><span class="pill-lbl">Discount</span>
-            <div class="pill" id="discountMode">
-              <button type="button" class="pill-b {{ 'active' if not invoice or invoice.discount_mode == 'general' else '' }}" data-value="general" {{ 'disabled' if not editable else '' }}>Combined</button>
-              <button type="button" class="pill-b {{ 'active' if invoice and invoice.discount_mode == 'individual' else '' }}" data-value="individual" {{ 'disabled' if not editable else '' }}>Per Item</button>
-            </div>
+        <!-- Scope toggles live in the Additional Settings panel (§13);
+             the grid header states the active modes read-only (Figure 3). -->
           </div>
           <div class="pill-g"><span class="pill-lbl">Expenses</span>
             <div class="pill" id="expensesMode">
@@ -325,6 +324,7 @@ body{background:#fff;font-size:10px}
       </div>
     </div>
     <div style="padding:0;">
+      <div class="chips" id="modeChips"></div>
       <div class="tb-w" style="border:none;border-radius:0;">
         <table class="tb" id="itemsTable">
           <thead>
@@ -466,6 +466,29 @@ body{background:#fff;font-size:10px}
   <div class="sp-h"><span>Additional Settings</span><button onclick="closeSidePanel()">&times;</button></div>
   <div class="sp-b">
     <div class="accordion">
+      <div class="acc-h" onclick="toggleAccordion(this)">
+        <span>Scopes</span><span class="acc-sum" id="accSumScopes"></span><span class="arrow">&#9654;</span>
+      </div>
+      <div class="acc-b">
+        <div class="lbl">Discount scope</div>
+        <div class="pill" id="discountMode" data-panel-mode="discount" style="display:inline-flex;">
+          <button type="button" class="pill-b {{ 'active' if not invoice or invoice.discount_mode == 'general' else '' }}" data-value="general" {{ 'disabled' if not editable else '' }}>Combined</button>
+          <button type="button" class="pill-b {{ 'active' if invoice and invoice.discount_mode == 'individual' else '' }}" data-value="individual" {{ 'disabled' if not editable else '' }}>Per line</button>
+        </div>
+        <div class="lbl" style="margin-top:12px;">Tax scope</div>
+        <div class="pill" id="taxMode" data-panel-mode="tax" style="display:inline-flex;">
+          <button type="button" class="pill-b {{ 'active' if not invoice or invoice.tax_mode == 'general' else '' }}" data-value="general" {{ 'disabled' if not editable else '' }}>Combined</button>
+          <button type="button" class="pill-b {{ 'active' if invoice and invoice.tax_mode == 'individual' else '' }}" data-value="individual" {{ 'disabled' if not editable else '' }}>Per line</button>
+        </div>
+        <div class="lbl" style="margin-top:12px;">Carriage columns</div>
+        <div class="pill" id="expensesMode" data-panel-mode="expenses" style="display:inline-flex;">
+          <button type="button" class="pill-b {{ 'active' if not invoice or invoice.expenses_mode == 'general' else '' }}" data-value="general" {{ 'disabled' if not editable else '' }}>Combined</button>
+          <button type="button" class="pill-b {{ 'active' if invoice and invoice.expenses_mode == 'individual' else '' }}" data-value="individual" {{ 'disabled' if not editable else '' }}>Per line</button>
+        </div>
+        <div style="font-size:10px;color:var(--light);margin-top:6px;">Additional-charge scope is set per charge in the charges form (§6.2); the grid follows the charges themselves.</div>
+      </div>
+    </div>
+    <div class="accordion">
       <div class="acc-h open" onclick="toggleAccordion(this)"><span>General</span><span class="arrow">&#9654;</span></div>
       <div class="acc-b open">
         <div class="lbl">Invoice Date</div>
@@ -517,7 +540,6 @@ var confirmCallback = null;
 
 function qs(s,c){return(c||document).querySelector(s)}
 function qsa(s,c){return(c||document).querySelectorAll(s)}
-function getMode(n){var t=document.getElementById(n+'Mode');if(!t)return'general';var a=t.querySelector('.pill-b.active');return a?a.dataset.value:'general'}
 function toast(m,t){var c=document.getElementById('toastContainer'),d=document.createElement('div');d.className='toast toast-'+t;d.innerHTML=m+'<button style="background:none;border:none;color:inherit;font-size:16px;cursor:pointer;margin-left:auto;padding:0;line-height:1;" onclick="this.parentElement.remove()">&times;</button>';c.appendChild(d);setTimeout(function(){d.style.opacity='0';d.style.transition='opacity .3s';setTimeout(function(){d.remove()},300)},4000)}
 function esc(s){return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
 function showConfirm(t,m,cb){document.getElementById('confirmTitle').textContent=t;document.getElementById('confirmMsg').textContent=m;document.getElementById('confirmModal').classList.add('show');confirmCallback=cb}
@@ -607,7 +629,39 @@ function seedCombinedFromRollup(name){
     });
   }
 }
-qsa('.pill-b').forEach(function(b){b.addEventListener('click',function(){if(this.disabled)return;var g=this.closest('.pill');var name=(g.id||'').replace('Mode','');var oldMode=getMode(name);var newMode=this.dataset.value;g.querySelectorAll('.pill-b').forEach(function(x){x.classList.remove('active')});this.classList.add('active');if(oldMode==='individual'&&newMode==='general')seedCombinedFromRollup(name);refreshCols();recalc()})})
+// §5: the additional-charges mode is derived from the charges themselves — the
+// moment one is per item the column exists — so it is never read off a control.
+function getMode(n){
+  if(n==='charges')return (typeof charges!=='undefined'&&charges.some(function(c){
+    return (c.scope||'general')==='individual'}))?'individual':'general';
+  var t=document.getElementById(n+'Mode');if(!t)return'general';
+  var a=t.querySelector('.pill-b.active');return a?a.dataset.value:'general';
+}
+// The panel pills are the scope control (§13). Changing one re-runs the whole
+// chain: columns mount/unmount, then totals.
+qsa('#sidePanel .pill[data-panel-mode] .pill-b').forEach(function(b){b.addEventListener('click',function(){
+  if(this.disabled)return;
+  var g=this.closest('.pill'),name=g.dataset.panelMode,newMode=this.dataset.value,oldMode=getMode(name);
+  if(oldMode===newMode)return;
+  g.querySelectorAll('.pill-b').forEach(function(x){x.classList.remove('active')});
+  this.classList.add('active');
+  if(typeof seedCombinedFromRollup==='function'&&oldMode==='individual'&&newMode==='general')seedCombinedFromRollup(name);
+  refreshCols();recalc();renderModeChips();
+})});
+// Figure 3: the grid header states the active modes read-only.
+function renderModeChips(){
+  var box=document.getElementById('modeChips');if(!box)return;
+  var perItem=(typeof charges!=='undefined')?charges.filter(function(c){return (c.scope||'general')==='individual'}).length:0;
+  var n=(typeof charges!=='undefined')?charges.length:0;
+  var chips=[['Discount',getMode('discount')==='individual'?'Per line':'Combined'],
+             ['Add. charges',n?(perItem+' of '+n+' per item'):'None'],
+             ['Tax',getMode('tax')==='individual'?'Per line':'Combined']];
+  var em=document.getElementById('expensesMode');
+  if(em)chips.push(['Carriage',getMode('expenses')==='individual'?'Per line':'Combined']);
+  box.innerHTML=chips.map(function(c){return'<span class="chip"><span class="chip-k">'+c[0]+'</span>'+esc(c[1])+'</span>'}).join('');
+  var s=document.getElementById('accSumScopes');
+  if(s)s.textContent=chips.filter(function(c){return c[0]!=='Add. charges'}).map(function(c){return c[1]}).join(' · ');
+}
 function refreshCols(){var d=getMode('discount'),e=getMode('expenses'),t=getMode('tax'),id=d==='individual',ie=e==='individual',it=t==='individual';qsa('.c-disc').forEach(function(el){el.style.display=id?'':'none'});qsa('.c-exp').forEach(function(el){el.style.display=ie?'':'none'});qsa('.c-tax').forEach(function(el){el.style.display=it?'':'none'});qsa('#itemsBody tr').forEach(function(tr){qsa('.row-disc input',tr).forEach(function(i){i.disabled=!id||!editable});qsa('.row-exp input',tr).forEach(function(i){i.disabled=!ie||!editable});qsa('.row-tax input',tr).forEach(function(i){i.disabled=!it||!editable})})}
 
 // PRODUCT AUTOCOMPLETE
