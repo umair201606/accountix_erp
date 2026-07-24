@@ -150,7 +150,31 @@ yet wired to the release path — the release currently runs on unapprove.
 Deleting a draft correctly restores nothing, because a draft never consumed
 balance: write-back happens at posting, not at save.
 
-## 8. Not done — needs a decision
+## 8. UI — matched against the document's mockups
+
+The `.docx` embeds seven UI mockups. Earlier passes validated the arithmetic
+and the GL against the prose and never opened the images, so the screens had
+drifted from them. Figures 1–6 are all Sales Invoice screens; Figure 7 is the
+admin settings screen.
+
+| Figure | Screen | Status |
+|---|---|---|
+| 1 | Header / customer / transport block | Already matched (three-zone layout) |
+| 2 | Create-from-orders picker | Rebuilt — see §7 above |
+| 3 | Line-item grid + Add. charges breakdown | Order ref column added; popover now lists combined and expense-only charges as "not in column" and foots with the cell value |
+| 4 | Additional Charges form | Rebuilt as card-per-charge on **all four** documents |
+| 5 | Additional Settings slide-over | Section 2 gained default distribution and the Extra tax default; button carries the count |
+| 6 | Totals & tax summary | Per-row mode badges added; taxable value now shows its derivation under the row |
+| 7 | Admin Invoice Settings | Charge-ledger defaults table built (it did not exist) |
+
+Two defects surfaced while porting the card layout to the other three forms,
+both because the cards hold state in `charges` rather than in the DOM: the
+sales order collected its charges by scraping `.chg-row` elements that no
+longer exist, and its account autocomplete only wrote the chosen ledger into a
+hidden input, never into `charges`. Both would have silently dropped every
+charge on save. Fixed.
+
+## 9. Not done — needs a decision
 
 **Per-line revenue and tax sub-accounts (§12.2, Example B).** The document says
 Per-line mode "can post multiple lines against the same natural account type" —
@@ -162,3 +186,18 @@ Delivering it needs a mapping that does not exist yet: product/category →
 revenue account, and tax rate → tax sub-account. That is a data-model decision
 (where the mapping lives, who maintains it), so it is flagged rather than
 guessed at.
+
+**Smaller open items, all flagged rather than faked:**
+
+- **"By weight" distribution (§6.2).** The option is offered and stored, but
+  falls back to pro-rata by value at calculation time — products carry no
+  weight field to divide by.
+- **"Manual per line" distribution (§5.1).** Stored, but the Add. charges cell
+  is still read-only; the document has it open a per-line breakdown *editor* in
+  this mode.
+- **The blank-vs-orders source choice (§4.1, Figure 2).** The figure opens the
+  invoice with an explicit two-option radio; the implementation keeps a "From
+  Orders" button on an otherwise blank invoice. Same two outcomes, different
+  first step.
+- **Credit-note release (§4.4).** Un-posting restores order balances; posting a
+  credit note against a posted invoice does not yet.
