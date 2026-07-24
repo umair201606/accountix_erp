@@ -63,6 +63,11 @@ def invoice_form(id):
                 "sales_tax_pct": it.sales_tax_pct,
                 "total_before_discount": it.total_before_discount,
                 "total_after_discount": it.total_after_discount,
+                # §4.3/§5.1 — the line's source order, for the Order ref column
+                # and so re-approving credits the right order line.
+                "source_order_id": it.source_order_id,
+                "source_order_item_id": it.source_order_item_id,
+                "order_ref": it.source_order_number or "",
             })
         for chg in invoice.charges_list:
             code = chg.charge_account.code if chg.charge_account else ""
@@ -291,9 +296,12 @@ def invoice_form(id):
         ctx["grand_total"] = f"{invoice.total_amount or 0:.2f}"
         rendered_template = render_invoice_template(invoice_template_obj.body_html, ctx)
 
+    # §5.1: the Order ref column exists only on an order-sourced invoice.
+    order_sourced = any(i.get("source_order_id") for i in invoice_items)
     return render_template("invoices/form_inv.html",
                            invoice=invoice, invoice_items=invoice_items,
                            invoice_charges=invoice_charges,
+                           order_sourced=order_sourced,
                            customers=customers,
                            party_mode=rs.party_mode("sales"),
                            invoice_settings=InvoiceSettings.get(),
@@ -358,6 +366,19 @@ def save_invoice():
         validation_errors = validate_invoice(data)
         if validation_errors:
             return jsonify({"ok": False, "error": "; ".join(validation_errors)}), 400
+        # §4.4: over-invoicing past an order's balance is blocked at save,
+        # beyond whatever tolerance the administrator allows (§11.2). Checked
+        # from the incoming rows so nothing is written before it is refused.
+        from types import SimpleNamespace
+        from shared.order_linkage import check_over_invoicing
+        over = check_over_invoicing("sales", [
+            SimpleNamespace(source_order_item_id=r.get("source_order_item_id"),
+                            quantity=float(r.get("quantity", 0) or 0))
+            for r in data.get("items", [])
+        ])
+        if over:
+            return jsonify({"ok": False,
+                            "error": "Over-invoicing blocked — " + "; ".join(over)}), 400
 
     inv.customer_id = data.get("customer_id")
     inv.party_account_id = data.get("party_account_id") or None
@@ -404,6 +425,9 @@ def save_invoice():
             quantity=float(row.get("quantity", 1)),
             unit=row.get("unit", "pcs"),
             unit_price=float(row.get("unit_price", 0)),
+            source_order_id=row.get("source_order_id") or None,
+            source_order_item_id=row.get("source_order_item_id") or None,
+            source_order_number=row.get("source_order_number", "") or "",
             discount_pct=float(row.get("discount_pct", 0)),
             discount_amount=float(row.get("discount_amount", 0)),
             delivery=float(row.get("delivery", 0)),
@@ -434,6 +458,12 @@ def save_invoice():
                     notes=f"Sale {inv.invoice_number}",
                     created_by=current_user.id)
                 total_cogs += line_cogs
+
+    # §4.4: approving bills the source order lines — invoiced quantities rise
+    # and each order moves Open -> Partially invoiced -> Fully invoiced.
+    if action == "approve":
+        from shared.order_linkage import apply_writeback
+        apply_writeback("sales", InvInvoiceItem.query.filter_by(invoice_id=inv.id).all())
 
     # Save additional charges
     AdditionalCharge.query.filter_by(doc_type="SI", doc_id=inv.id).delete()
@@ -600,6 +630,12 @@ def unapprove_invoice(id):
 
     reverse_journal_entry("SI", inv.id, current_user.id)
 
+    # §4.4: un-posting gives the quantities back to the source orders, which
+    # reopen (Fully -> Partially -> Open) as their balances are restored.
+    from shared.order_linkage import apply_writeback
+    apply_writeback("sales", InvInvoiceItem.query.filter_by(invoice_id=inv.id).all(),
+                    sign=-1)
+
     inv.voucher_status = "unapproved"
     inv.payment_status = "unpaid"
     inv.approved_by = None
@@ -715,27 +751,15 @@ def api_customers():
 @inv_inv_bp.route("/api/orders/<int:customer_id>")
 @login_required
 def api_orders_for_customer(customer_id):
-    orders = InvSalesOrder.query.filter_by(customer_id=customer_id, status="approved").all()
-    result = []
-    for o in orders:
-        items = []
-        for i in o.items.all():
-            items.append({
-                "id": i.id,
-                "product_id": i.product_id,
-                "product_name": i.product.name if i.product else "",
-                "product_sku": i.product.sku if i.product else "",
-                "ordered_qty": i.quantity,
-                "unit_price": i.unit_price,
-            })
-        result.append({
-            "id": o.id,
-            "so_number": o.so_number,
-            "order_date": o.order_date.strftime("%Y-%m-%d") if o.order_date else "",
-            "total_amount": o.total_amount,
-            "items": items,
-        })
-    return jsonify(result)
+    """Approved orders for the picker (§4.2).
+
+    Fully-invoiced orders are still returned so the user can see they exist,
+    but flagged unselectable — the document greys them rather than hiding them.
+    """
+    from shared.order_linkage import picker_payload
+    orders = InvSalesOrder.query.filter_by(
+        customer_id=customer_id, status="approved").order_by(InvSalesOrder.id.desc()).all()
+    return jsonify([picker_payload("sales", o) for o in orders])
 
 
 @inv_inv_bp.route("/api/accounts")

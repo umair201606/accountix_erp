@@ -66,6 +66,13 @@ class InvInvoiceItem(db.Model):
     unit = db.Column(db.String(20), default="pcs")
     unit_price = db.Column(db.Float, default=0)
 
+    # Per-line source order (§4.3). One invoice can draw on several orders, so
+    # the link belongs on the line, not the header — this is what the Order ref
+    # column shows and what the §4.4 write-back credits.
+    source_order_id = db.Column(db.Integer, db.ForeignKey("inv_sales_orders.id"))
+    source_order_item_id = db.Column(db.Integer, db.ForeignKey("inv_sales_order_items.id"))
+    source_order_number = db.Column(db.String(50), default="")
+
     discount_pct = db.Column(db.Float, default=0)
     discount_amount = db.Column(db.Float, default=0)
     delivery = db.Column(db.Float, default=0)

@@ -410,6 +410,18 @@ def save_invoice():
         validation_errors = validate_approve(data)
         if validation_errors:
             return jsonify({"ok": False, "error": "; ".join(validation_errors)}), 400
+        # §4.4: billing past a purchase order's balance is blocked at save,
+        # beyond the administrator's tolerance (§11.2).
+        from types import SimpleNamespace
+        from shared.order_linkage import check_over_invoicing
+        over = check_over_invoicing("purchase", [
+            SimpleNamespace(source_order_item_id=r.get("source_order_item_id"),
+                            quantity=float(r.get("quantity", 0) or 0))
+            for r in data.get("items", [])
+        ])
+        if over:
+            return jsonify({"ok": False,
+                            "error": "Over-invoicing blocked — " + "; ".join(over)}), 400
 
     inv.supplier_id = data.get("supplier_id")
     inv.party_account_id = data.get("party_account_id") or None
@@ -476,6 +488,9 @@ def save_invoice():
             quantity=float(row.get("quantity", 1)),
             unit=row.get("unit", "pcs"),
             unit_price=float(row.get("unit_price", 0)),
+            source_order_id=row.get("source_order_id") or None,
+            source_order_item_id=row.get("source_order_item_id") or None,
+            source_order_number=row.get("source_order_number", "") or "",
             discount_pct=float(row.get("discount_pct", 0)),
             discount_amount=float(row.get("discount_amount", 0)),
             commission=float(row.get("commission", 0)),
@@ -557,6 +572,13 @@ def save_invoice():
                           qty=qty_f, unit_cost=landed_total / qty_f,
                           notes=f"Purchase {inv.invoice_number}",
                           created_by=current_user.id)
+
+    # §4.4: approving bills the source order lines — invoiced quantities rise
+    # and each order moves Open -> Partially invoiced -> Fully invoiced.
+    if action == "approve":
+        from shared.order_linkage import apply_writeback
+        apply_writeback("purchase",
+                        InvPurchaseInvoiceItem.query.filter_by(invoice_id=inv.id).all())
 
     # Save additional charges
     AdditionalCharge.query.filter_by(doc_type="PI", doc_id=inv.id).delete()
@@ -677,6 +699,13 @@ def unapprove_invoice(id):
             return jsonify({"ok": False, "error": "Cannot unapprove: Items already adjusted"}), 400
 
     reverse_journal_entry("PI", inv.id, current_user.id)
+
+    # §4.4: un-posting restores each source purchase order's balance and
+    # reopens it (Fully -> Partially -> Open).
+    from shared.order_linkage import apply_writeback
+    apply_writeback("purchase",
+                    InvPurchaseInvoiceItem.query.filter_by(invoice_id=inv.id).all(),
+                    sign=-1)
 
     inv.status = "unapproved"
     inv.approved_by = None
@@ -837,27 +866,14 @@ def api_new_product():
 @inv_pinv_bp.route("/api/orders/<int:supplier_id>")
 @login_required
 def api_orders_for_supplier(supplier_id):
-    orders = InvPurchaseOrder.query.filter_by(supplier_id=supplier_id, status="approved").all()
-    result = []
-    for o in orders:
-        items = []
-        for i in o.items.all():
-            items.append({
-                "id": i.id,
-                "product_id": i.product_id,
-                "product_name": i.product.name if i.product else "",
-                "product_sku": i.product.sku if i.product else "",
-                "ordered_qty": i.quantity,
-                "unit_price": i.unit_price,
-            })
-        result.append({
-            "id": o.id,
-            "po_number": o.po_number,
-            "order_date": o.order_date.strftime("%Y-%m-%d") if o.order_date else "",
-            "total_amount": o.total_amount,
-            "items": items,
-        })
-    return jsonify(result)
+    """Approved purchase orders for the picker (§4.2), mirroring the sales side.
+
+    Fully-invoiced orders are returned flagged unselectable rather than hidden.
+    """
+    from shared.order_linkage import picker_payload
+    orders = InvPurchaseOrder.query.filter_by(
+        supplier_id=supplier_id, status="approved").order_by(InvPurchaseOrder.id.desc()).all()
+    return jsonify([picker_payload("purchase", o) for o in orders])
 
 
 @inv_pinv_bp.route("/api/accounts")

@@ -280,6 +280,18 @@ def _migrate_schema(db):
         ("inv_invoices", "total_withholding_tax", "FLOAT DEFAULT 0"),
         ("inv_purchase_invoices", "further_tax_pct", "FLOAT DEFAULT 0"),
         ("inv_purchase_invoices", "apply_further_tax", bool_false),
+        # v3 §4 order->invoice linkage: how much of each order line has been
+        # billed, the order's invoicing progress, and each invoice line's source.
+        ("inv_sales_order_items", "invoiced_qty", "FLOAT DEFAULT 0"),
+        ("inv_purchase_order_items", "invoiced_qty", "FLOAT DEFAULT 0"),
+        ("inv_sales_orders", "fulfilment_status", "VARCHAR(20) DEFAULT 'open'"),
+        ("inv_purchase_orders", "fulfilment_status", "VARCHAR(20) DEFAULT 'open'"),
+        ("inv_invoice_items", "source_order_id", "INTEGER"),
+        ("inv_invoice_items", "source_order_item_id", "INTEGER"),
+        ("inv_invoice_items", "source_order_number", "VARCHAR(50) DEFAULT ''"),
+        ("inv_purchase_invoice_items", "source_order_id", "INTEGER"),
+        ("inv_purchase_invoice_items", "source_order_item_id", "INTEGER"),
+        ("inv_purchase_invoice_items", "source_order_number", "VARCHAR(50) DEFAULT ''"),
         ("inv_purchase_invoices", "apply_withholding_tax", bool_false),
         ("inv_purchase_invoices", "total_further_tax", "FLOAT DEFAULT 0"),
         ("inv_purchase_invoices", "total_withholding_tax", "FLOAT DEFAULT 0"),

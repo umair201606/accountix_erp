@@ -11,6 +11,9 @@ class InvPurchaseOrder(db.Model):
     order_date = db.Column(db.Date, default=datetime.utcnow)
     expected_date = db.Column(db.Date)
     status = db.Column(db.String(20), default="unapproved")
+    # Approval status (above) and invoicing progress (below) are independent.
+    # open | partial | invoiced — maintained by shared/order_linkage.py (§4.4).
+    fulfilment_status = db.Column(db.String(20), default="open")
     discount_mode = db.Column(db.String(20), default="general")
     charges_mode = db.Column(db.String(20), default="general")
     tax_mode = db.Column(db.String(20), default="general")
@@ -57,6 +60,9 @@ class InvPurchaseOrderItem(db.Model):
     description = db.Column(db.String(200), default="")
     unit = db.Column(db.String(20), default="pcs")
     quantity = db.Column(db.Float, default=1)
+    # Billed so far. On the purchase side §4.2 caps loading at
+    # received-not-yet-invoiced for 3-way PO/receipt/invoice matching.
+    invoiced_qty = db.Column(db.Float, default=0)
     unit_price = db.Column(db.Float, default=0)
     discount_pct = db.Column(db.Float, default=0)
     discount_amount = db.Column(db.Float, default=0)

@@ -130,6 +130,22 @@ body{background:var(--bg);font-family:Inter,-apple-system,BlinkMacSystemFont,'Se
 .chg-row{display:grid;grid-template-columns:1fr 90px 78px 90px 42px 42px 30px;gap:6px;padding:6px 0;border-bottom:1px solid #f1f5f9;align-items:center}
 .chg-row .inp-sm{font-size:11px;padding:4px 6px}
 .chg-sw{display:flex;justify-content:center}
+/* §4.2 order picker */
+.ord-row{border:1px solid var(--border);border-radius:6px;margin-bottom:8px;overflow:hidden}
+.ord-hd{display:flex;align-items:center;gap:8px;padding:8px 12px;background:#f8fafc;cursor:pointer}
+.ord-hd .ord-exp{margin-left:auto;font-size:11px;color:var(--muted)}
+.ord-lines{display:none;padding:6px 12px 10px}
+.ord-lines.open{display:block}
+.ord-lt{width:100%;border-collapse:collapse;font-size:11px}
+.ord-lt th{text-align:right;padding:4px 6px;color:var(--muted);font-size:9px;text-transform:uppercase;border-bottom:1px solid var(--border)}
+.ord-lt th:first-child,.ord-lt td:first-child{text-align:left}
+.ord-lt td{padding:3px 6px;border-bottom:1px solid #f1f5f9;text-align:right}
+.ord-lt input{width:64px;text-align:right;padding:3px 5px;border:1px solid var(--border);border-radius:4px;font-family:inherit;font-size:11px}
+.order-so{font-weight:700;font-size:13px}
+.order-date{font-size:11px;color:var(--muted)}
+.ord-badge{display:inline-block;margin-left:6px;padding:1px 7px;border-radius:9px;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.3px;vertical-align:middle}
+.ord-done{opacity:.55}
+.ord-done .ord-hd{cursor:default;background:#f1f5f9}
 .chg-row .tgl{width:32px;height:18px}
 .chg-row .tgl-s:before{height:14px;width:14px}
 .chg-row .tgl input:checked+.tgl-s:before{transform:translateX(14px)}
@@ -424,12 +440,13 @@ body{background:#fff;font-size:10px}
 <div class="modal-o" id="orderModal">
   <div class="modal-b modal-big">
     <h3>Import from Purchase Orders</h3>
-    <p style="font-size:12px;color:var(--muted);margin-bottom:12px;">Select approved purchase orders for this supplier to copy items into this invoice.</p>
+    <p style="font-size:12px;color:var(--muted);margin-bottom:12px;">Tick one or more open purchase orders. Each line's quantity is capped at what is still uninvoiced; fully-invoiced orders are shown greyed and cannot be picked.</p>
     <div id="ordersList" style="max-height:400px;overflow-y:auto;">
       <p style="color:var(--light);font-size:13px;text-align:center;padding:24px;">Select a supplier first, then click "From Orders"</p>
     </div>
     <div class="modal-acts">
       <button type="button" class="btn btn-o" onclick="closeOrderModal()">Cancel</button>
+      <button type="button" class="btn btn-p" id="loadOrdersBtn">Load selected</button>
     </div>
   </div>
 </div>
@@ -691,29 +708,97 @@ function collectCharges(){return charges.filter(function(c){return c.charge_acco
 // ============================================================
 // ORDER SOURCING
 // ============================================================
+// §4.2 picker, mirroring the sales side: multi-select, per-line partial
+// quantities capped at the uninvoiced balance, fully-invoiced orders greyed.
+var _fetchedOrders=[];
+function statusBadge(s){
+  var map={open:['Open','#059669','#d1fae5'],
+           partial:['Partially invoiced','#c2410c','#ffedd5'],
+           invoiced:['Fully invoiced','#64748b','#e2e8f0']};
+  var m=map[s]||map.open;
+  return'<span class="ord-badge" style="color:'+m[1]+';background:'+m[2]+';">'+m[0]+'</span>';
+}
 document.getElementById('fromOrdersBtn')?.addEventListener('click',async function(){
   if(!editable)return;
   var sidVal=parseInt(document.getElementById('supplierId').value);
   if(!sidVal){toast('Select a supplier first','error');return}
-  var orders=await fetchJSON('/inventory/purchase-invoice/api/orders/'+sidVal);
-  var container=document.getElementById('ordersList');container.innerHTML='';
-  if(!orders.length){container.innerHTML='<p style="color:var(--light);font-size:13px;text-align:center;padding:24px;">No approved orders for this supplier</p>';document.getElementById('orderModal').classList.add('show');return}
-  orders.forEach(function(o){
-    var div=document.createElement('div');div.className='order-it';
-    div.innerHTML='<div><div class="order-so">'+esc(o.po_number)+'</div><div class="order-date">'+esc(o.order_date)+'</div><div class="order-items-preview">'+o.items.length+' item(s)</div></div><div class="order-amnt">Rs. '+fmt(o.total_amount)+'</div>';
-    div.addEventListener('click',function(){importOrder(o)});
-    container.appendChild(div);
-  });
+  try{_fetchedOrders=await fetchJSON('/inventory/purchase-invoice/api/orders/'+sidVal)||[]}catch(e){_fetchedOrders=[]}
+  renderOrderPicker();
   document.getElementById('orderModal').classList.add('show');
 });
-function closeOrderModal(){document.getElementById('orderModal').classList.remove('show')}
-function importOrder(order){
-  showConfirm('Import from '+order.po_number,'This will replace current items with '+order.items.length+' item(s) from this order. Continue?',function(){
-    document.getElementById('itemsBody').innerHTML='';rowCount=0;
-    order.items.forEach(function(item){addRow({product_id:item.product_id,quantity:item.ordered_qty,unit_price:item.unit_price});var tr=document.getElementById('itemsBody').lastElementChild;if(tr){tr.querySelector('.ac-desc-input').value=item.product_name||'';tr.querySelector('.ac-code').value=item.product_sku||'';tr.dataset.productId=item.product_id}});
-    closeOrderModal();renumberRows();recalc();toast('Imported '+order.items.length+' items from '+order.po_number,'success');
+function renderOrderPicker(){
+  var container=document.getElementById('ordersList');container.innerHTML='';
+  if(!_fetchedOrders.length){container.innerHTML='<p style="color:var(--light);font-size:13px;text-align:center;padding:24px;">No approved orders for this supplier</p>';return}
+  _fetchedOrders.forEach(function(o,oi){
+    var open=o.selectable!==false;
+    var lines=o.items.map(function(it,li){
+      var bal=it.balance_qty||0;
+      return'<tr'+(bal>0?'':' style="opacity:.5;"')+'><td>'+esc(it.product_name||it.product_sku||('#'+it.product_id))+'</td>'+
+        '<td>'+fmt(it.ordered_qty||0)+'</td><td>'+fmt(it.invoiced_qty||0)+'</td><td><b>'+fmt(bal)+'</b></td>'+
+        '<td><input type="number" class="ord-qty" data-o="'+oi+'" data-l="'+li+'" value="'+bal+'" min="0" max="'+bal+'" step="any"'+(bal>0&&open?'':' disabled')+'></td></tr>';
+    }).join('');
+    var div=document.createElement('div');div.className='ord-row'+(open?'':' ord-done');
+    div.innerHTML='<div class="ord-hd">'+
+      '<label class="tgl"><input type="checkbox" class="ord-chk" data-o="'+oi+'"'+(open?'':' disabled')+'><span class="tgl-s"></span></label>'+
+      '<div><div class="order-so">'+esc(o.number||o.po_number)+' '+statusBadge(o.status)+'</div>'+
+      '<div class="order-date">'+esc(o.order_date||'')+' &bull; '+o.items.length+' item(s) &bull; Order value Rs. '+fmt(o.order_value)+'</div></div>'+
+      '<span class="ord-exp">Uninvoiced <b>Rs. '+fmt(o.uninvoiced_value)+'</b> &nbsp;&#9662;</span></div>'+
+      '<div class="ord-lines"><table class="ord-lt"><thead><tr><th>Item</th><th>Ordered</th><th>Invoiced</th><th>Balance</th><th>This invoice</th></tr></thead><tbody>'+lines+'</tbody></table></div>';
+    container.appendChild(div);
+    var hd=div.querySelector('.ord-hd'),body=div.querySelector('.ord-lines'),chk=div.querySelector('.ord-chk');
+    hd.addEventListener('click',function(e){if(e.target.closest('.ord-chk')||e.target.tagName==='INPUT')return;body.classList.toggle('open')});
+    if(chk)chk.addEventListener('change',function(){if(this.checked)body.classList.add('open')});
+    div.querySelectorAll('.ord-qty').forEach(function(inp){inp.addEventListener('input',function(){var mx=parseFloat(this.max)||0;if((parseFloat(this.value)||0)>mx)this.value=mx;if(chk)chk.checked=true});inp.addEventListener('click',function(e){e.stopPropagation()})});
   });
 }
+document.getElementById('loadOrdersBtn')?.addEventListener('click',function(){
+  var picked=[];qsa('#ordersList .ord-chk').forEach(function(c){if(c.checked&&!c.disabled)picked.push(parseInt(c.dataset.o))});
+  if(!picked.length){toast('Tick at least one order','error');return}
+  var rows=[],poNums=[],ids=[],pools=[];
+  picked.forEach(function(oi){
+    var o=_fetchedOrders[oi];ids.push(o.id);poNums.push(o.number||o.po_number);
+    var balValue=0,loadValue=0;
+    o.items.forEach(function(it,li){
+      var qi=document.querySelector('.ord-qty[data-o="'+oi+'"][data-l="'+li+'"]');
+      var q=qi?(parseFloat(qi.value)||0):(it.balance_qty||0);
+      var unit=it.unit_price||0;
+      balValue+=(it.balance_qty||0)*unit;loadValue+=q*unit;
+      if(q>0)rows.push({product_id:it.product_id,product_name:it.product_name,product_sku:it.product_sku,
+        unit:it.unit,quantity:q,unit_price:unit,discount_pct:it.discount_pct||0,
+        sales_tax_pct:it.sales_tax_pct||0,source_order_id:o.id,
+        source_order_item_id:it.order_item_id,po_number:o.number||o.po_number});
+    });
+    pools.push({p:o.pools||{},share:balValue>0?(loadValue/balValue):1});
+  });
+  if(!rows.length){toast('No quantities to load','error');return}
+  document.getElementById('itemsBody').innerHTML='';rowCount=0;
+  rows.forEach(function(item){
+    addRow({product_id:item.product_id,quantity:item.quantity,unit_price:item.unit_price,
+            discount_pct:item.discount_pct,sales_tax_pct:item.sales_tax_pct});
+    var tr=document.getElementById('itemsBody').lastElementChild;
+    if(tr){var d=tr.querySelector('.ac-desc-input');if(d)d.value=item.product_name||'';
+      var c=tr.querySelector('.ac-code');if(c)c.value=item.product_sku||'';
+      var u=tr.querySelector('.ac-unit');if(u&&item.unit)u.textContent=item.unit;
+      tr.dataset.productId=item.product_id;tr.dataset.orderRef=item.po_number||'';
+      tr.dataset.sourceOrderId=item.source_order_id||'';
+      tr.dataset.sourceOrderItemId=item.source_order_item_id||''}
+  });
+  // §4.3: order-level combined pools travel pro-rata with the loaded share.
+  var dv=0,stPct=0,whPct=0,anyWH=false;
+  pools.forEach(function(x){var p=x.p||{};
+    dv+=(parseFloat(p.global_discount_value)||0)*x.share;
+    stPct=Math.max(stPct,parseFloat(p.global_sales_tax_pct)||0);
+    if(p.apply_withholding_tax){anyWH=true;whPct=Math.max(whPct,parseFloat(p.withholding_tax_pct)||0)}});
+  var gdv=document.getElementById('globalDiscVal');if(gdv&&dv>0)gdv.value=dv.toFixed(2);
+  var gst=document.getElementById('globalSalesTaxPct');if(gst&&stPct>0)gst.value=stPct;
+  var whCb=document.getElementById('settingsApplyWHT');
+  if(whCb&&anyWH){whCb.checked=true;var whr=document.getElementById('withholdingTaxRow');if(whr)whr.style.display='';
+    var wi=document.getElementById('globalWithholdingTaxPct');if(wi)wi.value=whPct}
+  var ref=document.getElementById('refPO');if(ref)ref.value=poNums.join(', ');
+  closeOrderModal();renumberRows();refreshCols();recalc();
+  toast('Loaded '+rows.length+' line(s) from '+ids.length+' order(s)','success');
+});
+function closeOrderModal(){document.getElementById('orderModal').classList.remove('show')}
 
 // ============================================================
 // CALCULATIONS
@@ -804,7 +889,7 @@ function recalc(){
 }
 
 // COLLECT DATA
-function collectData(){var items=[];qsa('#itemsBody tr').forEach(function(tr){items.push({product_id:tr.dataset.productId||null,description:tr.querySelector('.ac-desc-input')?.value||'',quantity:parseFloat(tr.querySelector('[data-col="quantity"]')?.value)||0,unit:tr.querySelector('.ac-unit')?.textContent||'pcs',unit_price:parseFloat(tr.querySelector('[data-col="unit_price"]')?.value)||0,discount_pct:parseFloat(tr.querySelector('[data-col="discount_pct"]')?.value)||0,discount_amount:parseFloat(tr.querySelector('[data-col="discount_amount"]')?.value)||0,commission:parseFloat(tr.querySelector('[data-col="commission"]')?.value)||0,freight:parseFloat(tr.querySelector('[data-col="freight"]')?.value)||0,loading_unloading:parseFloat(tr.querySelector('[data-col="loading_unloading"]')?.value)||0,sales_tax_pct:parseFloat(tr.querySelector('[data-col="sales_tax_pct"]')?.value)||0,total_before_discount:cv(tr.querySelector('[data-col="amount"]')?.value),total_after_discount:cv(tr.querySelector('[data-col="net_amount"]')?.value),comments:''})});return{id:document.getElementById('invoiceId').value||null,supplier_id:parseInt(document.getElementById('supplierId').value)||null,party_account_id:parseInt(document.getElementById('partyAccountId')?.value)||null,driver_name:document.getElementById('driverName').value,driver_contact:document.getElementById('driverContact').value,vehicle_number:document.getElementById('vehicleNumber').value,discount_mode:getMode('discount'),expenses_mode:getMode('expenses'),tax_mode:getMode('tax'),global_discount_pct:parseFloat(document.getElementById('globalDiscPct').value)||0,global_discount_value:parseFloat(document.getElementById('globalDiscVal').value)||0,global_commission:parseFloat(document.getElementById('globalCommission')?.value)||0,global_freight:parseFloat(document.getElementById('globalFreight')?.value)||0,global_loading:parseFloat(document.getElementById('globalLoading')?.value)||0,global_sales_tax_pct:parseFloat(document.getElementById('globalSalesTaxPct').value)||0,global_withholding_tax_pct:parseFloat(document.getElementById('globalWithholdingTaxPct').value)||0,further_tax_pct:0,apply_further_tax:false,apply_withholding_tax:document.getElementById('withholdingTaxRow')?.style.display!=='none',subtotal:cv(document.getElementById('summarySubtotal').textContent),total_discount:Math.abs(cv(document.getElementById('summaryDiscount').textContent)),total_expenses:lastAbsorb+lastBilled+lastExpense,total_absorbed_charges:lastAbsorb,total_billed_charges:lastBilled,total_expense_charges:lastExpense,taxable_value:lastTaxBase,total_tax:cv(document.getElementById('summarySalesTax').textContent),total_further_tax:0,total_withholding_tax:Math.abs(cv(document.getElementById('summaryWithholdingTax').textContent)),net_payable:cv(document.getElementById('summaryNetPayable').textContent.replace('Rs. ','')),total_amount:cv(document.getElementById('summaryNetPayable').textContent.replace('Rs. ','')),payment_status:'unpaid',notes:document.getElementById('invoiceNotes').value||'',charges:collectCharges(),items:items}}
+function collectData(){var items=[];qsa('#itemsBody tr').forEach(function(tr){items.push({product_id:tr.dataset.productId||null,source_order_id:parseInt(tr.dataset.sourceOrderId)||null,source_order_item_id:parseInt(tr.dataset.sourceOrderItemId)||null,source_order_number:tr.dataset.orderRef||'',description:tr.querySelector('.ac-desc-input')?.value||'',quantity:parseFloat(tr.querySelector('[data-col="quantity"]')?.value)||0,unit:tr.querySelector('.ac-unit')?.textContent||'pcs',unit_price:parseFloat(tr.querySelector('[data-col="unit_price"]')?.value)||0,discount_pct:parseFloat(tr.querySelector('[data-col="discount_pct"]')?.value)||0,discount_amount:parseFloat(tr.querySelector('[data-col="discount_amount"]')?.value)||0,commission:parseFloat(tr.querySelector('[data-col="commission"]')?.value)||0,freight:parseFloat(tr.querySelector('[data-col="freight"]')?.value)||0,loading_unloading:parseFloat(tr.querySelector('[data-col="loading_unloading"]')?.value)||0,sales_tax_pct:parseFloat(tr.querySelector('[data-col="sales_tax_pct"]')?.value)||0,total_before_discount:cv(tr.querySelector('[data-col="amount"]')?.value),total_after_discount:cv(tr.querySelector('[data-col="net_amount"]')?.value),comments:''})});return{id:document.getElementById('invoiceId').value||null,supplier_id:parseInt(document.getElementById('supplierId').value)||null,party_account_id:parseInt(document.getElementById('partyAccountId')?.value)||null,driver_name:document.getElementById('driverName').value,driver_contact:document.getElementById('driverContact').value,vehicle_number:document.getElementById('vehicleNumber').value,discount_mode:getMode('discount'),expenses_mode:getMode('expenses'),tax_mode:getMode('tax'),global_discount_pct:parseFloat(document.getElementById('globalDiscPct').value)||0,global_discount_value:parseFloat(document.getElementById('globalDiscVal').value)||0,global_commission:parseFloat(document.getElementById('globalCommission')?.value)||0,global_freight:parseFloat(document.getElementById('globalFreight')?.value)||0,global_loading:parseFloat(document.getElementById('globalLoading')?.value)||0,global_sales_tax_pct:parseFloat(document.getElementById('globalSalesTaxPct').value)||0,global_withholding_tax_pct:parseFloat(document.getElementById('globalWithholdingTaxPct').value)||0,further_tax_pct:0,apply_further_tax:false,apply_withholding_tax:document.getElementById('withholdingTaxRow')?.style.display!=='none',subtotal:cv(document.getElementById('summarySubtotal').textContent),total_discount:Math.abs(cv(document.getElementById('summaryDiscount').textContent)),total_expenses:lastAbsorb+lastBilled+lastExpense,total_absorbed_charges:lastAbsorb,total_billed_charges:lastBilled,total_expense_charges:lastExpense,taxable_value:lastTaxBase,total_tax:cv(document.getElementById('summarySalesTax').textContent),total_further_tax:0,total_withholding_tax:Math.abs(cv(document.getElementById('summaryWithholdingTax').textContent)),net_payable:cv(document.getElementById('summaryNetPayable').textContent.replace('Rs. ','')),total_amount:cv(document.getElementById('summaryNetPayable').textContent.replace('Rs. ','')),payment_status:'unpaid',notes:document.getElementById('invoiceNotes').value||'',charges:collectCharges(),items:items}}
 
 // SAVE / APPROVE
 function fmt(v){var n=parseFloat(v)||0;return n.toLocaleString('en-PK',{minimumFractionDigits:2,maximumFractionDigits:2})}

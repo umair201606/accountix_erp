@@ -106,17 +106,45 @@ Seeded defaults use codes `0001–0099`; entity subledgers start at `0100` (i.e.
 
 | Account | Debit | Credit | Condition |
 |---------|-------|--------|-----------|
-| Trade Debtors — [Customer] (entity subledger) | Gross invoice total | — | Always |
-| Sales — General | — | Gross total − output tax | Always |
-| Output Sales Tax | — | Total tax charged | If `total_tax > 0` |
+| Trade Debtors — [Customer] (entity subledger) | Net receivable | — | Always |
+| WHT Receivable `1-01-05-02-0001` | Withholding deducted by the customer | — | If withholding applied |
+| Discounts Allowed `4-02-02-01-0001` | Total discount | — | If `discount > 0` |
+| Sales — General | — | Subtotal + absorbed charges | Always |
+| *[each billed charge's own ledger]* | — | That charge's amount | One line per billed charge |
+| Output Sales Tax `2-01-03-01-0001` | — | Total sales tax | If `total_tax > 0` |
+| Further Tax Payable `2-01-03-04-0001` | — | Further tax | If further tax applied |
+| *[each expense-only charge's ledger]* | That charge's amount | — | One pair per expense charge |
+| Accrued Expenses `2-01-02-03-0001` | — | Expense-only charges | With the above |
 | Cost of Goods Sold | Total COGS (historic cost) | — | If `total_cogs > 0` |
 | Stock — General | — | Total COGS | If `total_cogs > 0` |
 
-**Amount calculation:**
-- `total` = `inv.total_amount` (the invoice's net receivable)
-- `output_tax` = `inv.total_tax`
-- `revenue` = `total − output_tax` (revenue stated net of sales tax)
+**Amount calculation** — all of it from `shared/invoice_totals.py`, which is the
+single implementation of the v3 §8 chain and is also what the printed invoice
+and the FBR payload read, so the three can never disagree:
+- `effective_subtotal` = `subtotal + absorbed charges`
+- `sales_tax_base` = `effective_subtotal − discount + billed charges in the ST base`
+- `further_tax` = rate × `sales_tax_base` (never on the sales tax itself)
+- `wht` = rate × (`effective_subtotal − discount + billed charges in the WHT base`)
+- `net_receivable` = `effective_subtotal − discount + billed + sales tax + further tax − wht`
 - `total_cogs` = sum of `record_out()` per line (historic cost at issue time)
+
+The figures are re-derived on the server from the persisted rows and overwrite
+whatever the browser sent — a posted journal never depends on a client value.
+
+**Policy:**
+- Discount is booked as a **contra-revenue debit**, not netted into revenue, so
+  gross sales and total discounts both stay visible on the P&L.
+- A billed additional charge credits **its own ledger** (the account chosen for
+  it in the charges form), not product revenue.
+- An absorbed charge posts **nowhere separately** — its value is already inside
+  the revenue lines. The totals-panel memo row is its only trace.
+- Further tax has its **own liability code**, never netted into output tax.
+- Withholding on a sale is an **asset** (advance tax to reclaim), never an
+  expense; on a purchase it is a liability. See §3.3.
+
+**Order linkage:** approving also writes back to any source sales orders —
+invoiced quantities rise and each order moves Open → Partially → Fully invoiced
+(`shared/order_linkage.py`). Unapproving restores the balances.
 
 **Policy:**
 - Revenue is always booked **net** of sales tax. Output tax is a separate liability.

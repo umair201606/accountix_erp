@@ -164,6 +164,10 @@ body{background:var(--bg);font-family:Inter,-apple-system,BlinkMacSystemFont,'Se
 .order-it{padding:8px 12px;border:1px solid var(--border);border-radius:5px;margin-bottom:6px;cursor:pointer;transition:all .1s;display:flex;justify-content:space-between;align-items:center}
 .order-it:hover{border-color:var(--primary);background:var(--primary-light)}
 .order-so{font-weight:700;font-size:13px}
+.ord-badge{display:inline-block;margin-left:6px;padding:1px 7px;border-radius:9px;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.3px;vertical-align:middle}
+/* §4.2: a fully-invoiced order is shown but cannot be picked. */
+.ord-done{opacity:.55}
+.ord-done .ord-hd{cursor:default;background:#f1f5f9}
 .order-date{font-size:11px;color:var(--muted)}
 .order-amnt{font-weight:600;font-size:13px}
 .order-items-preview{font-size:11px;color:var(--muted);margin-top:4px}
@@ -328,6 +332,8 @@ body{background:#fff;font-size:10px}
           <thead>
             <tr>
               <th style="width:32px;">#</th>
+              <!-- §5.1: present exactly when the invoice was created from orders -->
+              <th class="c-ord" style="{{ '' if order_sourced else 'display:none;' }}" title="Source order for this line">Order ref</th>
               <th style="min-width:80px;">Code</th>
               <th class="desc-col">Description</th>
               <th class="num">Quantity</th>
@@ -746,7 +752,10 @@ function seedCombinedFromRollup(name){
   if(name==='discount'){var sum=0;qsa('#itemsBody tr').forEach(function(tr){var amt=cv(tr.querySelector('[data-col="amount"]')?.value);var da=parseFloat(tr.querySelector('[data-col="discount_amount"]')?.value)||0,dp=parseFloat(tr.querySelector('[data-col="discount_pct"]')?.value)||0;sum+=da>0?da:(amt*dp/100)});if(sum>0){var gv=document.getElementById('globalDiscVal');if(gv)gv.value=sum.toFixed(2);var gp=document.getElementById('globalDiscPct');if(gp)gp.value=0}}
   // charges scope is per-charge; tax rate has no single rollup — nothing to seed
 }
-function refreshCols(){var d=getMode('discount'),c=getMode('charges'),t=getMode('tax'),id=d==='individual',ic=c==='individual',it=t==='individual';qsa('.c-disc').forEach(function(el){el.style.display=id?'':'none'});qsa('.c-net').forEach(function(el){el.style.display=(id||ic)?'':'none'});qsa('.c-chg').forEach(function(el){el.style.display=ic?'':'none'});qsa('.c-tax').forEach(function(el){el.style.display=it?'':'none'});qsa('#itemsBody tr').forEach(function(tr){qsa('.row-disc input',tr).forEach(function(i){i.disabled=!id||!editable});qsa('.row-tax input',tr).forEach(function(i){i.disabled=!it||!editable})});renderChips();updatePanelSummaries()}
+function refreshCols(){var d=getMode('discount'),c=getMode('charges'),t=getMode('tax'),id=d==='individual',ic=c==='individual',it=t==='individual';
+// §5.1: the Order ref column exists exactly when this invoice came from orders.
+qsa('.c-ord').forEach(function(el){el.style.display=loadedOrderIds.length?'':'none'});
+qsa('.c-disc').forEach(function(el){el.style.display=id?'':'none'});qsa('.c-net').forEach(function(el){el.style.display=(id||ic)?'':'none'});qsa('.c-chg').forEach(function(el){el.style.display=ic?'':'none'});qsa('.c-tax').forEach(function(el){el.style.display=it?'':'none'});qsa('#itemsBody tr').forEach(function(tr){qsa('.row-disc input',tr).forEach(function(i){i.disabled=!id||!editable});qsa('.row-tax input',tr).forEach(function(i){i.disabled=!it||!editable})});renderChips();updatePanelSummaries()}
 
 // ============================================================
 // PRODUCT AUTOCOMPLETE PER ROW
@@ -765,7 +774,7 @@ drop.addEventListener('mousedown',function(e){var t=e.target.closest('.ac-it');i
 // ROW MANAGEMENT
 // ============================================================
 function addRow(data){var tbody=document.getElementById('itemsBody'),tr=document.createElement('tr');rowCount++;var d=getMode('discount'),c=getMode('charges'),t=getMode('tax'),id=d==='individual',ic=c==='individual',it=t==='individual',dis=editable?'':'disabled';tr.dataset.productId=(data&&data.product_id)||'';
-tr.innerHTML='<td class="rn">'+rowCount+'</td><td><input type="text" class="ri ac-code" data-col="code" placeholder="SKU" value="'+((data&&data.product&&data.product.sku)||'')+'" '+dis+'></td><td><div class="ac-wrap"><textarea class="ri ac-desc-input" data-col="description" placeholder="Search or Space..." rows="1" style="resize:none;overflow:hidden" '+dis+'>'+esc(data&&data.description||'')+'</textarea><div class="ac-dd"></div><div class="info-badge" style="font-size:10px;color:var(--light);"></div></div></td><td><input type="number" class="ri num" data-col="quantity" value="'+((data&&data.quantity)||1)+'" min="0.01" step="any" '+dis+'></td><td><span class="ri rc ac-unit">'+((data&&data.unit)||'pcs')+'</span></td><td><input type="number" class="ri num" data-col="unit_price" value="'+((data&&data.unit_price)||0)+'" step="0.01" min="0" '+dis+'></td><td><input type="text" class="ri rc num" data-col="amount" value="0" readonly></td><td class="c-disc" style="'+(id?'':'display:none;')+'"><div class="row-disc"><input type="number" class="ri num" data-col="discount_pct" value="'+((data&&data.discount_pct)||0)+'" step="0.01" min="0" max="100" '+(editable&&id?'':'disabled')+'></div></td><td class="c-disc" style="'+(id?'':'display:none;')+'"><div class="row-disc"><input type="number" class="ri num" data-col="discount_amount" value="'+((data&&data.discount_amount)||0)+'" step="0.01" min="0" '+(editable&&id?'':'disabled')+'></div></td><td class="c-chg num" style="'+(ic?'':'display:none;')+'"><span class="ri rc num chg-cell zero" data-col="addcharges" title="Click for breakdown" onclick="openChgPopover(this)">0.00</span></td><td class="c-tax" style="'+(it?'':'display:none;')+'"><div class="row-tax"><input type="number" class="ri num" data-col="sales_tax_pct" value="'+((data&&data.sales_tax_pct)||0)+'" step="0.01" min="0" max="100" '+(editable&&it?'':'disabled')+'></div></td><td class="c-net" style="'+((id||ic)?'':'display:none;')+'"><input type="text" class="ri rc num" data-col="net_amount" value="0" readonly></td><td><div class="ra"><button type="button" onclick="removeRow(this)">&times;</button><button type="button" class="del" onclick="addRowAfter(this)" title="Duplicate this row">+</button></div></td>';tbody.appendChild(tr);var di=tr.querySelector('.ac-desc-input');if(di)setupDescInput(di);tr.querySelectorAll('input[data-col]').forEach(function(inp){inp.addEventListener('input',function(){recalcRow(tr);recalc()});inp.addEventListener('change',function(){recalcRow(tr);recalc()})})
+tr.innerHTML='<td class="rn">'+rowCount+'</td><td class="c-ord" style="'+(loadedOrderIds.length?'':'display:none;')+'"><span class="ri rc" data-col="order_ref" style="font-size:10px;color:var(--muted);">'+esc((data&&data.order_ref)||'')+'</span></td><td><input type="text" class="ri ac-code" data-col="code" placeholder="SKU" value="'+((data&&data.product&&data.product.sku)||'')+'" '+dis+'></td><td><div class="ac-wrap"><textarea class="ri ac-desc-input" data-col="description" placeholder="Search or Space..." rows="1" style="resize:none;overflow:hidden" '+dis+'>'+esc(data&&data.description||'')+'</textarea><div class="ac-dd"></div><div class="info-badge" style="font-size:10px;color:var(--light);"></div></div></td><td><input type="number" class="ri num" data-col="quantity" value="'+((data&&data.quantity)||1)+'" min="0.01" step="any" '+dis+'></td><td><span class="ri rc ac-unit">'+((data&&data.unit)||'pcs')+'</span></td><td><input type="number" class="ri num" data-col="unit_price" value="'+((data&&data.unit_price)||0)+'" step="0.01" min="0" '+dis+'></td><td><input type="text" class="ri rc num" data-col="amount" value="0" readonly></td><td class="c-disc" style="'+(id?'':'display:none;')+'"><div class="row-disc"><input type="number" class="ri num" data-col="discount_pct" value="'+((data&&data.discount_pct)||0)+'" step="0.01" min="0" max="100" '+(editable&&id?'':'disabled')+'></div></td><td class="c-disc" style="'+(id?'':'display:none;')+'"><div class="row-disc"><input type="number" class="ri num" data-col="discount_amount" value="'+((data&&data.discount_amount)||0)+'" step="0.01" min="0" '+(editable&&id?'':'disabled')+'></div></td><td class="c-chg num" style="'+(ic?'':'display:none;')+'"><span class="ri rc num chg-cell zero" data-col="addcharges" title="Click for breakdown" onclick="openChgPopover(this)">0.00</span></td><td class="c-tax" style="'+(it?'':'display:none;')+'"><div class="row-tax"><input type="number" class="ri num" data-col="sales_tax_pct" value="'+((data&&data.sales_tax_pct)||0)+'" step="0.01" min="0" max="100" '+(editable&&it?'':'disabled')+'></div></td><td class="c-net" style="'+((id||ic)?'':'display:none;')+'"><input type="text" class="ri rc num" data-col="net_amount" value="0" readonly></td><td><div class="ra"><button type="button" onclick="removeRow(this)">&times;</button><button type="button" class="del" onclick="addRowAfter(this)" title="Duplicate this row">+</button></div></td>';tbody.appendChild(tr);var di=tr.querySelector('.ac-desc-input');if(di)setupDescInput(di);tr.querySelectorAll('input[data-col]').forEach(function(inp){inp.addEventListener('input',function(){recalcRow(tr);recalc()});inp.addEventListener('change',function(){recalcRow(tr);recalc()})})
 var ci=tr.querySelector('.ac-code');if(ci){ci.addEventListener('input',function(){var v=this.value.trim().toLowerCase();if(v.length===1)autoAddCheck();var m=allProducts.find(function(p){return p.sku.toLowerCase()===v});if(m){tr.dataset.productId=m.id;tr.querySelector('.ac-desc-input').value=m.name;tr.querySelector('.ac-unit').textContent=m.unit;tr.querySelector('[data-col="unit_price"]').value=m.unit_price;tr.querySelector('.info-badge').innerHTML='Stock: <strong>'+m.current_stock+'</strong>';recalcRow(tr);recalc()}})}
 if(di){di.addEventListener('input',function(){if(this.value.length===1)autoAddCheck()})}
 if(editable)setTimeout(function(){var f=tr.querySelector('.ac-code');if(f)f.focus()},30);return tr}
@@ -892,38 +901,109 @@ document.getElementById('fromOrdersBtn')?.addEventListener('click',async functio
   renderOrderPicker();
   document.getElementById('orderModal').classList.add('show');
 });
+// §4.2 picker: order value, what is still uninvoiced, and a status badge.
+// A fully-invoiced order stays visible but greyed and unselectable.
+function statusBadge(s){
+  var map={open:['Open','#059669','#d1fae5'],
+           partial:['Partially invoiced','#c2410c','#ffedd5'],
+           invoiced:['Fully invoiced','#64748b','#e2e8f0']};
+  var m=map[s]||map.open;
+  return'<span class="ord-badge" style="color:'+m[1]+';background:'+m[2]+';">'+m[0]+'</span>';
+}
 function renderOrderPicker(){
   var container=document.getElementById('ordersList');container.innerHTML='';
   if(!_fetchedOrders.length){container.innerHTML='<p style="color:var(--light);font-size:13px;text-align:center;padding:24px;">No approved orders for this customer</p>';return}
   _fetchedOrders.forEach(function(o,oi){
-    var totQty=o.items.reduce(function(s,i){return s+(i.ordered_qty||0)},0);
-    var lines=o.items.map(function(it,li){var bal=it.ordered_qty||0;return'<tr><td>'+esc(it.product_name||it.product_sku||('#'+it.product_id))+'</td><td>'+fmt(bal)+'</td><td>0.00</td><td>'+fmt(bal)+'</td><td><input type="number" class="ord-qty" data-o="'+oi+'" data-l="'+li+'" value="'+bal+'" min="0" max="'+bal+'" step="any"></td></tr>'}).join('');
-    var div=document.createElement('div');div.className='ord-row';
-    div.innerHTML='<div class="ord-hd"><label class="tgl"><input type="checkbox" class="ord-chk" data-o="'+oi+'"><span class="tgl-s"></span></label><div><div class="order-so">'+esc(o.so_number)+'</div><div class="order-date">'+esc(o.order_date||'')+' &bull; '+o.items.length+' item(s) &bull; Qty '+fmt(totQty)+'</div></div><span class="ord-exp">Rs. '+fmt(o.total_amount)+' &nbsp;&#9662;</span></div><div class="ord-lines"><table class="ord-lt"><thead><tr><th>Item</th><th>Ordered</th><th>Invoiced</th><th>Balance</th><th>This invoice</th></tr></thead><tbody>'+lines+'</tbody></table></div>';
+    var open=o.selectable!==false;
+    // Quantity to invoice is editable and capped at the line's balance (§4.2).
+    var lines=o.items.map(function(it,li){
+      var bal=it.balance_qty||0;
+      return'<tr'+(bal>0?'':' style="opacity:.5;"')+'><td>'+esc(it.product_name||it.product_sku||('#'+it.product_id))+'</td>'+
+        '<td>'+fmt(it.ordered_qty||0)+'</td><td>'+fmt(it.invoiced_qty||0)+'</td><td><b>'+fmt(bal)+'</b></td>'+
+        '<td><input type="number" class="ord-qty" data-o="'+oi+'" data-l="'+li+'" value="'+bal+'" min="0" max="'+bal+'" step="any"'+(bal>0&&open?'':' disabled')+'></td></tr>';
+    }).join('');
+    var div=document.createElement('div');div.className='ord-row'+(open?'':' ord-done');
+    div.innerHTML='<div class="ord-hd">'+
+      '<label class="tgl"><input type="checkbox" class="ord-chk" data-o="'+oi+'"'+(open?'':' disabled')+'><span class="tgl-s"></span></label>'+
+      '<div><div class="order-so">'+esc(o.number||o.so_number)+' '+statusBadge(o.status)+'</div>'+
+      '<div class="order-date">'+esc(o.order_date||'')+' &bull; '+o.items.length+' item(s) &bull; Order value Rs. '+fmt(o.order_value)+'</div></div>'+
+      '<span class="ord-exp">Uninvoiced <b>Rs. '+fmt(o.uninvoiced_value)+'</b> &nbsp;&#9662;</span></div>'+
+      '<div class="ord-lines"><table class="ord-lt"><thead><tr><th>Item</th><th>Ordered</th><th>Invoiced</th><th>Balance</th><th>This invoice</th></tr></thead><tbody>'+lines+'</tbody></table>'+
+      (open?'<div style="font-size:10px;color:var(--light);padding:4px 6px;">Order-level combined discount and charges copy pro-rata to the loaded share.</div>':'')+
+      '</div>';
     container.appendChild(div);
     var hd=div.querySelector('.ord-hd'),body=div.querySelector('.ord-lines'),chk=div.querySelector('.ord-chk');
     hd.addEventListener('click',function(e){if(e.target.closest('.ord-chk')||e.target.tagName==='INPUT')return;body.classList.toggle('open')});
-    chk.addEventListener('change',function(){if(this.checked)body.classList.add('open')});
-    div.querySelectorAll('.ord-qty').forEach(function(inp){inp.addEventListener('input',function(){var mx=parseFloat(this.max)||0;if((parseFloat(this.value)||0)>mx)this.value=mx;chk.checked=true});inp.addEventListener('click',function(e){e.stopPropagation()})});
+    if(chk)chk.addEventListener('change',function(){if(this.checked)body.classList.add('open')});
+    div.querySelectorAll('.ord-qty').forEach(function(inp){inp.addEventListener('input',function(){var mx=parseFloat(this.max)||0;if((parseFloat(this.value)||0)>mx)this.value=mx;if(chk)chk.checked=true});inp.addEventListener('click',function(e){e.stopPropagation()})});
   });
 }
 document.getElementById('loadOrdersBtn')?.addEventListener('click',function(){
-  var picked=[];qsa('#ordersList .ord-chk').forEach(function(chk){if(chk.checked)picked.push(parseInt(chk.dataset.o))});
+  var picked=[];qsa('#ordersList .ord-chk').forEach(function(chk){if(chk.checked&&!chk.disabled)picked.push(parseInt(chk.dataset.o))});
   if(!picked.length){toast('Tick at least one order','error');return}
-  var rowsToAdd=[],soIds=[],soNums=[];
-  picked.forEach(function(oi){var o=_fetchedOrders[oi];soIds.push(o.id);soNums.push(o.so_number);
-    o.items.forEach(function(it,li){var qinp=document.querySelector('.ord-qty[data-o="'+oi+'"][data-l="'+li+'"]');var q=qinp?(parseFloat(qinp.value)||0):(it.ordered_qty||0);if(q>0)rowsToAdd.push({product_id:it.product_id,product_name:it.product_name,product_sku:it.product_sku,quantity:q,unit_price:it.unit_price,so_number:o.so_number})});
+  var rowsToAdd=[],soIds=[],soNums=[],pools=[];
+  picked.forEach(function(oi){
+    var o=_fetchedOrders[oi];soIds.push(o.id);soNums.push(o.number||o.so_number);
+    // §4.3: the loaded share decides how much of the order's combined pools
+    // travel with it — load a third of the balance, get a third of the pool.
+    var balValue=0,loadValue=0;
+    o.items.forEach(function(it,li){
+      var qinp=document.querySelector('.ord-qty[data-o="'+oi+'"][data-l="'+li+'"]');
+      var q=qinp?(parseFloat(qinp.value)||0):(it.balance_qty||0);
+      var unit=it.unit_price||0;
+      balValue+=(it.balance_qty||0)*unit;loadValue+=q*unit;
+      if(q>0)rowsToAdd.push({product_id:it.product_id,product_name:it.product_name,
+        product_sku:it.product_sku,unit:it.unit,quantity:q,unit_price:unit,
+        discount_pct:it.discount_pct||0,sales_tax_pct:it.sales_tax_pct||0,
+        source_order_id:o.id,source_order_item_id:it.order_item_id,
+        so_number:o.number||o.so_number});
+    });
+    pools.push({p:o.pools||{},share:balValue>0?(loadValue/balValue):1});
   });
   if(!rowsToAdd.length){toast('No quantities to load','error');return}
-  loadOrderRows(rowsToAdd,soIds,soNums);
+  loadOrderRows(rowsToAdd,soIds,soNums,pools);
 });
-function loadOrderRows(rowsToAdd,soIds,soNums){
+function loadOrderRows(rowsToAdd,soIds,soNums,pools){
   document.getElementById('itemsBody').innerHTML='';rowCount=0;
   rowsToAdd.forEach(function(item){
-    addRow({product_id:item.product_id,quantity:item.quantity,unit_price:item.unit_price});
+    addRow({product_id:item.product_id,quantity:item.quantity,unit_price:item.unit_price,
+            discount_pct:item.discount_pct,sales_tax_pct:item.sales_tax_pct});
     var tr=document.getElementById('itemsBody').lastElementChild;
-    if(tr){var di=tr.querySelector('.ac-desc-input');if(di)di.value=item.product_name||'';var cc=tr.querySelector('.ac-code');if(cc)cc.value=item.product_sku||'';tr.dataset.productId=item.product_id;tr.dataset.orderRef=item.so_number||''}
+    if(tr){
+      var di=tr.querySelector('.ac-desc-input');if(di)di.value=item.product_name||'';
+      var cc=tr.querySelector('.ac-code');if(cc)cc.value=item.product_sku||'';
+      var un=tr.querySelector('.ac-unit');if(un&&item.unit)un.textContent=item.unit;
+      tr.dataset.productId=item.product_id;
+      tr.dataset.orderRef=item.so_number||'';
+      tr.dataset.sourceOrderId=item.source_order_id||'';
+      tr.dataset.sourceOrderItemId=item.source_order_item_id||'';
+      var oc=tr.querySelector('[data-col="order_ref"]');if(oc)oc.textContent=item.so_number||'';
+    }
   });
+  // §4.3: copy the order-level pools across, weighted by the loaded share.
+  if(pools&&pools.length){
+    var dv=0,stPct=0,ftPct=0,whPct=0,anyFT=false,anyWH=false;
+    pools.forEach(function(x){
+      var p=x.p||{};
+      dv+=(parseFloat(p.global_discount_value)||0)*x.share;
+      stPct=Math.max(stPct,parseFloat(p.global_sales_tax_pct)||0);
+      if(p.apply_further_tax){anyFT=true;ftPct=Math.max(ftPct,parseFloat(p.further_tax_pct)||0)}
+      if(p.apply_withholding_tax){anyWH=true;whPct=Math.max(whPct,parseFloat(p.withholding_tax_pct)||0)}
+    });
+    var gdv=document.getElementById('globalDiscVal');if(gdv&&dv>0)gdv.value=dv.toFixed(2);
+    var gst=document.getElementById('globalSalesTaxPct');if(gst&&stPct>0)gst.value=stPct;
+    var sst=document.getElementById('settingsSalesTaxPct');if(sst&&stPct>0)sst.value=stPct;
+    // §4.3: tax switches copy but are re-evaluated against the customer's
+    // registration at invoice date — the user can still turn them off here.
+    var ftCb=document.getElementById('settingsApplyFurtherTax');
+    if(ftCb&&anyFT){ftCb.checked=true;var ftr=document.getElementById('furtherTaxRow');if(ftr)ftr.style.display='';
+      var fi=document.getElementById('furtherTaxPct');if(fi)fi.value=ftPct;
+      var fs=document.getElementById('settingsFurtherTaxPct');if(fs)fs.value=ftPct}
+    var whCb=document.getElementById('settingsApplyWHT');
+    if(whCb&&anyWH){whCb.checked=true;var whr=document.getElementById('withholdingTaxRow');if(whr)whr.style.display='';
+      var wi=document.getElementById('withholdingTaxPct');if(wi)wi.value=whPct;
+      var ws=document.getElementById('settingsWHTaxPct');if(ws)ws.value=whPct}
+  }
   loadedOrderIds=soIds.slice();loadedSalesOrderId=soIds.length?soIds[0]:null;
   var refBox=document.getElementById('refSO');if(refBox&&soNums.length)refBox.value=soNums.join(', ');
   closeOrderModal();renumberRows();refreshCols();recalc();
@@ -1006,7 +1086,7 @@ function recalc(){
 // ============================================================
 // COLLECT DATA
 // ============================================================
-function collectData(){var items=[];qsa('#itemsBody tr').forEach(function(tr){items.push({product_id:tr.dataset.productId||null,description:tr.querySelector('.ac-desc-input')?.value||'',quantity:parseFloat(tr.querySelector('[data-col="quantity"]')?.value)||0,unit:tr.querySelector('.ac-unit')?.textContent||'pcs',unit_price:parseFloat(tr.querySelector('[data-col="unit_price"]')?.value)||0,discount_pct:parseFloat(tr.querySelector('[data-col="discount_pct"]')?.value)||0,discount_amount:parseFloat(tr.querySelector('[data-col="discount_amount"]')?.value)||0,delivery:parseFloat(tr.querySelector('[data-col="delivery"]')?.value)||0,installation:parseFloat(tr.querySelector('[data-col="installation"]')?.value)||0,sales_tax_pct:parseFloat(tr.querySelector('[data-col="sales_tax_pct"]')?.value)||0,total_before_discount:cv(tr.querySelector('[data-col="amount"]')?.value),total_after_discount:cv(tr.querySelector('[data-col="net_amount"]')?.value),comments:''})});return{id:document.getElementById('invoiceId').value||null,invoice_number:document.getElementById('invNumber').value,customer_id:parseInt(document.getElementById('customerId').value)||null,party_account_id:parseInt(document.getElementById('partyAccountId')?.value)||null,due_date:document.getElementById('dueDate').value||'',discount_mode:getMode('discount'),charges_mode:getMode('charges'),tax_mode:getMode('tax'),global_discount_pct:parseFloat(document.getElementById('globalDiscPct').value)||0,global_discount_value:parseFloat(document.getElementById('globalDiscVal').value)||0,global_delivery:parseFloat(document.getElementById('globalDelivery').value)||0,global_installation:parseFloat(document.getElementById('globalInstallation').value)||0,global_sales_tax_pct:parseFloat(document.getElementById('globalSalesTaxPct').value)||0,further_tax_pct:parseFloat(document.getElementById('furtherTaxPct').value)||0,apply_further_tax:document.getElementById('settingsApplyFurtherTax')?.checked||document.getElementById('furtherTaxRow').style.display!=='none',withholding_tax_pct:parseFloat(document.getElementById('withholdingTaxPct').value)||0,apply_withholding_tax:document.getElementById('settingsApplyWHT')?.checked||document.getElementById('withholdingTaxRow').style.display!=='none',subtotal:cv(document.getElementById('summarySubtotal').textContent),total_discount:Math.abs(cv(document.getElementById('summaryDiscount').textContent)),total_charges:lastBilled,total_absorbed_charges:lastAbsorb,total_expense_charges:lastExpense,taxable_value:cv(document.getElementById('summaryTaxableValue').textContent),total_tax:cv(document.getElementById('summarySalesTax').textContent),total_further_tax:cv(document.getElementById('summaryFurtherTax').textContent),total_withholding_tax:Math.abs(cv(document.getElementById('summaryWithholdingTax').textContent)),total_amount:cv(document.getElementById('summaryNetTotal').textContent.replace('Rs. ','')),notes:document.getElementById('invoiceNotes').value||'',sales_order_id:null,charges:collectCharges(),items:items}}
+function collectData(){var items=[];qsa('#itemsBody tr').forEach(function(tr){items.push({product_id:tr.dataset.productId||null,source_order_id:parseInt(tr.dataset.sourceOrderId)||null,source_order_item_id:parseInt(tr.dataset.sourceOrderItemId)||null,source_order_number:tr.dataset.orderRef||'',description:tr.querySelector('.ac-desc-input')?.value||'',quantity:parseFloat(tr.querySelector('[data-col="quantity"]')?.value)||0,unit:tr.querySelector('.ac-unit')?.textContent||'pcs',unit_price:parseFloat(tr.querySelector('[data-col="unit_price"]')?.value)||0,discount_pct:parseFloat(tr.querySelector('[data-col="discount_pct"]')?.value)||0,discount_amount:parseFloat(tr.querySelector('[data-col="discount_amount"]')?.value)||0,delivery:parseFloat(tr.querySelector('[data-col="delivery"]')?.value)||0,installation:parseFloat(tr.querySelector('[data-col="installation"]')?.value)||0,sales_tax_pct:parseFloat(tr.querySelector('[data-col="sales_tax_pct"]')?.value)||0,total_before_discount:cv(tr.querySelector('[data-col="amount"]')?.value),total_after_discount:cv(tr.querySelector('[data-col="net_amount"]')?.value),comments:''})});return{id:document.getElementById('invoiceId').value||null,invoice_number:document.getElementById('invNumber').value,customer_id:parseInt(document.getElementById('customerId').value)||null,party_account_id:parseInt(document.getElementById('partyAccountId')?.value)||null,due_date:document.getElementById('dueDate').value||'',discount_mode:getMode('discount'),charges_mode:getMode('charges'),tax_mode:getMode('tax'),global_discount_pct:parseFloat(document.getElementById('globalDiscPct').value)||0,global_discount_value:parseFloat(document.getElementById('globalDiscVal').value)||0,global_delivery:parseFloat(document.getElementById('globalDelivery').value)||0,global_installation:parseFloat(document.getElementById('globalInstallation').value)||0,global_sales_tax_pct:parseFloat(document.getElementById('globalSalesTaxPct').value)||0,further_tax_pct:parseFloat(document.getElementById('furtherTaxPct').value)||0,apply_further_tax:document.getElementById('settingsApplyFurtherTax')?.checked||document.getElementById('furtherTaxRow').style.display!=='none',withholding_tax_pct:parseFloat(document.getElementById('withholdingTaxPct').value)||0,apply_withholding_tax:document.getElementById('settingsApplyWHT')?.checked||document.getElementById('withholdingTaxRow').style.display!=='none',subtotal:cv(document.getElementById('summarySubtotal').textContent),total_discount:Math.abs(cv(document.getElementById('summaryDiscount').textContent)),total_charges:lastBilled,total_absorbed_charges:lastAbsorb,total_expense_charges:lastExpense,taxable_value:cv(document.getElementById('summaryTaxableValue').textContent),total_tax:cv(document.getElementById('summarySalesTax').textContent),total_further_tax:cv(document.getElementById('summaryFurtherTax').textContent),total_withholding_tax:Math.abs(cv(document.getElementById('summaryWithholdingTax').textContent)),total_amount:cv(document.getElementById('summaryNetTotal').textContent.replace('Rs. ','')),notes:document.getElementById('invoiceNotes').value||'',sales_order_id:null,charges:collectCharges(),items:items}}
 
 // ============================================================
 // SAVE / APPROVE / UNAPPROVE
@@ -1033,7 +1113,16 @@ async function deleteInvoice(){var id=document.getElementById('invoiceId').value
 // ============================================================
 // INIT
 // ============================================================
-{% if invoice_items %}try{var items={{ invoice_items|tojson }};if(items.length===0){addRow({})}else{items.forEach(function(item){addRow(item)})}}catch(e){addRow({})}{% else %}addRow({});{% endif %}
+{% if invoice_items %}try{var items={{ invoice_items|tojson }};
+// Re-establish the order linkage before the rows mount, so the Order ref
+// column shows and re-approving credits the same order lines (§4.3, §5.1).
+loadedOrderIds=items.map(function(i){return i.source_order_id}).filter(function(v,i,a){return v&&a.indexOf(v)===i});
+if(items.length===0){addRow({})}else{items.forEach(function(item){
+  addRow(item);
+  var tr=document.getElementById('itemsBody').lastElementChild;
+  if(tr&&item.source_order_item_id){tr.dataset.sourceOrderId=item.source_order_id||'';
+    tr.dataset.sourceOrderItemId=item.source_order_item_id||'';tr.dataset.orderRef=item.order_ref||''}
+})}}catch(e){addRow({})}{% else %}addRow({});{% endif %}
 {% if invoice_charges %}try{charges={{ invoice_charges|tojson }};var ftRow=document.getElementById('furtherTaxRow');var whtRow=document.getElementById('withholdingTaxRow');var ftRowChk=document.getElementById('settingsApplyFurtherTax');var whtRowChk=document.getElementById('settingsApplyWHT');if({{ 'true' if invoice and invoice.apply_further_tax else 'false' }}){ftRow.style.display='';if(ftRowChk)ftRowChk.checked=true}if({{ 'true' if invoice and invoice.apply_withholding_tax else 'false' }}){whtRow.style.display='';if(whtRowChk)whtRowChk.checked=true}recalcChargeSummary();recalc()}catch(e){}{% endif %}
 (async function init(){try{allProducts=await loadProducts('')}catch(e){console.warn('Product load failed',e)}setTimeout(function(){qsa('#itemsBody tr').forEach(function(tr){recalcRow(tr)});refreshCols();recalc();var d=document.getElementById('invDate');if(d&&!d.value){var n=new Date();d.value=n.getFullYear()+'-'+String(n.getMonth()+1).padStart(2,'0')+'-'+String(n.getDate()).padStart(2,'0')}var t=document.getElementById('invTime');if(t&&!t.value){var n2=new Date();t.value=String(n2.getHours()).padStart(2,'0')+':'+String(n2.getMinutes()).padStart(2,'0')}wireFbrBtns()},50)})();
 

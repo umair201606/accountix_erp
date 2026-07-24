@@ -112,7 +112,45 @@ Now reads the same shared totals module the journal posts from, and adds
   `purchase_invoice/` `form_inv.html`
 - `fbr_app/services/fbr_mapper.py`
 
-## 7. Not done — needs a decision
+## 7. §4 — order-to-invoice flow
+
+This was missing entirely and is now built. Previously the picker displayed
+"Invoiced 0.00" as a hardcoded literal and treated the whole ordered quantity
+as the balance every time, and nothing was written back on posting — so the
+same order could be invoiced over and over with nothing to stop it.
+
+**New:** `shared/order_linkage.py` — balances, picker payload, over-invoice
+control and write-back, shared by both sides.
+
+**Schema:** `invoiced_qty` on both order-item tables, `fulfilment_status` on
+both order tables, and `source_order_id` / `source_order_item_id` /
+`source_order_number` on both invoice-item tables. The link lives on the
+**line**, not the header, because one invoice can draw on several orders.
+
+| §4 requirement | Status |
+|---|---|
+| Picker shows order value, uninvoiced value, status badge | Done |
+| Fully-invoiced orders greyed and unselectable | Done |
+| Per-line Ordered / Invoiced / Balance, editable qty capped at balance | Done |
+| Multi-select across orders into one invoice | Done (purchase side too — it was single-select) |
+| Per-line discounts and tax codes copy with the line | Done |
+| Order-level combined pools copy pro-rata to the loaded share | Done |
+| Order ref column, shown only on order-sourced invoices | Done |
+| Posting writes back: qty rises, Open → Partially → Fully | Done |
+| Over-invoicing blocked at save, per admin tolerance (§11.2) | Done |
+| Un-posting restores balances and reopens the order | Done |
+
+Verified by a 23-check lifecycle test: order of 4 → invoice 1 (partial) →
+attempt 5 (refused, nothing written) → invoice 3 (fully, unselectable) →
+unapprove (balance restored, reopened to partial). Purchase side checked
+separately with the same result.
+
+**Credit notes** (§4.4's "posting a credit note restores the balances") are not
+yet wired to the release path — the release currently runs on unapprove.
+Deleting a draft correctly restores nothing, because a draft never consumed
+balance: write-back happens at posting, not at save.
+
+## 8. Not done — needs a decision
 
 **Per-line revenue and tax sub-accounts (§12.2, Example B).** The document says
 Per-line mode "can post multiple lines against the same natural account type" —

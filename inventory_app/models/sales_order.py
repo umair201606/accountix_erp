@@ -11,6 +11,10 @@ class InvSalesOrder(db.Model):
     order_date = db.Column(db.Date, default=datetime.utcnow)
     expected_date = db.Column(db.Date)
     status = db.Column(db.String(20), default="unapproved")
+    # Approval status (above) and invoicing progress (below) are independent:
+    # an approved order is still "open" until something is invoiced against it.
+    # open | partial | invoiced — maintained by shared/order_linkage.py (§4.4).
+    fulfilment_status = db.Column(db.String(20), default="open")
     discount_mode = db.Column(db.String(20), default="general")
     charges_mode = db.Column(db.String(20), default="general")
     tax_mode = db.Column(db.String(20), default="general")
@@ -56,6 +60,10 @@ class InvSalesOrderItem(db.Model):
     description = db.Column(db.String(200), default="")
     unit = db.Column(db.String(20), default="pcs")
     quantity = db.Column(db.Float, default=1)
+    # How much of `quantity` has been billed. The uninvoiced balance is
+    # quantity - invoiced_qty; the order picker caps "this invoice" at it (§4.2)
+    # and save refuses to exceed it beyond the admin tolerance (§4.4, §11.2).
+    invoiced_qty = db.Column(db.Float, default=0)
     unit_price = db.Column(db.Float, default=0)
     discount_pct = db.Column(db.Float, default=0)
     discount_amount = db.Column(db.Float, default=0)

@@ -75,6 +75,11 @@ class InvPurchaseInvoiceItem(db.Model):
     unit = db.Column(db.String(20), default="pcs")
     unit_price = db.Column(db.Float, default=0)
 
+    # Per-line source purchase order (§4.3) — see the sales-side note.
+    source_order_id = db.Column(db.Integer, db.ForeignKey("inv_purchase_orders.id"))
+    source_order_item_id = db.Column(db.Integer, db.ForeignKey("inv_purchase_order_items.id"))
+    source_order_number = db.Column(db.String(50), default="")
+
     discount_pct = db.Column(db.Float, default=0)
     discount_amount = db.Column(db.Float, default=0)
     commission = db.Column(db.Float, default=0)
