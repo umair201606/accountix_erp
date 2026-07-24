@@ -360,53 +360,96 @@ body{background:var(--bg);font-family:Inter,-apple-system,BlinkMacSystemFont,'Se
     <button onclick="closeSidePanel()">&times;</button>
   </div>
   <div class="sp-b">
+    <!-- 1 · DISCOUNT -->
     <div class="accordion">
-      <div class="acc-h" onclick="toggleAccordion(this)">
-        <span>Scopes</span><span class="acc-sum" id="accSumScopes"></span><span class="arrow">&#9654;</span>
+      <div class="acc-h open" onclick="toggleAccordion(this)">
+        <span>1 &middot; Discount</span><span class="acc-sum" id="accSumDiscount"></span><span class="arrow">&#9654;</span>
       </div>
-      <div class="acc-b">
-        <div class="lbl">Discount scope</div>
+      <div class="acc-b open">
+        <div class="lbl">Scope</div>
         <div class="pill" id="discountMode" data-panel-mode="discount" style="display:inline-flex;">
           <button type="button" class="pill-b {{ 'active' if not order or order.discount_mode == 'general' else '' }}" data-value="general" {{ 'disabled' if not editable else '' }}>Combined</button>
           <button type="button" class="pill-b {{ 'active' if order and order.discount_mode == 'individual' else '' }}" data-value="individual" {{ 'disabled' if not editable else '' }}>Per line</button>
         </div>
-        <div class="lbl" style="margin-top:12px;">Tax scope</div>
+        <div class="lbl" style="margin-top:10px;">Method (per line)</div>
+        <select class="inp inp-sm" id="settingsDiscountMethod" {{ 'disabled' if not editable else '' }}>
+          <option value="manual">Manual (type per line)</option>
+          <option value="auto">Auto-split by value</option>
+        </select>
+      </div>
+    </div>
+    <!-- 2 · ADDITIONAL CHARGES -->
+    <div class="accordion">
+      <div class="acc-h" onclick="toggleAccordion(this)">
+        <span>2 &middot; Additional charges</span><span class="acc-sum" id="accSumCharges"></span><span class="arrow">&#9654;</span>
+      </div>
+      <div class="acc-b">
+        <div class="lbl">Default scope for new charges</div>
+        <select class="inp inp-sm" id="settingsChargeScope" {{ 'disabled' if not editable else '' }}>
+          <option value="general">Combined</option>
+          <option value="individual">Per item</option>
+        </select>
+        <div class="lbl" style="margin-top:8px;">Default distribution (per-item charges)</div>
+        <select class="inp inp-sm" id="settingsChargeDistribution" {{ 'disabled' if not editable else '' }}>
+          <option value="pro_rata_value">Pro-rata by value</option>
+          <option value="pro_rata_qty">Pro-rata by qty</option>
+          <option value="by_weight">By weight</option>
+          <option value="manual">Manual per line</option>
+        </select>
+        <div class="lbl" style="margin-top:8px;">Default tax bases for billed charges</div>
+        <div class="flex-row" style="margin-bottom:4px;">
+          <label class="tgl"><input type="checkbox" id="settingsChargeStDefault" checked {{ 'disabled' if not editable else '' }}><span class="tgl-s"></span></label>
+          <span style="font-size:12px;color:var(--muted);">Input tax</span>
+        </div>
+        <div class="flex-row" style="margin-bottom:4px;">
+          <label class="tgl"><input type="checkbox" id="settingsChargeWhtDefault" {{ 'disabled' if not editable else '' }}><span class="tgl-s"></span></label>
+          <span style="font-size:12px;color:var(--muted);">W/H tax</span>
+        </div>
+        <div class="flex-row">
+          <label class="tgl"><input type="checkbox" id="settingsChargeExtraDefault" {{ 'disabled' if not editable else '' }}><span class="tgl-s"></span></label>
+          <span style="font-size:12px;color:var(--muted);">Extra tax</span>
+        </div>
+        <button type="button" class="bsm bsm-charges" id="manageChargesBtn" style="margin-top:12px;width:100%;">Manage charges <span id="panelChargeCount"></span> &rarr;</button>
+        <div style="font-size:10px;color:var(--light);margin-top:6px;">Per-charge overrides live in the charges form (§6).</div>
+      </div>
+    </div>
+    <!-- 3 · TAXES -->
+    <div class="accordion">
+      <div class="acc-h" onclick="toggleAccordion(this)">
+        <span>3 &middot; Taxes</span><span class="acc-sum" id="accSumTaxes"></span><span class="arrow">&#9654;</span>
+      </div>
+      <div class="acc-b">
+        <div class="lbl">Input tax scope</div>
         <div class="pill" id="taxMode" data-panel-mode="tax" style="display:inline-flex;">
           <button type="button" class="pill-b {{ 'active' if not order or order.tax_mode == 'general' else '' }}" data-value="general" {{ 'disabled' if not editable else '' }}>Combined</button>
           <button type="button" class="pill-b {{ 'active' if order and order.tax_mode == 'individual' else '' }}" data-value="individual" {{ 'disabled' if not editable else '' }}>Per line</button>
         </div>
-        <div style="font-size:10px;color:var(--light);margin-top:10px;">Additional-charge scope is set per charge in the charges form (§6.2); the grid follows the charges themselves.</div>
-      </div>
-    </div>
-    <div class="accordion">
-      <div class="acc-h open" onclick="toggleAccordion(this)">
-        <span>General</span><span class="arrow">&#9654;</span>
-      </div>
-      <div class="acc-b open">
-        <div class="lbl">Order Date</div>
-        <input type="date" class="inp inp-sm" id="settingsOrderDate" {{ 'disabled' if not editable else '' }}>
-        <div class="lbl" style="margin-top:8px;">Expected Date</div>
-        <input type="date" class="inp inp-sm" id="settingsExpectedDate" {{ 'disabled' if not editable else '' }}>
-      </div>
-    </div>
-    <div class="accordion">
-      <div class="acc-h" onclick="toggleAccordion(this)">
-        <span>Tax Settings</span><span class="arrow">&#9654;</span>
-      </div>
-      <div class="acc-b">
-        <div class="lbl">Input Sales Tax %</div>
+        <div class="lbl" style="margin-top:8px;">Input Tax % (combined)</div>
         <input type="number" class="inp inp-sm" id="settingsSalesTaxPct" step="0.01" min="0" max="100" value="{{ order.global_sales_tax_pct if order else '0' }}" {{ 'disabled' if not editable else '' }}>
+        <div style="font-size:10px;color:var(--light);margin-top:12px;line-height:1.5;">Further tax does not apply to a purchase &mdash; it is a sales-side levy (&sect;8).</div>
         <div class="lbl" style="margin-top:12px;">Withholding Tax</div>
         <div class="flex-row">
-          <label class="tgl">
-            <input type="checkbox" id="settingsApplyWHT" {{ 'checked' if order and order.apply_withholding_tax else '' }} {{ 'disabled' if not editable else '' }}>
-            <span class="tgl-s"></span>
-          </label>
-          <span style="font-size:12px;color:var(--muted);">Apply withholding tax</span>
+          <label class="tgl"><input type="checkbox" id="settingsApplyWHT" {{ 'checked' if order and order.apply_withholding_tax else '' }} {{ 'disabled' if not editable else '' }}><span class="tgl-s"></span></label>
+          <span style="font-size:12px;color:var(--muted);">Deduct withholding from the supplier</span>
         </div>
         <div class="lbl" style="margin-top:8px;">WHT %</div>
         <input type="number" class="inp inp-sm" id="settingsWHTaxPct" step="0.01" min="0" max="100" value="{{ order.withholding_tax_pct if order else '0' }}" {{ 'disabled' if not editable else '' }}>
-        <p style="font-size:11px;color:var(--light);margin-top:12px;">No further tax applies to purchases (§8).</p>
+      </div>
+    </div>
+    <!-- 4 · COLUMNS & FIELDS -->
+    <div class="accordion">
+      <div class="acc-h" onclick="toggleAccordion(this)">
+        <span>4 &middot; Columns &amp; fields</span><span class="acc-sum" id="accSumColumns"></span><span class="arrow">&#9654;</span>
+      </div>
+      <div class="acc-b">
+        <div class="flex-row" style="margin-bottom:6px;">
+          <label class="tgl"><input type="checkbox" id="settingsPerOrderSubtotals" {{ 'disabled' if not editable else '' }}><span class="tgl-s"></span></label>
+          <span style="font-size:12px;color:var(--muted);">Per-order subtotals (order-sourced)</span>
+        </div>
+        <div class="lbl" style="margin-top:10px;">Order date</div>
+        <input type="date" class="inp inp-sm" id="settingsOrderDate" {{ 'disabled' if not editable else '' }}>
+        <div class="lbl" style="margin-top:8px;">Expected date</div>
+        <input type="date" class="inp inp-sm" id="settingsExpectedDate" {{ 'disabled' if not editable else '' }}>
       </div>
     </div>
   </div>
@@ -542,8 +585,20 @@ function renderModeChips(){
   var em=document.getElementById('expensesMode');
   if(em)chips.push(['Carriage',getMode('expenses')==='individual'?'Per line':'Combined']);
   box.innerHTML=chips.map(function(c){return'<span class="chip"><span class="chip-k">'+c[0]+'</span>'+esc(c[1])+'</span>'}).join('');
-  var s=document.getElementById('accSumScopes');
-  if(s)s.textContent=chips.filter(function(c){return c[0]!=='Add. charges'}).map(function(c){return c[1]}).join(' · ');
+  // Figure 5: every collapsed section header carries a live summary, so
+  // nothing in the panel is hidden blind.
+  function put(id,txt){var e=document.getElementById(id);if(e)e.textContent=txt}
+  var dMethod=(document.getElementById('settingsDiscountMethod')||{}).value||'manual';
+  put('accSumDiscount',getMode('discount')==='individual'
+      ?('Per line · '+(dMethod==='auto'?'Auto':'Manual')):'Combined');
+  put('accSumCharges',n?(perItem+' of '+n+' per item'):'None');
+  var ft=document.getElementById('settingsApplyFurtherTax'),wh=document.getElementById('settingsApplyWHT');
+  var tx=(getMode('tax')==='individual'?'Per line':'Combined');
+  if(ft)tx+=' · Further: '+(ft.checked?'On':'Off');
+  if(wh)tx+=' · W/H: '+(wh.checked?'On':'Off');
+  put('accSumTaxes',tx);
+  var emx=document.getElementById('expensesMode');
+  put('accSumColumns',emx?('Carriage: '+(getMode('expenses')==='individual'?'Per line':'Combined')):'Defaults');
 }
 function refreshCols(){var d=getMode('discount'),c=getMode('charges'),t=getMode('tax'),id=d==='individual',ic=c==='individual',it=t==='individual';qsa('.c-disc').forEach(function(el){el.style.display=id?'':'none'});qsa('.c-chg').forEach(function(el){el.style.display=ic?'':'none'});qsa('.c-tax').forEach(function(el){el.style.display=it?'':'none'});qsa('.c-net').forEach(function(el){el.style.display=(id||ic)?'':'none'});qsa('#itemsBody tr').forEach(function(tr){qsa('.row-disc input',tr).forEach(function(i){i.disabled=!id||!editable});qsa('.row-tax input',tr).forEach(function(i){i.disabled=!it||!editable})})}
 
