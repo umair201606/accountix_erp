@@ -99,6 +99,7 @@ body{background:var(--bg);font-family:Inter,-apple-system,BlinkMacSystemFont,'Se
 .toast-s{background:var(--success)}
 .toast-e{background:var(--danger)}
 .toast-i{background:var(--primary)}
+.toast-w{background:#d97706}
 .modal-o{display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:2000;justify-content:center;align-items:center}
 .modal-o.show{display:flex}
 .modal-b{background:#fff;padding:24px;border-radius:var(--radius);width:620px;max-width:90vw;max-height:80vh;overflow-y:auto;box-shadow:0 10px 40px rgba(0,0,0,.15)}
@@ -225,6 +226,49 @@ body{background:#fff;font-size:10px}
 .chips{display:flex;flex-wrap:wrap;gap:6px;padding:6px 0 0}
 .chip{display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border:1px solid var(--border);border-radius:12px;font-size:10px;color:var(--dark);background:#f8fafc}
 .chip-k{font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.3px;font-size:9px}
+/* Figure 3 — ACTIVE MODES strip, prominent controls, self-footing grid */
+.tb-tot td{background:#f1f5f9;font-weight:700;border-top:2px solid var(--border);padding:7px 8px;font-size:12px}
+.modes-row{display:flex;align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid var(--border);background:#fbfcfe;flex-wrap:wrap}
+.modes-lbl{font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
+.chip{display:inline-flex;align-items:center;gap:5px;padding:3px 11px;font-size:10.5px;font-weight:600;border-radius:12px;background:#fff;color:#c2410c;border:1px solid #fdba74}
+.chip-k{color:#9a3412;font-weight:700}
+.chip.chip-off{color:var(--muted);border-color:var(--border)}
+.chip.chip-off .chip-k{color:var(--light)}
+.bsm-charges{background:#1d4ed8;border-color:#1d4ed8;color:#fff}
+.bsm-charges:hover{background:#1e40af;border-color:#1e40af}
+.bsm-settings{background:#1e293b;border-color:#1e293b;color:#fff}
+.bsm-settings:hover{background:#0f172a;border-color:#0f172a}
+/* Figure 4 — charges modal shell with the treatment explainer beside it */
+.chg-shell{display:grid;grid-template-columns:minmax(0,1fr) 280px;gap:16px;width:min(1180px,96vw);max-height:92vh;align-items:start;box-shadow:0 10px 40px rgba(0,0,0,.18)}
+.chg-main{background:#fff;border-radius:10px;overflow:hidden;display:flex;flex-direction:column;max-height:92vh}
+.chg-head{background:#1e293b;color:#fff;padding:12px 18px;font-size:15px;font-weight:700;display:flex;align-items:center;justify-content:space-between;flex:none}
+.chg-head-alt{font-size:12px;text-transform:uppercase;letter-spacing:.5px}
+.chg-x{background:none;border:none;color:#fff;font-size:22px;line-height:1;cursor:pointer;padding:0 2px}
+.chg-body{padding:16px 18px;overflow-y:auto}
+.chg-actions{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-top:10px;flex-wrap:wrap}
+.chg-aside{background:#fff;border-radius:10px;overflow:hidden;max-height:92vh;display:flex;flex-direction:column}
+.chg-aside-b{padding:14px;overflow-y:auto}
+.tcard{border:1px solid;border-radius:8px;padding:10px 12px;margin-bottom:10px}
+.tcard h4{margin:0 0 5px;font-size:12px}
+.tcard p{margin:0;font-size:11px;line-height:1.5;color:var(--muted)}
+.tcard-bill{border-color:#93c5fd;background:#eff6ff}.tcard-bill h4{color:#1d4ed8}
+.tcard-absorb{border-color:#86efac;background:#f0fdf4}.tcard-absorb h4{color:#15803d}
+.tcard-expense{border-color:#fdba74;background:#fff7ed}.tcard-expense h4{color:#c2410c}
+.tnote{background:#fefce8;border:1px solid #fde68a;border-radius:8px;padding:10px 12px;font-size:11px;line-height:1.5;color:#713f12}
+@media(max-width:900px){.chg-shell{grid-template-columns:1fr}.chg-aside{display:none}}
+/* Figure 2 — picker source choice and running selection summary */
+.src-choice{display:flex;align-items:flex-start;gap:18px;flex-wrap:wrap;padding:10px 12px;background:#f8fafc;border:1px solid var(--border);border-radius:8px}
+.src-opt{display:flex;align-items:flex-start;gap:7px;font-size:12px;cursor:pointer;max-width:330px}
+.src-opt span{display:flex;flex-direction:column;gap:2px}
+.src-opt em{font-style:normal;font-size:10.5px;color:var(--muted);line-height:1.45}
+.ord-bar{display:flex;align-items:center;gap:8px;margin-top:14px;padding-top:12px;border-top:2px solid var(--border);font-size:12.5px;font-weight:600;flex-wrap:wrap}
+/* Figure 5 — panel sections: quiet when collapsed, highlighted when open */
+.acc-h{background:#334155;color:#e2e8f0}
+.acc-h:hover{background:#3f4d61}
+.acc-h.open{background:#ea580c;color:#fff}
+.acc-h.open:hover{background:#dc5308}
+.acc-sum{color:#94a3b8}
+.acc-h.open .acc-sum{color:#ffedd5}
 </style>
 {% endblock %}
 
@@ -302,8 +346,8 @@ body{background:#fff;font-size:10px}
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
         {% if editable %}
         <button type="button" class="bsm" id="fromOrdersBtn" title="Import items from approved purchase orders">From Orders</button>
-        <button type="button" class="bsm" id="chargesBtn">Charges <span style="font-size:10px;color:var(--light);font-weight:400;" id="chargesCount"></span></button>
-        <button type="button" class="bsm" onclick="openSidePanel()">&#9881; Settings</button>
+        <button type="button" class="bsm bsm-charges" id="chargesBtn">Additional Charges <span id="chargesCount"></span></button>
+        <button type="button" class="bsm bsm-settings" onclick="openSidePanel()">&#9881; Additional Settings</button>
         {% endif %}
         <!-- Scope toggles live in the Additional Settings panel (§13);
              the grid header states the active modes read-only (Figure 3). -->
@@ -324,7 +368,10 @@ body{background:#fff;font-size:10px}
       </div>
     </div>
     <div style="padding:0;">
-      <div class="chips" id="modeChips"></div>
+      <div class="modes-row">
+        <span class="modes-lbl">Active modes</span>
+        <div class="chips" id="modeChips"></div>
+      </div>
       <div class="tb-w" style="border:none;border-radius:0;">
         <table class="tb" id="itemsTable">
           <thead>
@@ -347,6 +394,25 @@ body{background:#fff;font-size:10px}
             </tr>
           </thead>
           <tbody id="itemsBody"></tbody>
+          <!-- Figure 3 foots the grid itself, so the line columns reconcile
+               without scrolling down to the totals panel. -->
+          <tfoot id="itemsFoot">
+            <tr class="tb-tot">
+              <td></td><td></td>
+              <td>Totals</td>
+              <td class="num" data-tot="quantity">0</td>
+              <td></td><td></td>
+              <td class="num" data-tot="amount">0.00</td>
+              <td class="c-disc" style="{{ 'display:none;' if not invoice or invoice.discount_mode != 'individual' else '' }}"></td>
+              <td class="c-disc num" style="{{ 'display:none;' if not invoice or invoice.discount_mode != 'individual' else '' }}" data-tot="discount_amount">0.00</td>
+              <td class="c-exp num" style="{{ 'display:none;' if not invoice or invoice.expenses_mode != 'individual' else '' }}" data-tot="commission">0.00</td>
+              <td class="c-exp num" style="{{ 'display:none;' if not invoice or invoice.expenses_mode != 'individual' else '' }}" data-tot="freight">0.00</td>
+              <td class="c-exp num" style="{{ 'display:none;' if not invoice or invoice.expenses_mode != 'individual' else '' }}" data-tot="loading_unloading">0.00</td>
+              <td class="c-tax" style="{{ 'display:none;' if not invoice or invoice.tax_mode != 'individual' else '' }}"></td>
+              <td class="num" data-tot="net_amount">0.00</td>
+              <td></td>
+            </tr>
+          </tfoot>
         </table>
       </div>
       <div class="ga">
@@ -432,17 +498,46 @@ body{background:#fff;font-size:10px}
 
 <!-- ADDITIONAL CHARGES MODAL -->
 <div class="modal-o" id="chargesModal">
-  <div class="modal-b modal-big">
-    <h3>Additional Charges</h3>
-    <p style="font-size:12px;color:var(--muted);margin-bottom:12px;">Each charge picks a ledger account, a scope (Combined / Per item), a treatment, and its tax bases. <strong>Bill</strong> = the supplier's own charge line (adds to what we owe). <strong>Absorb</strong> = carriage inward, capitalised into item cost. <strong>Expense</strong> = we bear it (posts to the expense ledger). ST / WHT switch each billed charge into the input-sales-tax and withholding bases.</p>
-    <div class="chg-wrap">
-      <div id="chargesList"></div>
-      <button type="button" class="bsm" id="addChargeBtn" style="margin-top:10px;">+ Add charge from ledger</button>
-      <div class="chg-foot" id="chargesFoot"></div>
+  <div class="chg-shell">
+    <div class="chg-main">
+      <div class="chg-head">
+        <span>Additional Charges &mdash; <span id="chgHeadInv">this invoice</span></span>
+        <button type="button" class="chg-x" onclick="closeChargesModal()" title="Close">&times;</button>
+      </div>
+      <div class="chg-body">
+        <p style="font-size:12px;color:var(--muted);margin:0 0 4px;">Each row is one charge picked from the chart of accounts. Scope, distribution, treatment and tax bases are set per charge.</p>
+        <p style="font-size:12px;color:var(--muted);margin:0 0 14px;">A purchase carries no further tax &mdash; it is a sales-side levy (&sect;8).</p>
+        <div class="chg-wrap">
+          <div id="chargesList"></div>
+        </div>
+        <div class="chg-actions">
+          <button type="button" class="bsm" id="addChargeBtn">+ Add charge from ledger</button>
+          <div class="chg-foot" id="chargesFoot"></div>
+        </div>
+        <div class="modal-acts" style="margin-top:14px;">
+          <button type="button" class="btn btn-o" onclick="closeChargesModal()">Cancel</button>
+          <button type="button" class="btn btn-s" onclick="closeChargesModal()">Save</button>
+        </div>
+      </div>
     </div>
-    <div class="modal-acts">
-      <button type="button" class="btn btn-o" onclick="closeChargesModal()">Done</button>
-    </div>
+    <aside class="chg-aside">
+      <div class="chg-head chg-head-alt">Treatment &mdash; 3 options</div>
+      <div class="chg-aside-b">
+        <div class="tcard tcard-bill">
+          <h4>1 &middot; Supplier bills it</h4>
+          <p>The supplier's own charge line — it adds to what we owe. Its switches decide whether it enters the input-tax / W-H / extra tax base.</p>
+        </div>
+        <div class="tcard tcard-absorb">
+          <h4>2 &middot; Absorb into item cost</h4>
+          <p>Carriage inward: spread pro-rata into the line Amounts and capitalised into inventory as landed cost. No separate line prints; it is inside every tax base automatically.</p>
+        </div>
+        <div class="tcard tcard-expense">
+          <h4>3 &middot; Expense ledger only</h4>
+          <p>Not on the supplier's invoice at all. Posts as Dr expense ledger / Cr charges payable alongside the invoice. Tax-base switches are disabled.</p>
+        </div>
+        <div class="tnote">Every charge saved here is listed by name in the totals panel, directly below the Input sales tax line, with badges for its scope and treatment.</div>
+      </div>
+    </aside>
   </div>
 </div>
 
@@ -540,7 +635,10 @@ var confirmCallback = null;
 
 function qs(s,c){return(c||document).querySelector(s)}
 function qsa(s,c){return(c||document).querySelectorAll(s)}
-function toast(m,t){var c=document.getElementById('toastContainer'),d=document.createElement('div');d.className='toast toast-'+t;d.innerHTML=m+'<button style="background:none;border:none;color:inherit;font-size:16px;cursor:pointer;margin-left:auto;padding:0;line-height:1;" onclick="this.parentElement.remove()">&times;</button>';c.appendChild(d);setTimeout(function(){d.style.opacity='0';d.style.transition='opacity .3s';setTimeout(function(){d.remove()},300)},4000)}
+function toast(m,t){var c=document.getElementById('toastContainer'),d=document.createElement('div');// Call sites say 'error'/'success'/'info'; the stylesheet keys on the
+  // initial. Without this the toast got colour:#fff and no background —
+  // white text on white, i.e. an invisible blank box.
+  var K={error:'e',success:'s',info:'i',warning:'w'};d.className='toast toast-'+(K[t]||t||'i');d.innerHTML=m+'<button style="background:none;border:none;color:inherit;font-size:16px;cursor:pointer;margin-left:auto;padding:0;line-height:1;" onclick="this.parentElement.remove()">&times;</button>';c.appendChild(d);setTimeout(function(){d.style.opacity='0';d.style.transition='opacity .3s';setTimeout(function(){d.remove()},300)},4000)}
 function esc(s){return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
 function showConfirm(t,m,cb){document.getElementById('confirmTitle').textContent=t;document.getElementById('confirmMsg').textContent=m;document.getElementById('confirmModal').classList.add('show');confirmCallback=cb}
 function closeConfirm(){document.getElementById('confirmModal').classList.remove('show');confirmCallback=null}
@@ -758,7 +856,8 @@ function renderCharges(){
       setupChargeAcct(r.querySelector('.chg-acct'),idx);
     })(i,card);
   });
-  var cnt=document.getElementById('chargesCount');if(cnt)cnt.textContent=charges.length?'('+charges.length+' charges)':'';
+  var cnt=document.getElementById('chargesCount');
+  if(cnt)cnt.textContent=charges.length?('('+charges.length+') · '+fmt(lastBilled+lastAbsorb+lastExpense)):'';
   recalcChargeSummary();
 }
 function setupChargeAcct(inp,idx){
@@ -783,7 +882,14 @@ function setupChargeAcct(inp,idx){
 function addChargeRow(){charges.push({charge_account_id:'',amount:0,scope:'general',distribution:'pro_rata_value',treatment:'bill',st_taxable:true,wht_taxable:false,extra_taxable:false,_display:'',_meta:''});renderCharges()}
 function removeCharge(i){charges.splice(i,1);renderCharges();recalc()}
 document.getElementById('addChargeBtn')?.addEventListener('click',addChargeRow);
-document.getElementById('chargesBtn')?.addEventListener('click',function(){if(!editable)return;if(!sid.value){toast('Select a supplier first','error');return}renderCharges();document.getElementById('chargesModal').classList.add('show')});
+// Nothing in the charges form depends on the supplier, so it opens regardless —
+// the old gate made the button look dead.
+function openChargesModal(){if(!editable)return;
+  var h=document.getElementById('chgHeadInv');
+  if(h)h.textContent=document.getElementById('invNumber')?.value||'this invoice';
+  renderCharges();document.getElementById('chargesModal').classList.add('show')}
+document.getElementById('chargesBtn')?.addEventListener('click',openChargesModal);
+document.getElementById('manageChargesBtn')?.addEventListener('click',openChargesModal);
 function closeChargesModal(){
   qsa('#chargesList .chg-row').forEach(function(row,i){
     if(charges[i]){var t=row.querySelector('.chg-treatment')?.value||'bill',billed=t==='bill';
@@ -925,6 +1031,22 @@ function recalcRow(tr){var qty=parseFloat(tr.querySelector('[data-col="quantity"
 var lastBilled=0,lastAbsorb=0,lastExpense=0,lastTaxBase=0;
 function r2(n){return Math.round(n*100)/100}
 function gv(id){var el=document.getElementById(id);return el?(parseFloat(el.value)||0):0}
+// Figure 3's grid footer: each visible numeric column foots under itself.
+function renderGridTotals(){
+  var foot=document.getElementById('itemsFoot');if(!foot)return;
+  var keys=['quantity','amount','discount_amount','commission','freight','loading_unloading','net_amount'];
+  var sums={};keys.forEach(function(k){sums[k]=0});
+  qsa('#itemsBody tr').forEach(function(tr){
+    keys.forEach(function(k){
+      var el=tr.querySelector('[data-col="'+k+'"]');if(!el)return;
+      sums[k]+=(k==='amount'||k==='net_amount')?cv(el.value):(parseFloat(el.value)||0);
+    });
+  });
+  keys.forEach(function(k){
+    var cell=foot.querySelector('[data-tot="'+k+'"]');
+    if(cell)cell.textContent=(k==='quantity')?(Math.round(sums[k]*1000)/1000):fmt(sums[k]);
+  });
+}
 function recalc(){
   var d=getMode('discount'),e=getMode('expenses'),t=getMode('tax');
   var subtotal=0,totalDisc=0,lineCarriage=0,lines=[];
@@ -1003,6 +1125,7 @@ function recalc(){
   recalcChargeSummary();
   document.getElementById('summaryWithholdingTax').textContent='-'+fmt(wht);
   document.getElementById('summaryNetPayable').textContent='Rs. '+fmt(netPayable);
+  renderGridTotals();renderModeChips();
 }
 
 // COLLECT DATA

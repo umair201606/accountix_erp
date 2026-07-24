@@ -97,6 +97,7 @@ body{background:var(--bg);font-family:Inter,-apple-system,BlinkMacSystemFont,'Se
 .toast-s{background:var(--success)}
 .toast-e{background:var(--danger)}
 .toast-i{background:var(--primary)}
+.toast-w{background:#d97706}
 .modal-o{display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:2000;justify-content:center;align-items:center}
 .modal-o.show{display:flex}
 .modal-b{background:#fff;padding:24px;border-radius:var(--radius);width:620px;max-width:90vw;max-height:80vh;overflow-y:auto;box-shadow:0 10px 40px rgba(0,0,0,.15)}
@@ -470,7 +471,10 @@ var existingOrderItems = {{ order_items|tojson }};
 
 function qs(s,c){return(c||document).querySelector(s)}
 function qsa(s,c){return(c||document).querySelectorAll(s)}
-function toast(m,t){var c=document.getElementById('toastContainer'),d=document.createElement('div');d.className='toast toast-'+t;d.innerHTML=m+'<button style="background:none;border:none;color:inherit;font-size:16px;cursor:pointer;margin-left:auto;padding:0;line-height:1;" onclick="this.parentElement.remove()">&times;</button>';c.appendChild(d);setTimeout(function(){d.style.opacity='0';d.style.transition='opacity .3s';setTimeout(function(){d.remove()},300)},4000)}
+function toast(m,t){var c=document.getElementById('toastContainer'),d=document.createElement('div');// Call sites say 'error'/'success'/'info'; the stylesheet keys on the
+  // initial. Without this the toast got colour:#fff and no background —
+  // white text on white, i.e. an invisible blank box.
+  var K={error:'e',success:'s',info:'i',warning:'w'};d.className='toast toast-'+(K[t]||t||'i');d.innerHTML=m+'<button style="background:none;border:none;color:inherit;font-size:16px;cursor:pointer;margin-left:auto;padding:0;line-height:1;" onclick="this.parentElement.remove()">&times;</button>';c.appendChild(d);setTimeout(function(){d.style.opacity='0';d.style.transition='opacity .3s';setTimeout(function(){d.remove()},300)},4000)}
 function esc(s){return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
 function showConfirm(t,m,cb){document.getElementById('confirmTitle').textContent=t;document.getElementById('confirmMsg').textContent=m;document.getElementById('confirmModal').classList.add('show');confirmCallback=cb}
 function closeConfirm(){document.getElementById('confirmModal').classList.remove('show');confirmCallback=null}
