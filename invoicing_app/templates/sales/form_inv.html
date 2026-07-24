@@ -786,7 +786,10 @@ async function importOrderItems(orderId){
   var orders=await loadOrders(document.getElementById('customerId').value);
   var order=orders.find(function(o){return o.id==orderId});
   if(!order)return;
-  order.items.forEach(function(i){addRow({product_id:i.product_id,product:{sku:i.product_sku},description:i.product_name,quantity:i.ordered_qty,unit_price:i.unit_price})});
+  order.items.forEach(function(i){addRow({product_id:i.product_id,product:{sku:i.product_sku},description:i.product_name,quantity:i.ordered_qty,unit_price:i.unit_price});
+    // A row built in code has Amount 0 until recalcRow() fills it.
+    var tr=document.getElementById('itemsBody').lastElementChild;if(tr)recalcRow(tr)});
+  recalc();
   closeOrderModal();toast('Items imported from '+order.so_number,'success')
 }
 

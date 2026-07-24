@@ -1051,7 +1051,10 @@ document.getElementById('loadOrdersBtn')?.addEventListener('click',function(){
       var u=tr.querySelector('.ac-unit');if(u&&item.unit)u.textContent=item.unit;
       tr.dataset.productId=item.product_id;tr.dataset.orderRef=item.po_number||'';
       tr.dataset.sourceOrderId=item.source_order_id||'';
-      tr.dataset.sourceOrderItemId=item.source_order_item_id||''}
+      tr.dataset.sourceOrderItemId=item.source_order_item_id||'';
+      // See the sales-invoice note: a freshly built row foots to zero until
+      // recalcRow() computes its Amount and Net amount.
+      recalcRow(tr)}
   });
   // §4.3: order-level combined pools travel pro-rata with the loaded share.
   var dv=0,stPct=0,whPct=0,anyWH=false;

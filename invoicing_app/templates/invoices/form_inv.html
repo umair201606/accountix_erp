@@ -1244,6 +1244,10 @@ function loadOrderRows(rowsToAdd,soIds,soNums,pools){
       tr.dataset.sourceOrderId=item.source_order_id||'';
       tr.dataset.sourceOrderItemId=item.source_order_item_id||'';
       var oc=tr.querySelector('[data-col="order_ref"]');if(oc)oc.textContent=item.so_number||'';
+      // addRow() renders Amount and Net amount as a literal 0 — only
+      // recalcRow() fills them, and nothing here types into the row to
+      // trigger it. Without this the whole grid foots to zero.
+      recalcRow(tr);
     }
   });
   // §4.3: copy the order-level pools across, weighted by the loaded share.
