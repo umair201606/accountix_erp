@@ -280,6 +280,7 @@ def _migrate_schema(db):
         ("inv_invoices", "total_withholding_tax", "FLOAT DEFAULT 0"),
         ("inv_purchase_invoices", "further_tax_pct", "FLOAT DEFAULT 0"),
         ("inv_purchase_invoices", "apply_further_tax", bool_false),
+        ("additional_charges", "distribution", "VARCHAR(20) DEFAULT 'pro_rata_value'"),
         # v3 §4 order->invoice linkage: how much of each order line has been
         # billed, the order's invoicing progress, and each invoice line's source.
         ("inv_sales_order_items", "invoiced_qty", "FLOAT DEFAULT 0"),

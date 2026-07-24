@@ -140,21 +140,98 @@
     </div>
   </div>
 
-  <!-- §11.1 — Charge-ledger defaults (guidance) ──────────────────────────── -->
+  <!-- §11.1 — Charge-ledger defaults ─────────────────────────────────────── -->
   <div class="set-card" style="margin-bottom:16px;">
     <h3>Charge-ledger Defaults</h3>
-    <p class="hint">Per-ledger seed values for the Additional Charges form of §6.1 (§11.1).</p>
-    <div class="help" style="background:#f8fafc;border:1px solid var(--line);border-radius:8px;
-                             padding:12px 14px;line-height:1.6;">
-      Each chargeable ledger carries one row of defaults: its <strong>default treatment</strong> and the
-      <strong>default state of the tax-base switches</strong> used when the charge is billed. Each switch is
-      independent, and every default remains overridable per charge, per document, in the Additional Charges
-      form itself.
-      <br><br>
-      <em>Note (assumption):</em> the per-ledger defaults table is authored on each charge ledger's own
-      account record, not on this document-wide settings screen, because <code>InvoiceSettings</code> holds
-      no per-ledger rows. This panel documents the intended behaviour; the switches above set the
-      document-wide tax and calculation defaults that those charges inherit.
+    <p class="hint">Seed values applied when a ledger is picked in the Additional Charges form (§6.1).
+      Every one of them stays overridable per charge, per document.</p>
+    <div style="overflow-x:auto;">
+      <table class="cld-tbl">
+        <thead>
+          <tr>
+            <th>Ledger (chart of accounts)</th>
+            <th>Default treatment</th>
+            <th style="text-align:center;">ST</th>
+            <th style="text-align:center;">W/H</th>
+            <th style="text-align:center;">Extra</th>
+            <th style="text-align:center;">Applies to</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for d in charge_defaults %}
+          <tr>
+            <td>
+              {{ d.account.name if d.account else '—' }}
+              <span style="color:var(--muted);">&middot; {{ d.account.code if d.account else '' }}</span>
+              <input type="hidden" name="cld_id" value="{{ d.id }}">
+            </td>
+            <td>
+              <select name="cld_treatment_{{ d.id }}" class="inp">
+                <option value="bill" {{ 'selected' if d.treatment == 'bill' }}>Bill to counterparty</option>
+                <option value="absorb" {{ 'selected' if d.treatment == 'absorb' }}>Absorb into item values</option>
+                <option value="expense" {{ 'selected' if d.treatment == 'expense' }}>Expense ledger only</option>
+              </select>
+            </td>
+            {% if d.treatment == 'bill' %}
+            <td style="text-align:center;"><input type="checkbox" name="cld_st_{{ d.id }}" {{ 'checked' if d.st_taxable }}></td>
+            <td style="text-align:center;"><input type="checkbox" name="cld_wht_{{ d.id }}" {{ 'checked' if d.wht_taxable }}></td>
+            <td style="text-align:center;"><input type="checkbox" name="cld_extra_{{ d.id }}" {{ 'checked' if d.extra_taxable }}></td>
+            {% else %}
+            <td colspan="3" style="text-align:center;color:var(--muted);font-size:12px;">n/a</td>
+            {% endif %}
+            <td style="text-align:center;">
+              <select name="cld_applies_{{ d.id }}" class="inp">
+                <option value="both" {{ 'selected' if d.applies_to == 'both' }}>Both</option>
+                <option value="sales" {{ 'selected' if d.applies_to == 'sales' }}>Sales</option>
+                <option value="purchase" {{ 'selected' if d.applies_to == 'purchase' }}>Purchases</option>
+              </select>
+            </td>
+            <td style="text-align:center;">
+              <label style="font-size:11px;color:var(--danger);cursor:pointer;">
+                <input type="checkbox" name="cld_delete_{{ d.id }}"> remove</label>
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="7" style="text-align:center;color:var(--muted);padding:18px;">
+            No charge-ledger defaults yet — add one below.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div class="fgrid" style="margin-top:14px;align-items:end;">
+      <div class="fgroup">
+        <label class="lbl">Add a charge ledger</label>
+        <select name="cld_new_account" class="inp">
+          <option value="">— pick a level-5 ledger —</option>
+          {% for a in charge_ledger_choices %}
+          <option value="{{ a.id }}">{{ a.code }} — {{ a.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="fgroup">
+        <label class="lbl">Default treatment</label>
+        <select name="cld_new_treatment" class="inp">
+          <option value="bill">Bill to counterparty</option>
+          <option value="absorb">Absorb into item values</option>
+          <option value="expense">Expense ledger only</option>
+        </select>
+      </div>
+      <div class="fgroup">
+        <label class="lbl">Tax bases (billed charges only)</label>
+        <div style="display:flex;gap:14px;flex-wrap:wrap;font-size:13px;padding:6px 0;">
+          <label><input type="checkbox" name="cld_new_st" checked> ST</label>
+          <label><input type="checkbox" name="cld_new_wht"> W/H</label>
+          <label><input type="checkbox" name="cld_new_extra"> Extra</label>
+        </div>
+      </div>
+    </div>
+    <div class="help" style="margin-top:10px;">
+      ST / W-H / Extra are the default tax-base inclusions for a charge <em>when it is billed</em>.
+      Further tax has no switch of its own — applied to a document, it is always computed on the
+      sales-tax base. Absorbed and expense-only ledgers have no base switches at all: an absorbed
+      amount sits inside the line values and is therefore always taxed with the goods, and an
+      expense-only amount never reaches the counterparty.
     </div>
   </div>
 

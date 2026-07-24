@@ -115,6 +115,15 @@ def index():
     elif tab == "invoicing":
         ctx["invoice_settings"] = InvoiceSettings.get()
         ctx["accounts"] = _postable_accounts()
+        # §11.1 — per-ledger charge defaults, and the ledgers still free to add.
+        from shared.models.invoice_settings import ChargeLedgerDefault
+        defaults = ChargeLedgerDefault.query.join(
+            ChargeLedgerDefault.account).order_by(ChartOfAccount.code).all()
+        ctx["charge_defaults"] = defaults
+        taken = {d.account_id for d in defaults}
+        ctx["charge_ledger_choices"] = [
+            a for a in _postable_accounts()
+            if a.id not in taken and a.type in ("expense", "revenue")]
     elif tab == "templates":
         ctx["sales_templates"] = InvoiceTemplate.query.filter_by(type="sales").order_by(InvoiceTemplate.name).all()
         ctx["purchase_templates"] = InvoiceTemplate.query.filter_by(type="purchase").order_by(InvoiceTemplate.name).all()
@@ -396,6 +405,34 @@ def save_invoicing():
     s.show_withholding_tax = request.form.get("show_withholding_tax") == "on"
     s.show_further_tax = request.form.get("show_further_tax") == "on"
     s.show_transport_block = request.form.get("show_transport_block") == "on"
+
+    # §11.1 — per-ledger charge defaults. Tax-base switches only mean anything
+    # on a billed charge, so they are forced off for absorb/expense ledgers.
+    from shared.models.invoice_settings import ChargeLedgerDefault
+    for d in ChargeLedgerDefault.query.all():
+        if request.form.get(f"cld_delete_{d.id}") == "on":
+            db.session.delete(d)
+            continue
+        treatment = request.form.get(f"cld_treatment_{d.id}", d.treatment)
+        d.treatment = treatment if treatment in ("bill", "absorb", "expense") else "bill"
+        billed = d.treatment == "bill"
+        d.st_taxable = billed and request.form.get(f"cld_st_{d.id}") == "on"
+        d.wht_taxable = billed and request.form.get(f"cld_wht_{d.id}") == "on"
+        d.extra_taxable = billed and request.form.get(f"cld_extra_{d.id}") == "on"
+        applies = request.form.get(f"cld_applies_{d.id}", d.applies_to)
+        d.applies_to = applies if applies in ("both", "sales", "purchase") else "both"
+
+    new_acct = request.form.get("cld_new_account", type=int)
+    if new_acct and not ChargeLedgerDefault.query.filter_by(account_id=new_acct).first():
+        treatment = request.form.get("cld_new_treatment", "bill")
+        billed = treatment == "bill"
+        db.session.add(ChargeLedgerDefault(
+            account_id=new_acct,
+            treatment=treatment if treatment in ("bill", "absorb", "expense") else "bill",
+            st_taxable=billed and request.form.get("cld_new_st") == "on",
+            wht_taxable=billed and request.form.get("cld_new_wht") == "on",
+            extra_taxable=billed and request.form.get("cld_new_extra") == "on",
+        ))
 
     db.session.commit()
     flash("Invoice settings updated.", "success")

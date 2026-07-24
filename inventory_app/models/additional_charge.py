@@ -12,6 +12,10 @@ class AdditionalCharge(db.Model):
     description = db.Column(db.String(200))
     amount = db.Column(db.Float, default=0)
     scope = db.Column(db.String(20), default="general")  # general (Combined) | individual (Per-line)
+    # How a per-item charge is split across lines (§6.2). Only meaningful when
+    # scope is per-line; a combined charge is a single document-level value.
+    # pro_rata_value | pro_rata_qty | by_weight | manual
+    distribution = db.Column(db.String(20), default="pro_rata_value")
     # How the charge flows (v3 spec §6.3): bill = separate billed charge added to
     # net payable; absorb = folded into item/inventory value (carriage inward on
     # purchases); expense = expense-only, not billed, excluded from payable.

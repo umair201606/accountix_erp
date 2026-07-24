@@ -482,6 +482,7 @@ def save_invoice():
                 description=chg.get("description", ""),
                 amount=float(chg["amount"]),
                 scope=chg.get("scope", "general"),
+                distribution=chg.get("distribution", "pro_rata_value"),
                 treatment=treatment,
                 st_taxable=st,
                 wht_taxable=billed and bool(chg.get("wht_taxable", False)),
@@ -775,6 +776,18 @@ def api_charge_accounts():
             )
         )
     accts = query.order_by(ChartOfAccount.code).limit(30).all()
-    return jsonify([{
-        "id": a.id, "code": a.code, "name": a.name, "type": a.type,
-    } for a in accts])
+    # §11.1: a ledger's admin defaults ride along, so picking it in the charges
+    # form seeds the treatment and tax-base switches instead of leaving the
+    # user to set the same thing every time.
+    from shared.models.invoice_settings import ChargeLedgerDefault
+    defaults = {d.account_id: d for d in ChargeLedgerDefault.query.filter(
+        ChargeLedgerDefault.account_id.in_([a.id for a in accts] or [0])).all()}
+    out = []
+    for a in accts:
+        row = {"id": a.id, "code": a.code, "name": a.name, "type": a.type}
+        d = defaults.get(a.id)
+        if d and d.applies_to in ("both", "sales"):
+            row["defaults"] = {"treatment": d.treatment, "st_taxable": d.st_taxable,
+                               "wht_taxable": d.wht_taxable, "extra_taxable": d.extra_taxable}
+        out.append(row)
+    return jsonify(out)

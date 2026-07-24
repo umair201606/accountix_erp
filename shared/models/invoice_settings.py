@@ -39,3 +39,33 @@ class InvoiceSettings(db.Model):
             db.session.add(s)
             db.session.commit()
         return s
+
+
+class ChargeLedgerDefault(db.Model):
+    """Per-ledger seed values for the Additional Charges form (§11.1).
+
+    When a user picks a ledger in the charges form, these decide the treatment
+    and tax-base switches it starts with. They are only defaults — anything can
+    be overridden per charge, per document.
+
+    A ledger whose default treatment is absorb or expense has no base switches:
+    an absorbed amount sits inside the line values (so it is always taxed with
+    the goods) and an expense-only amount never reaches the counterparty.
+    """
+    __tablename__ = "charge_ledger_defaults"
+    id = db.Column(db.Integer, primary_key=True)
+    account_id = db.Column(db.Integer, db.ForeignKey("chart_of_accounts.id"),
+                           nullable=False, unique=True)
+    treatment = db.Column(db.String(10), default="bill")  # bill | absorb | expense
+    st_taxable = db.Column(db.Boolean, default=True)
+    wht_taxable = db.Column(db.Boolean, default=False)
+    extra_taxable = db.Column(db.Boolean, default=False)
+    # Applies to sales, purchases, or both — §6.1 filters the ledger list by
+    # "chargeable on sales" / "on purchases".
+    applies_to = db.Column(db.String(10), default="both")  # sales | purchase | both
+
+    account = db.relationship("ChartOfAccount")
+
+    @property
+    def has_switches(self):
+        return self.treatment == "bill"
