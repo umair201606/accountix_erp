@@ -15,6 +15,8 @@ merely ugly:
    trapped inside the grid.
 """
 
+from urllib.parse import quote
+
 BASE_URL = "http://localhost:5000"
 
 DOCUMENTS = {
@@ -58,6 +60,46 @@ def _open(page, url):
     return page
 
 
+OPTIONS_READY = """
+(sel) => {
+  const dd = document.querySelector(sel);
+  return !!(dd && dd.classList.contains('show')
+            && dd.querySelectorAll('.ac-it').length > 0);
+}
+"""
+
+PRODUCT_LIST = "#itemsBody .ac-dd"
+LEDGER_LIST = "#chargesList .ac-dd"
+
+
+def _wait_for_options(page, selector=PRODUCT_LIST, timeout=15000):
+    """Block until the combobox at `selector` has rendered its options.
+
+    Every list here is filled by a fetch — loadProducts() and loadAccounts()
+    both await the server — so there is no sleep both long enough to be safe
+    and short enough to be quick. These tests used to wait a flat 700ms, which
+    held up in isolation and lost the race under a full-suite load: the
+    assertions then read a list that was neither shown nor populated, and
+    reported it as a styling failure (width 0, display none) rather than as the
+    timeout it was.
+    """
+    page.wait_for_function(OPTIONS_READY, arg=selector, timeout=timeout)
+
+
+def _type_and_wait(page, text, timeout=15000):
+    """Type into the first description cell and wait for *that* search to land.
+
+    Waiting on the list alone is not enough when a previous search is already
+    showing: its options satisfy the poll immediately and the assertions then
+    describe the old query. Waiting for the response carrying this q= pins it
+    to the search actually being typed.
+    """
+    want = "api/products?q=" + quote(text, safe="")
+    with page.expect_response(lambda r: want in r.url, timeout=timeout):
+        page.evaluate(TYPE, text)
+    _wait_for_options(page, PRODUCT_LIST, timeout)
+
+
 class TestTypingAProduct:
     def test_the_first_character_does_not_steal_focus(self, admin_page):
         """Typing one character appends the trailing blank row. That row must
@@ -74,10 +116,8 @@ class TestTypingAProduct:
 
     def test_the_search_survives_the_row_being_added(self, admin_page):
         _open(admin_page, DOCUMENTS["purchase invoice"])
-        admin_page.evaluate(TYPE, "1")
-        admin_page.wait_for_timeout(400)
-        admin_page.evaluate(TYPE, "10kw")
-        admin_page.wait_for_timeout(700)
+        _type_and_wait(admin_page, "1")
+        _type_and_wait(admin_page, "10kw")
 
         s = admin_page.evaluate(STATE)
         assert s["open"] is True, "the product list closed while typing"
@@ -93,8 +133,7 @@ class TestTypingAProduct:
         """Fixed positioning is what takes it out of .card / .tb-w / .icard.
         Absolute would be cropped by whichever of those comes first."""
         _open(admin_page, DOCUMENTS["purchase invoice"])
-        admin_page.evaluate(TYPE, "10")
-        admin_page.wait_for_timeout(700)
+        _type_and_wait(admin_page, "10")
 
         s = admin_page.evaluate(STATE)
         assert s["open"] is True
@@ -102,8 +141,7 @@ class TestTypingAProduct:
 
     def test_the_list_stays_within_the_viewport(self, admin_page):
         _open(admin_page, DOCUMENTS["purchase invoice"])
-        admin_page.evaluate(TYPE, "10")
-        admin_page.wait_for_timeout(700)
+        _type_and_wait(admin_page, "10")
 
         box = admin_page.evaluate("""() => {
           const dd = document.querySelector('#itemsBody .ac-dd');
@@ -130,23 +168,29 @@ class TestEveryDocumentBehavesTheSame:
             assert s["typed"] == "1", f"{label} lost the typed character"
 
 
-OPEN_LEDGER = """
-() => {
-  document.getElementById('chargesBtn').click();
-  return new Promise(resolve => setTimeout(() => {
-    if (!document.querySelector('.chg-acct')) {
-      document.getElementById('addChargeBtn')?.click();
-    }
-    setTimeout(() => {
-      const inp = document.querySelector('.chg-acct');
-      if (!inp) return resolve(null);
-      inp.focus();
-      inp.dispatchEvent(new Event('focus'));
-      setTimeout(() => resolve(true), 800);
-    }, 300);
-  }, 400));
-}
-"""
+def _open_ledger(page, timeout=15000):
+    """Open the charges modal, add a charge, and open its ledger combobox.
+
+    Each step waits for the thing it needs rather than for a stretch of time.
+    The old version chained three setTimeouts totalling 1.5s, which was ample
+    on an idle server and not ample at the end of a 26-minute suite — every
+    assertion below then failed describing the empty list instead of the wait.
+    """
+    page.locator("#chargesBtn").click()
+    page.locator("#chargesModal.show").wait_for(state="visible", timeout=timeout)
+
+    if page.locator(".chg-acct").count() == 0:
+        page.locator("#addChargeBtn").click()
+    acct = page.locator(".chg-acct").first
+    acct.wait_for(state="visible", timeout=timeout)
+
+    # A real click, not a synthesised focus event: the field opens on mousedown
+    # as well as focus, and driving it the way an operator does is the point.
+    with page.expect_response(lambda r: "api/accounts?q=" in r.url, timeout=timeout):
+        acct.click()
+    _wait_for_options(page, LEDGER_LIST, timeout)
+    return acct
+
 
 LEDGER_STATE = """
 () => {
@@ -177,7 +221,7 @@ class TestChargeLedgerPicker:
 
     def test_clicking_the_field_lists_every_account(self, admin_page):
         _open(admin_page, DOCUMENTS["purchase invoice"])
-        assert admin_page.evaluate(OPEN_LEDGER) is True
+        _open_ledger(admin_page)
         s = admin_page.evaluate(LEDGER_STATE)
         assert s["open"] is True
         assert s["count"] > 1, "opening it should offer the accounts, not one match"
@@ -186,7 +230,7 @@ class TestChargeLedgerPicker:
         """display:none inline beat the .show class, so 'open' was true while
         nothing was on screen. Assert the computed style and a real height."""
         _open(admin_page, DOCUMENTS["purchase invoice"])
-        admin_page.evaluate(OPEN_LEDGER)
+        _open_ledger(admin_page)
         s = admin_page.evaluate(LEDGER_STATE)
         assert s["display"] == "block"
         assert s["height"] > 0
@@ -195,21 +239,31 @@ class TestChargeLedgerPicker:
         """The modal is z-index 2000 and the list used to carry an inline 200,
         so hit-testing its centre has to land inside the list itself."""
         _open(admin_page, DOCUMENTS["purchase invoice"])
-        admin_page.evaluate(OPEN_LEDGER)
+        _open_ledger(admin_page)
         s = admin_page.evaluate(LEDGER_STATE)
         assert s["zIndex"] > 2000
         assert s["aboveModal"] is True
 
     def test_typing_filters_the_accounts(self, admin_page):
         _open(admin_page, DOCUMENTS["purchase invoice"])
-        admin_page.evaluate(OPEN_LEDGER)
+        _open_ledger(admin_page)
         before = admin_page.evaluate(LEDGER_STATE)["count"]
-        admin_page.evaluate("""() => {
-          const inp = document.querySelector('.chg-acct');
-          inp.value = 'freight';
-          inp.dispatchEvent(new Event('input', {bubbles: true}));
-        }""")
-        admin_page.wait_for_timeout(800)
+        assert before > 1, "the unfiltered list never loaded, so nothing was filtered"
+
+        with admin_page.expect_response(lambda r: "api/accounts?q=freight" in r.url):
+            admin_page.evaluate("""() => {
+              const inp = document.querySelector('.chg-acct');
+              inp.value = 'freight';
+              inp.dispatchEvent(new Event('input', {bubbles: true}));
+            }""")
+        # The response arrives before render() runs, so poll for the list the
+        # server's answer produced rather than reading it on the way past.
+        admin_page.wait_for_function(
+            """([sel, n]) => {
+                 const dd = document.querySelector(sel);
+                 return !!dd && dd.querySelectorAll('.ac-it').length !== n;
+               }""", arg=[LEDGER_LIST, before])
+
         s = admin_page.evaluate(LEDGER_STATE)
         assert s["count"] < before
         assert all("freight" in n.lower() for n in s["names"])
@@ -219,7 +273,7 @@ class TestChargeLedgerPicker:
         to pick."""
         for label in ("sales invoice", "purchase invoice"):
             _open(admin_page, DOCUMENTS[label])
-            assert admin_page.evaluate(OPEN_LEDGER) is True, f"{label} has no picker"
+            _open_ledger(admin_page)
             s = admin_page.evaluate(LEDGER_STATE)
             assert s["display"] == "block", f"{label} list does not render"
             assert s["count"] > 1, f"{label} does not list the accounts"
