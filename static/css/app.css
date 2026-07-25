@@ -1,14 +1,22 @@
+/* Professional Enterprise Logic — see DESIGN.md.
+   The old "ledger paper" theme (warm serif on cream, teal chrome) fought the
+   navy the documents now use, so the shell moves onto the same tokens. Names
+   are kept so every existing rule follows without being rewritten. */
 :root{
-  --ink:#1b2a2e; --paper:#fbfaf6; --line:#d8d3c4;
-  --ledger:#0f5257; --ledger-dim:#e7f0ef;
-  --amber:#b5790a; --amber-dim:#faf1de;
-  --red:#a13a2f; --red-dim:#f8ece9;
-  --green:#3c7a4d; --green-dim:#eaf4ec;
-  --muted:#7c8a86; --link:#1a56c4;
-  --sidebar-bg:linear-gradient(180deg, #1b2a2e 0%, #0f5257 100%);
-  --font:'Iowan Old Style','Georgia','Times New Roman',serif;
-  --mono:'Courier New','Consolas',monospace;
+  --ink:#161c22; --paper:#f6f9ff; --line:#c4c6cf;
+  --ledger:#002045; --ledger-dim:#eef4fc;
+  /* No amber in this system: it read as decoration wherever it appeared, so it
+     maps onto the neutral scale rather than staying a colour. */
+  --amber:#43474e; --amber-dim:#dde3eb;
+  --red:#ba1a1a; --red-dim:#ffdad6;
+  --green:#003f25; --green-dim:#e2f2e8;
+  --muted:#43474e; --link:#002045;
+  --sidebar-bg:linear-gradient(180deg, #002045 0%, #1a365d 100%);
+  --font:Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+  --mono:Inter,-apple-system,'Segoe UI',Roboto,sans-serif;
 }
+/* Financial figures must align down a column (DESIGN.md §2). */
+.mono,td,th,input[type="number"]{font-variant-numeric:tabular-nums;}
 *{margin:0;padding:0;box-sizing:border-box;}
 body{font-family:var(--font);background:var(--paper);color:var(--ink);}
 a{text-decoration:none;color:var(--link);}

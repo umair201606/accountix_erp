@@ -57,15 +57,21 @@ def _read_manual(raw):
 
 
 def next_voucher():
+    """The document number. A sales invoice has exactly one.
+
+    There used to be two generators off the same counter — SI-… into
+    voucher_number and INV-… into invoice_number — so every invoice carried two
+    different numbers for itself and the form showed both. They are one thing.
+
+    Both columns are still written, with the same value: 48 places across the
+    app, the journal and the FBR payload read one or the other, and each column
+    carries its own NOT NULL and UNIQUE constraint. Storing the same string in
+    both keeps every reader working (a value is unique per column, so this does
+    not collide) without a migration.
+    """
     last = InvInvoice.query.order_by(InvInvoice.id.desc()).first()
     n = (last.id + 1) if last else 1
     return f"SI-{datetime.utcnow():%Y%m}-{n:04d}"
-
-
-def next_invoice_num():
-    last = InvInvoice.query.order_by(InvInvoice.id.desc()).first()
-    n = (last.id + 1) if last else 1
-    return f"INV-{datetime.utcnow():%Y%m}-{n:04d}"
 
 
 @inv_inv_bp.route("/", defaults={"id": None})
@@ -394,9 +400,10 @@ def save_invoice():
         if inv.voucher_status == "approved":
             return jsonify({"ok": False, "error": "Cannot modify approved invoice"}), 400
     else:
+        number = data.get("invoice_number") or next_voucher()
         inv = InvInvoice(
-            voucher_number=next_voucher(),
-            invoice_number=data.get("invoice_number") or next_invoice_num(),
+            voucher_number=number,
+            invoice_number=number,
             created_by=current_user.id,
         )
         db.session.add(inv)
@@ -796,6 +803,8 @@ def api_customers():
     return jsonify([{
         "id": c.id, "name": c.name, "city": c.city or "",
         "phone": c.phone or "", "address": c.address or "",
+        # Shown in the party card once a customer is picked, as on the mockup.
+        "tax_id": c.tax_id or "", "payment_terms": c.payment_terms or "",
     } for c in customers])
 
 

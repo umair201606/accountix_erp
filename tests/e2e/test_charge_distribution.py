@@ -41,10 +41,23 @@ SETUP = """
 """
 
 
+def _pass_gate(page):
+    """Answer the §4.1 source gate with "blank" so the form is workable.
+
+    A new invoice opens on that gate and it covers the grid until answered, so
+    every test here has to get past it before touching the form.
+    """
+    gate = page.locator("#gateBlank")
+    if gate.count():
+        gate.click()
+        page.wait_for_timeout(150)
+
+
 def _shares(page, url, method):
     """The charge shares the page itself computed, as floats."""
     page.goto(url)
     page.wait_for_load_state("networkidle")
+    _pass_gate(page)
     raw = page.evaluate(SETUP, method)
     return [float(str(v).replace(",", "").strip()) for v in raw]
 
@@ -100,6 +113,7 @@ class TestManualDistribution:
     def _run(self, page, amounts):
         page.goto(SALES_INVOICE)
         page.wait_for_load_state("networkidle")
+        _pass_gate(page)
         out = page.evaluate(MANUAL_SETUP, amounts)
         return ([float(str(v).replace(",", "").strip()) for v in out["cells"]],
                 out["unallocated"])

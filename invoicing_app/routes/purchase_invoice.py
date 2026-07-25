@@ -85,15 +85,19 @@ def charge_buckets(charges):
 
 
 def next_voucher():
+    """The document number. A purchase invoice has exactly one.
+
+    Was two generators off the same counter — VCH-… into voucher_number and
+    PINV-… into invoice_number — so the document carried two numbers for itself.
+    Now one, prefixed PI to match the SI / SO / PO document codes used
+    everywhere else; VCH belongs to an actual voucher, which this is not.
+
+    Both columns are still written with the same value — see the note on
+    invoices.next_voucher() for why.
+    """
     last = InvPurchaseInvoice.query.order_by(InvPurchaseInvoice.id.desc()).first()
     n = (last.id + 1) if last else 1
-    return f"VCH-{datetime.utcnow():%Y%m}-{n:04d}"
-
-
-def next_invoice_num(supplier_id=None):
-    last = InvPurchaseInvoice.query.order_by(InvPurchaseInvoice.id.desc()).first()
-    n = (last.id + 1) if last else 1
-    return f"PINV-{datetime.utcnow():%Y%m}-{n:04d}"
+    return f"PI-{datetime.utcnow():%Y%m}-{n:04d}"
 
 
 @inv_pinv_bp.route("/", defaults={"id": None})
@@ -402,9 +406,10 @@ def save_invoice():
         if inv.status == "approved":
             return jsonify({"ok": False, "error": "Cannot modify approved invoice"}), 400
     else:
+        number = data.get("invoice_number") or next_voucher()
         inv = InvPurchaseInvoice(
-            voucher_number=next_voucher(),
-            invoice_number=data.get("invoice_number") or next_invoice_num(),
+            voucher_number=number,
+            invoice_number=number,
             created_by=current_user.id,
         )
         db.session.add(inv)
