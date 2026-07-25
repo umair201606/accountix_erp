@@ -294,7 +294,7 @@ body{background:var(--bg);font-family:Inter,-apple-system,BlinkMacSystemFont,'Se
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
         {% if editable %}
         <button type="button" class="bsm" id="fromOrdersBtn" title="Import items from approved orders">From Orders</button>
-        <button type="button" class="bsm" id="chargesBtn">Charges <span style="font-size:10px;color:var(--light);font-weight:400;" id="chargesCount"></span></button>
+        <button type="button" class="bsm" id="chargesBtn" style="display:none;">Charges <span style="font-size:10px;color:var(--light);font-weight:400;" id="chargesCount"></span></button>
         <button type="button" class="bsm" onclick="openSidePanel()">&#9881; Settings</button>
         {% endif %}
         <!-- Scope toggles live in the Additional Settings panel (§13);
@@ -316,8 +316,10 @@ body{background:var(--bg);font-family:Inter,-apple-system,BlinkMacSystemFont,'Se
               <th class="num">Amount</th>
               <th class="c-disc num" style="{{ 'display:none;' if not order or order.discount_mode != 'individual' else '' }}">Discount %</th>
               <th class="c-disc num" style="{{ 'display:none;' if not order or order.discount_mode != 'individual' else '' }}">Disc. Amount</th>
-              <th class="c-chg num" style="{{ 'display:none;' if not order or order.charges_mode != 'individual' else '' }}">Delivery</th>
-              <th class="c-chg num" style="{{ 'display:none;' if not order or order.charges_mode != 'individual' else '' }}">Installation</th>
+              <!-- Charges are not eligible on an order, so this column stays hidden (see
+                   the order-scope block). It replaced the pre-v3 Delivery /
+                   Installation inputs, whose columns have since been dropped. -->
+              <th class="c-chg num" style="{{ 'display:none;' if not order or order.charges_mode != 'individual' else '' }}">Add. charges</th>
               <th class="c-tax num" style="{{ 'display:none;' if not order or order.tax_mode != 'individual' else '' }}">Sales Tax %</th>
               <th class="c-net num" style="{{ 'display:none;' if not order or order.discount_mode != 'individual' else '' }}">Net Amount</th>
               <th style="width:52px;"></th>
@@ -348,7 +350,12 @@ body{background:var(--bg);font-family:Inter,-apple-system,BlinkMacSystemFont,'Se
         <div class="btm-r">
           <div class="sl"><span class="sll">Subtotal</span><span class="slv" id="summarySubtotal">0.00</span></div>
           <div class="sl" id="absorbedRow" style="display:none;"><span class="sll">+ Absorbed charges</span><span class="slv" id="summaryAbsorbed">0.00</span></div>
-          <div class="sl">
+          <!-- An order carries no discount, charges, withholding or further
+               tax (§ order scope): those are decided at invoicing and their
+               columns are dropped. The inputs stay as zero-pinned hidden
+               fields because recalc() and collectData() dereference these ids
+               directly; pinned at 0 they contribute nothing. -->
+          <div class="sl" style="display:none;">
             <span class="sll">Discount</span>
             <span style="display:flex;align-items:center;gap:4px;">
               <span style="color:var(--muted);font-size:11px;">%</span>
@@ -367,7 +374,7 @@ body{background:var(--bg);font-family:Inter,-apple-system,BlinkMacSystemFont,'Se
             </span>
           </div>
           <div id="chargesSummaryContainer"></div>
-          <div class="sl" id="totalChargesRow" style="display:none;"><span class="sll" style="font-weight:700;">Total Charges (billed)</span><span class="slv" id="summaryChargesTotal" style="font-weight:700;">0.00</span></div>
+          <div class="sl" id="totalChargesRow" style="display:none;" data-order-ineligible><span class="sll" style="font-weight:700;">Total Charges (billed)</span><span class="slv" id="summaryChargesTotal" style="font-weight:700;">0.00</span></div>
           <div class="sl" id="furtherTaxRow" style="display:none;">
             <span class="sll">Further Tax</span>
             <span style="display:flex;align-items:center;gap:4px;">
@@ -742,7 +749,7 @@ function lineWeight(tr){return (parseFloat(tr.dataset.weight)||0)*lineQty(tr)}
 
 // Row management
 function addRow(data,noFocus){var tbody=document.getElementById('itemsBody'),tr=document.createElement('tr');rowCount++;var d=getMode('discount'),c=getMode('charges'),t=getMode('tax'),id=d==='individual',ic=c==='individual',it=t==='individual',dis=editable?'':'disabled';tr.dataset.productId=(data&&data.product_id)||'';tr.dataset.weight=(data&&data.weight)||0;
-tr.innerHTML='<td class="rn">'+rowCount+'</td><td><input type="text" class="ri ac-code" data-col="code" placeholder="SKU" value="'+((data&&data.product&&data.product.sku)||(data&&data.product_sku)||'')+'" '+dis+'></td><td><div class="ac-wrap"><textarea class="ri ac-desc-input" data-col="description" placeholder="Search or Space..." rows="1" style="resize:none;overflow:hidden" '+dis+'>'+esc(data&&data.description||'')+'</textarea><div class="ac-dd"></div><div class="info-badge" style="font-size:10px;color:var(--light);"></div></div></td><td><input type="number" class="ri num" data-col="quantity" value="'+((data&&data.quantity)||1)+'" min="0.01" step="any" '+dis+'></td><td><span class="ri rc ac-unit">'+((data&&data.unit)||'pcs')+'</span></td><td><input type="number" class="ri num" data-col="unit_price" value="'+((data&&data.unit_price)||0)+'" step="0.01" min="0" '+dis+'></td><td><input type="text" class="ri rc num" data-col="amount" value="0" readonly></td><td class="c-disc" style="'+(id?'':'display:none;')+'"><div class="row-disc"><input type="number" class="ri num" data-col="discount_pct" value="'+((data&&data.discount_pct)||0)+'" step="0.01" min="0" max="100" '+(editable&&id?'':'disabled')+'></div></td><td class="c-disc" style="'+(id?'':'display:none;')+'"><div class="row-disc"><input type="number" class="ri num" data-col="discount_amount" value="'+((data&&data.discount_amount)||0)+'" step="0.01" min="0" '+(editable&&id?'':'disabled')+'></div></td><td class="c-chg" style="'+(ic?'':'display:none;')+'"><div class="row-chg"><input type="number" class="ri num" data-col="delivery" value="'+((data&&data.delivery)||0)+'" step="0.01" min="0" '+(editable&&ic?'':'disabled')+'></div></td><td class="c-chg" style="'+(ic?'':'display:none;')+'"><div class="row-chg"><input type="number" class="ri num" data-col="installation" value="'+((data&&data.installation)||0)+'" step="0.01" min="0" '+(editable&&ic?'':'disabled')+'></div></td><td class="c-tax" style="'+(it?'':'display:none;')+'"><div class="row-tax"><input type="number" class="ri num" data-col="sales_tax_pct" value="'+((data&&data.sales_tax_pct)||0)+'" step="0.01" min="0" max="100" '+(editable&&it?'':'disabled')+'></div></td><td class="c-net" style="'+(id?'':'display:none;')+'"><input type="text" class="ri rc num" data-col="net_amount" value="0" readonly></td><td><div class="ra"><button type="button" class="del" onclick="removeRow(this)">&times;</button></div></td>';
+tr.innerHTML='<td class="rn">'+rowCount+'</td><td><input type="text" class="ri ac-code" data-col="code" placeholder="SKU" value="'+((data&&data.product&&data.product.sku)||(data&&data.product_sku)||'')+'" '+dis+'></td><td><div class="ac-wrap"><textarea class="ri ac-desc-input" data-col="description" placeholder="Search or Space..." rows="1" style="resize:none;overflow:hidden" '+dis+'>'+esc(data&&data.description||'')+'</textarea><div class="ac-dd"></div><div class="info-badge" style="font-size:10px;color:var(--light);"></div></div></td><td><input type="number" class="ri num" data-col="quantity" value="'+((data&&data.quantity)||1)+'" min="0.01" step="any" '+dis+'></td><td><span class="ri rc ac-unit">'+((data&&data.unit)||'pcs')+'</span></td><td><input type="number" class="ri num" data-col="unit_price" value="'+((data&&data.unit_price)||0)+'" step="0.01" min="0" '+dis+'></td><td><input type="text" class="ri rc num" data-col="amount" value="0" readonly></td><td class="c-disc" style="'+(id?'':'display:none;')+'"><div class="row-disc"><input type="number" class="ri num" data-col="discount_pct" value="'+((data&&data.discount_pct)||0)+'" step="0.01" min="0" max="100" '+(editable&&id?'':'disabled')+'></div></td><td class="c-disc" style="'+(id?'':'display:none;')+'"><div class="row-disc"><input type="number" class="ri num" data-col="discount_amount" value="'+((data&&data.discount_amount)||0)+'" step="0.01" min="0" '+(editable&&id?'':'disabled')+'></div></td><td class="c-chg num" style="'+(ic?'':'display:none;')+'"><span class="ri rc num" data-col="addcharges">0.00</span></td><td class="c-tax" style="'+(it?'':'display:none;')+'"><div class="row-tax"><input type="number" class="ri num" data-col="sales_tax_pct" value="'+((data&&data.sales_tax_pct)||0)+'" step="0.01" min="0" max="100" '+(editable&&it?'':'disabled')+'></div></td><td class="c-net" style="'+(id?'':'display:none;')+'"><input type="text" class="ri rc num" data-col="net_amount" value="0" readonly></td><td><div class="ra"><button type="button" class="del" onclick="removeRow(this)">&times;</button></div></td>';
 // The row was built, wired up and returned — but never put in the document, so
 // this grid rendered no lines at all. The other three documents all append here.
 tbody.appendChild(tr);
@@ -902,8 +909,6 @@ function recalcRow(tr){
   var price=parseFloat(tr.querySelector('[data-col="unit_price"]')?.value)||0;
   var discPct=parseFloat(tr.querySelector('[data-col="discount_pct"]')?.value)||0;
   var discAmt=parseFloat(tr.querySelector('[data-col="discount_amount"]')?.value)||0;
-  var delivery=parseFloat(tr.querySelector('[data-col="delivery"]')?.value)||0;
-  var installation=parseFloat(tr.querySelector('[data-col="installation"]')?.value)||0;
   var taxPct=parseFloat(tr.querySelector('[data-col="sales_tax_pct"]')?.value)||0;
   var lineTotal=qty*price;
   tr.querySelector('[data-col="amount"]').value=fmt(lineTotal);
@@ -911,7 +916,7 @@ function recalcRow(tr){
   if(d==='individual'){
     var calcdDisc=discAmt||(lineTotal*discPct/100);
     tr.querySelector('[data-col="discount_amount"]').value=calcdDisc.toFixed(2);
-    var netAmt=lineTotal-calcdDisc+delivery+installation;
+    var netAmt=lineTotal-calcdDisc;
     tr.querySelector('[data-col="net_amount"]').value=fmt(netAmt);
   }
 }
@@ -1076,8 +1081,6 @@ function collectData(action){
       unit_price:parseFloat(tr.querySelector('[data-col="unit_price"]')?.value)||0,
       discount_pct:parseFloat(tr.querySelector('[data-col="discount_pct"]')?.value)||0,
       discount_amount:parseFloat(tr.querySelector('[data-col="discount_amount"]')?.value)||0,
-      delivery:parseFloat(tr.querySelector('[data-col="delivery"]')?.value)||0,
-      installation:parseFloat(tr.querySelector('[data-col="installation"]')?.value)||0,
       sales_tax_pct:parseFloat(tr.querySelector('[data-col="sales_tax_pct"]')?.value)||0,
       total_before_discount:parseFloat((tr.querySelector('[data-col="amount"]')?.value||'0').replace(/,/g,''))||0,
       total_after_discount:parseFloat((tr.querySelector('[data-col="net_amount"]')?.value||'0').replace(/,/g,''))||0,
@@ -1217,6 +1220,41 @@ window.addEventListener('resize', refreshScrollHint);
   // A fixed element does not travel with the page, so it has to be re-placed.
   window.addEventListener('scroll',placeAll,true);
   window.addEventListener('resize',placeAll);
+})();
+
+// ============================================================
+// ORDER SCOPE
+// ============================================================
+// Discount, additional charges, withholding tax and further tax are not
+// eligible on an order — they are decided at invoicing, and their columns have
+// been dropped from the order tables. The controls are withdrawn and the values
+// pinned to zero here rather than cut out of the markup, because recalc() and
+// collectData() dereference these ids directly in a dozen places; pinned at
+// zero they contribute nothing and the save route ignores them anyway.
+(function orderScope(){
+  ['globalDiscPct','globalDiscVal','furtherTaxPct','withholdingTaxPct'].forEach(function(id){
+    var el=document.getElementById(id);
+    if(el){el.value=0;el.disabled=true}
+  });
+  if(typeof charges!=='undefined')charges.length=0;
+  ['furtherTaxRow','withholdingTaxRow','totalChargesRow','absorbedRow','expenseRow',
+   'chargesSummaryContainer','chargesBtn'].forEach(function(id){
+    var el=document.getElementById(id);
+    if(el)el.style.display='none';
+  });
+  // The discount and charges sections of the settings panel have nothing left
+  // to configure; the tax section keeps its scope control.
+  document.querySelectorAll('#sidePanel .accordion').forEach(function(acc){
+    var h=acc.querySelector('.acc-h');
+    if(h&&/discount|charges/i.test(h.textContent))acc.style.display='none';
+  });
+  // No discount or charges columns in the grid. A stylesheet rule with
+  // !important is used because refreshCols() writes inline display on these
+  // cells every time it runs.
+  var st=document.createElement('style');
+  st.textContent='.c-disc,.c-chg{display:none!important}';
+  document.head.appendChild(st);
+  if(typeof recalc==='function')recalc();
 })();
 </script>
 {% endblock %}

@@ -305,54 +305,24 @@ def _migrate_schema(db):
         ("additional_charges", "manual_allocations", "TEXT DEFAULT ''"),
         ("inv_sales_orders", "party_account_id", "INTEGER"),
         ("inv_sales_orders", "expected_date", "DATE"),
-        ("inv_sales_orders", "discount_mode", "VARCHAR(20) DEFAULT 'general'"),
-        ("inv_sales_orders", "charges_mode", "VARCHAR(20) DEFAULT 'general'"),
         ("inv_sales_orders", "tax_mode", "VARCHAR(20) DEFAULT 'general'"),
-        ("inv_sales_orders", "global_discount_pct", "FLOAT DEFAULT 0"),
-        ("inv_sales_orders", "global_discount_value", "FLOAT DEFAULT 0"),
-        ("inv_sales_orders", "global_delivery", "FLOAT DEFAULT 0"),
-        ("inv_sales_orders", "global_installation", "FLOAT DEFAULT 0"),
         ("inv_sales_orders", "global_sales_tax_pct", "FLOAT DEFAULT 0"),
-        ("inv_sales_orders", "further_tax_pct", "FLOAT DEFAULT 0"),
-        ("inv_sales_orders", "apply_further_tax", bool_false),
-        ("inv_sales_orders", "withholding_tax_pct", "FLOAT DEFAULT 0"),
-        ("inv_sales_orders", "apply_withholding_tax", bool_false),
         ("inv_sales_orders", "subtotal", "FLOAT DEFAULT 0"),
-        ("inv_sales_orders", "total_discount", "FLOAT DEFAULT 0"),
-        ("inv_sales_orders", "total_charges", "FLOAT DEFAULT 0"),
         ("inv_sales_orders", "total_tax", "FLOAT DEFAULT 0"),
-        ("inv_sales_orders", "total_further_tax", "FLOAT DEFAULT 0"),
-        ("inv_sales_orders", "total_withholding_tax", "FLOAT DEFAULT 0"),
         ("inv_sales_orders", "total_amount", "FLOAT DEFAULT 0"),
         ("inv_sales_orders", "approved_by", "INTEGER"),
         ("inv_sales_orders", "approved_at", ts_type),
         ("inv_sales_order_items", "description", "VARCHAR(200) DEFAULT ''"),
         ("inv_sales_order_items", "unit", "VARCHAR(20) DEFAULT 'pcs'"),
         ("inv_sales_order_items", "quantity", "FLOAT DEFAULT 1"),
-        ("inv_sales_order_items", "discount_pct", "FLOAT DEFAULT 0"),
-        ("inv_sales_order_items", "discount_amount", "FLOAT DEFAULT 0"),
-        ("inv_sales_order_items", "delivery", "FLOAT DEFAULT 0"),
-        ("inv_sales_order_items", "installation", "FLOAT DEFAULT 0"),
         ("inv_sales_order_items", "sales_tax_pct", "FLOAT DEFAULT 0"),
         ("inv_sales_order_items", "total_before_discount", "FLOAT DEFAULT 0"),
         ("inv_sales_order_items", "total_after_discount", "FLOAT DEFAULT 0"),
         ("inv_purchase_orders", "party_account_id", "INTEGER"),
-        ("inv_purchase_orders", "discount_mode", "VARCHAR(20) DEFAULT 'general'"),
-        ("inv_purchase_orders", "charges_mode", "VARCHAR(20) DEFAULT 'general'"),
         ("inv_purchase_orders", "tax_mode", "VARCHAR(20) DEFAULT 'general'"),
-        ("inv_purchase_orders", "global_discount_pct", "FLOAT DEFAULT 0"),
-        ("inv_purchase_orders", "global_discount_value", "FLOAT DEFAULT 0"),
         ("inv_purchase_orders", "global_sales_tax_pct", "FLOAT DEFAULT 0"),
-        ("inv_purchase_orders", "further_tax_pct", "FLOAT DEFAULT 0"),
-        ("inv_purchase_orders", "apply_further_tax", bool_false),
-        ("inv_purchase_orders", "withholding_tax_pct", "FLOAT DEFAULT 0"),
-        ("inv_purchase_orders", "apply_withholding_tax", bool_false),
         ("inv_purchase_orders", "subtotal", "FLOAT DEFAULT 0"),
-        ("inv_purchase_orders", "total_discount", "FLOAT DEFAULT 0"),
-        ("inv_purchase_orders", "total_charges", "FLOAT DEFAULT 0"),
         ("inv_purchase_orders", "total_tax", "FLOAT DEFAULT 0"),
-        ("inv_purchase_orders", "total_further_tax", "FLOAT DEFAULT 0"),
-        ("inv_purchase_orders", "total_withholding_tax", "FLOAT DEFAULT 0"),
         ("inv_purchase_orders", "total_amount", "FLOAT DEFAULT 0"),
         ("inv_purchase_orders", "driver_name", "VARCHAR(100) DEFAULT ''"),
         ("inv_purchase_orders", "driver_contact", "VARCHAR(50) DEFAULT ''"),
@@ -363,8 +333,6 @@ def _migrate_schema(db):
         ("inv_purchase_order_items", "description", "VARCHAR(200) DEFAULT ''"),
         ("inv_purchase_order_items", "unit", "VARCHAR(20) DEFAULT 'pcs'"),
         ("inv_purchase_order_items", "quantity", "FLOAT DEFAULT 1"),
-        ("inv_purchase_order_items", "discount_pct", "FLOAT DEFAULT 0"),
-        ("inv_purchase_order_items", "discount_amount", "FLOAT DEFAULT 0"),
         ("inv_purchase_order_items", "sales_tax_pct", "FLOAT DEFAULT 0"),
         ("inv_purchase_order_items", "total_before_discount", "FLOAT DEFAULT 0"),
         ("inv_purchase_order_items", "total_after_discount", "FLOAT DEFAULT 0"),
@@ -397,6 +365,66 @@ def _migrate_schema(db):
                 conn.execute(db.text(f"ALTER TABLE {table} ADD COLUMN {col} {ddl}"))
         except Exception as e:
             print(f"MIGRATION SKIP {table}.{col}: {e}")
+
+    # Charges, discount, withholding and further tax are not eligible on an
+    # order — they are decided at invoicing. The columns are dropped rather than
+    # left dormant so nothing can quietly read a stale figure, and the entries
+    # above were deleted at the same time: this loop and that one would
+    # otherwise fight, re-adding on every boot what this had just removed.
+    obsolete_order_columns = [
+        ("inv_sales_orders", "discount_mode"),
+        ("inv_sales_orders", "charges_mode"),
+        ("inv_sales_orders", "global_discount_pct"),
+        ("inv_sales_orders", "global_discount_value"),
+        ("inv_sales_orders", "global_delivery"),
+        ("inv_sales_orders", "global_installation"),
+        ("inv_sales_orders", "further_tax_pct"),
+        ("inv_sales_orders", "apply_further_tax"),
+        ("inv_sales_orders", "withholding_tax_pct"),
+        ("inv_sales_orders", "apply_withholding_tax"),
+        ("inv_sales_orders", "total_discount"),
+        ("inv_sales_orders", "total_charges"),
+        ("inv_sales_orders", "total_further_tax"),
+        ("inv_sales_orders", "total_withholding_tax"),
+        ("inv_sales_order_items", "discount_pct"),
+        ("inv_sales_order_items", "discount_amount"),
+        ("inv_sales_order_items", "delivery"),
+        ("inv_sales_order_items", "installation"),
+        ("inv_purchase_orders", "discount_mode"),
+        ("inv_purchase_orders", "charges_mode"),
+        ("inv_purchase_orders", "global_discount_pct"),
+        ("inv_purchase_orders", "global_discount_value"),
+        ("inv_purchase_orders", "further_tax_pct"),
+        ("inv_purchase_orders", "apply_further_tax"),
+        ("inv_purchase_orders", "withholding_tax_pct"),
+        ("inv_purchase_orders", "apply_withholding_tax"),
+        ("inv_purchase_orders", "total_discount"),
+        ("inv_purchase_orders", "total_charges"),
+        ("inv_purchase_orders", "total_further_tax"),
+        ("inv_purchase_orders", "total_withholding_tax"),
+        ("inv_purchase_order_items", "discount_pct"),
+        ("inv_purchase_order_items", "discount_amount"),
+    ]
+    for table, col in obsolete_order_columns:
+        if table not in existing_tables:
+            continue
+        if col not in {c["name"] for c in inspector.get_columns(table)}:
+            continue
+        try:
+            with engine.begin() as conn:
+                conn.execute(db.text(f"ALTER TABLE {table} DROP COLUMN {col}"))
+        except Exception as e:
+            # SQLite gained DROP COLUMN in 3.35. An older build just keeps the
+            # column; the models no longer map it, so it is inert either way.
+            print(f"MIGRATION SKIP drop {table}.{col}: {e}")
+
+    # Charge rows attached to orders have nothing left to belong to.
+    try:
+        with engine.begin() as conn:
+            conn.execute(db.text(
+                "DELETE FROM additional_charges WHERE doc_type IN ('SO', 'PO')"))
+    except Exception as e:
+        print("MIGRATION SKIP order charge cleanup:", e)
 
     # Unique index for invoice voucher numbers (best-effort).
     try:

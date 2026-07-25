@@ -94,9 +94,9 @@ def picker_payload(side, order):
             "invoiced_qty": float(it.invoiced_qty or 0),
             "balance_qty": line_balance(it),
             "unit_price": float(it.unit_price or 0),
-            # §4.3: per-line discounts and tax codes copy with the line.
-            "discount_pct": float(it.discount_pct or 0),
-            "discount_amount": float(it.discount_amount or 0),
+            # §4.3: the line's tax code copies with it. Discount does not —
+            # an order carries none, so there is nothing to bring over and the
+            # invoice sets its own.
             "sales_tax_pct": float(it.sales_tax_pct or 0),
         })
     return {
@@ -111,17 +111,20 @@ def picker_payload(side, order):
         "status": status,
         # §4.2: fully-invoiced orders are listed but greyed and unselectable.
         "selectable": status != "invoiced",
-        # §4.3: order-level combined pools travel pro-rata with the loaded share.
+        # §4.3: the order's tax settings travel with the loaded share. Discount,
+        # charges, withholding and further tax do not — an order carries none of
+        # them, so the invoice decides them itself. The keys are still emitted
+        # (zeroed) because the picker JS reads them when seeding a new invoice.
         "pools": {
-            "discount_mode": order.discount_mode or "general",
             "tax_mode": order.tax_mode or "general",
-            "global_discount_pct": float(order.global_discount_pct or 0),
-            "global_discount_value": float(order.global_discount_value or 0),
             "global_sales_tax_pct": float(order.global_sales_tax_pct or 0),
-            "further_tax_pct": float(order.further_tax_pct or 0),
-            "apply_further_tax": bool(order.apply_further_tax),
-            "withholding_tax_pct": float(order.withholding_tax_pct or 0),
-            "apply_withholding_tax": bool(order.apply_withholding_tax),
+            "discount_mode": "general",
+            "global_discount_pct": 0.0,
+            "global_discount_value": 0.0,
+            "further_tax_pct": 0.0,
+            "apply_further_tax": False,
+            "withholding_tax_pct": 0.0,
+            "apply_withholding_tax": False,
         },
         "items": lines,
     }

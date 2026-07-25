@@ -214,11 +214,103 @@ class TestChargeLedgerPicker:
         assert s["count"] < before
         assert all("freight" in n.lower() for n in s["names"])
 
-    def test_every_document_opens_its_ledger_list(self, admin_page):
-        for label, url in DOCUMENTS.items():
-            _open(admin_page, url)
-            if admin_page.evaluate(OPEN_LEDGER) is not True:
-                continue   # this document has no charges modal
+    def test_both_invoices_open_their_ledger_list(self, admin_page):
+        """Only the invoices — an order carries no charges, so it has no ledger
+        to pick."""
+        for label in ("sales invoice", "purchase invoice"):
+            _open(admin_page, DOCUMENTS[label])
+            assert admin_page.evaluate(OPEN_LEDGER) is True, f"{label} has no picker"
             s = admin_page.evaluate(LEDGER_STATE)
             assert s["display"] == "block", f"{label} list does not render"
             assert s["count"] > 1, f"{label} does not list the accounts"
+
+
+ORDER_SCOPE = """
+() => {
+  const vis = el => {
+    if (!el) return false;
+    const r = el.getBoundingClientRect();
+    return r.width > 0 && r.height > 0;
+  };
+  const val = id => {
+    const el = document.getElementById(id);
+    return el ? parseFloat(el.value) || 0 : null;
+  };
+  return {
+    chargesButton: vis(document.getElementById('chargesBtn')),
+    discountColumn: vis(document.querySelector('th.c-disc')),
+    chargeColumn: vis(document.querySelector('th.c-chg')),
+    withholdingRow: vis(document.getElementById('withholdingTaxRow')),
+    furtherTaxRow: vis(document.getElementById('furtherTaxRow')),
+    discountPct: val('globalDiscPct'),
+    discountVal: val('globalDiscVal'),
+    withholdingPct: val('withholdingTaxPct'),
+    charges: typeof charges === 'undefined' ? 0 : charges.length,
+    discount: document.getElementById('summaryDiscount')
+      ? document.getElementById('summaryDiscount').textContent : '',
+  };
+}
+"""
+
+
+class TestOrdersCarryNoChargesDiscountOrWithholding:
+    """An order is a commitment to buy or sell. Charges, discount, withholding
+    and further tax are settled at invoicing, and their columns have been dropped
+    from the order tables — so the forms must not offer them, and nothing they
+    might once have held may reach the totals.
+    """
+
+    def test_the_sales_order_offers_none_of_them(self, admin_page):
+        _open(admin_page, DOCUMENTS["sales order"])
+        s = admin_page.evaluate(ORDER_SCOPE)
+        assert s["chargesButton"] is False
+        assert s["discountColumn"] is False
+        assert s["chargeColumn"] is False
+        assert s["withholdingRow"] is False
+        assert s["furtherTaxRow"] is False
+
+    def test_the_purchase_order_offers_none_of_them(self, admin_page):
+        _open(admin_page, DOCUMENTS["purchase order"])
+        s = admin_page.evaluate(ORDER_SCOPE)
+        assert s["chargesButton"] is False
+        assert s["discountColumn"] is False
+        assert s["chargeColumn"] is False
+        assert s["withholdingRow"] is False
+
+    def test_the_values_are_pinned_to_zero(self, admin_page):
+        """The inputs remain in the DOM because recalc() and collectData()
+        dereference their ids directly. Pinned at zero they cannot contribute."""
+        for label in ("sales order", "purchase order"):
+            _open(admin_page, DOCUMENTS[label])
+            s = admin_page.evaluate(ORDER_SCOPE)
+            assert s["discountPct"] == 0, label
+            assert s["discountVal"] == 0, label
+            assert s["withholdingPct"] == 0, label
+            assert s["charges"] == 0, label
+
+    def test_the_order_total_is_goods_plus_tax_only(self, admin_page):
+        """2 x 1,000 at 18% is 2,360 — no discount taken, no charge added, no
+        withholding deducted."""
+        _open(admin_page, DOCUMENTS["sales order"])
+        total = admin_page.evaluate("""() => {
+          const row = document.querySelector('#itemsBody tr');
+          row.querySelector('[data-col="quantity"]').value = 2;
+          row.querySelector('[data-col="unit_price"]').value = 1000;
+          document.getElementById('globalSalesTaxPct').value = 18;
+          recalcRow(row); recalc();
+          return {
+            sub: document.getElementById('summarySubtotal').textContent,
+            tax: document.getElementById('summarySalesTax').textContent,
+            net: document.getElementById('summaryNetTotal').textContent,
+          };
+        }""")
+        num = lambda t: float(str(t).replace(",", "").replace("Rs.", "").strip())
+        assert num(total["sub"]) == 2000.0
+        assert num(total["tax"]) == 360.0
+        assert num(total["net"]) == 2360.0
+
+    def test_the_invoices_still_offer_them(self, admin_page):
+        """The removal is scoped to orders — an invoice is where these belong."""
+        _open(admin_page, DOCUMENTS["sales invoice"])
+        s = admin_page.evaluate(ORDER_SCOPE)
+        assert s["chargesButton"] is True

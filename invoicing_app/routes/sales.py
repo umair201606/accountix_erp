@@ -30,6 +30,7 @@ def sale_form(id):
     customers = InvCustomer.query.filter_by(is_active=True).order_by(InvCustomer.name).all()
     products = InvProduct.query.filter_by(is_active=True).order_by(InvProduct.name).all()
     order_items = []
+    # An order has no charges; the template still reads this key.
     order_charges = []
     if order:
         for it in order.items.all():
@@ -43,27 +44,9 @@ def sale_form(id):
                 "quantity": it.quantity,
                 "unit": it.unit,
                 "unit_price": it.unit_price,
-                "discount_pct": it.discount_pct,
-                "discount_amount": it.discount_amount,
-                "delivery": it.delivery,
-                "installation": it.installation,
                 "sales_tax_pct": it.sales_tax_pct,
                 "total_before_discount": it.total_before_discount,
                 "total_after_discount": it.total_after_discount,
-            })
-        for chg in order.charges_list:
-            acct = chg.charge_account
-            display = (f"{acct.code} — {acct.name}" if acct else (chg.description or ""))
-            order_charges.append({
-                "charge_account_id": chg.charge_account_id,
-                "_display": display,
-                "description": chg.description or (acct.name if acct else ""),
-                "amount": chg.amount,
-                "scope": chg.scope or "general",
-                "treatment": getattr(chg, "treatment", None) or "bill",
-                "st_taxable": bool(getattr(chg, "st_taxable", chg.taxable)),
-                "wht_taxable": bool(getattr(chg, "wht_taxable", False)),
-                "extra_taxable": bool(getattr(chg, "extra_taxable", False)),
             })
     rs = ReportSettings.get()
     return render_template("sales/form_inv.html",
@@ -106,28 +89,16 @@ def save_sale():
 
     order.customer_id = data.get("customer_id")
     order.party_account_id = data.get("party_account_id") or None
-    order.discount_mode = data.get("discount_mode", "general")
-    order.charges_mode = data.get("charges_mode", "general")
+    # An order carries no discount, charges, withholding or further tax — those
+    # are decided at invoicing (their columns were dropped). Tax scope stays.
     order.tax_mode = data.get("tax_mode", "general")
     order.order_date = datetime.strptime(data.get("order_date"), "%Y-%m-%d").date() if data.get("order_date") else date.today()
     order.expected_date = datetime.strptime(data.get("expected_date"), "%Y-%m-%d").date() if data.get("expected_date") else None
 
-    order.global_discount_pct = float(data.get("global_discount_pct", 0))
-    order.global_discount_value = float(data.get("global_discount_value", 0))
-    order.global_delivery = float(data.get("global_delivery", 0))
-    order.global_installation = float(data.get("global_installation", 0))
     order.global_sales_tax_pct = float(data.get("global_sales_tax_pct", 0))
-    order.further_tax_pct = float(data.get("further_tax_pct", 0))
-    order.apply_further_tax = bool(data.get("apply_further_tax", False))
-    order.withholding_tax_pct = float(data.get("withholding_tax_pct", 0))
-    order.apply_withholding_tax = bool(data.get("apply_withholding_tax", False))
     order.notes = data.get("notes", "")
     order.subtotal = float(data.get("subtotal", 0))
-    order.total_discount = float(data.get("total_discount", 0))
-    order.total_charges = float(data.get("total_charges", 0))
     order.total_tax = float(data.get("total_tax", 0))
-    order.total_further_tax = float(data.get("total_further_tax", 0))
-    order.total_withholding_tax = float(data.get("total_withholding_tax", 0))
     order.total_amount = float(data.get("total_amount", 0))
 
     if action == "approve":
@@ -148,10 +119,6 @@ def save_sale():
             quantity=float(row.get("quantity", 1)),
             unit=row.get("unit", "pcs"),
             unit_price=float(row.get("unit_price", 0)),
-            discount_pct=float(row.get("discount_pct", 0)),
-            discount_amount=float(row.get("discount_amount", 0)),
-            delivery=float(row.get("delivery", 0)),
-            installation=float(row.get("installation", 0)),
             sales_tax_pct=float(row.get("sales_tax_pct", 0)),
             total_before_discount=float(row.get("total_before_discount", 0)),
             total_after_discount=float(row.get("total_after_discount", 0)),
@@ -159,25 +126,9 @@ def save_sale():
         )
         db.session.add(item)
 
+    # Charges are not eligible on an order. The delete stays so rows written
+    # by an older build are cleared the first time the order is re-saved.
     AdditionalCharge.query.filter_by(doc_type="SO", doc_id=order.id).delete()
-    for chg in data.get("charges", []):
-        if not chg.get("charge_account_id"):
-            continue
-        if float(chg.get("amount", 0)) > 0:
-            st_taxable = bool(chg.get("st_taxable", chg.get("taxable", True)))
-            db.session.add(AdditionalCharge(
-                doc_type="SO", doc_id=order.id,
-                charge_account_id=int(chg["charge_account_id"]),
-                description=chg.get("description", ""),
-                amount=float(chg["amount"]),
-                scope=chg.get("scope", "general"),
-                treatment=chg.get("treatment", "bill"),
-                st_taxable=st_taxable,
-                wht_taxable=bool(chg.get("wht_taxable", False)),
-                extra_taxable=bool(chg.get("extra_taxable", False)),
-                taxable=st_taxable,
-                tax_base=chg.get("tax_base", "after_discount"),
-            ))
 
     db.session.commit()
     if action == "approve":

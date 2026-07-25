@@ -41,27 +41,12 @@ def purchase_form(id):
                 "quantity": it.quantity,
                 "unit": it.unit,
                 "unit_price": it.unit_price,
-                "discount_pct": it.discount_pct,
-                "discount_amount": it.discount_amount,
                 "sales_tax_pct": it.sales_tax_pct,
                 "total_before_discount": it.total_before_discount,
                 "total_after_discount": it.total_after_discount,
             })
+    # An order has no charges; the template still reads this key.
     order_charges = []
-    if order:
-        for ch in order.charges_list:
-            acct = ch.charge_account
-            order_charges.append({
-                "charge_account_id": ch.charge_account_id,
-                "_display": (f"{acct.code} — {acct.name}" if acct else ""),
-                "description": ch.description or "",
-                "amount": ch.amount or 0,
-                "scope": ch.scope or "general",
-                "treatment": ch.treatment or "bill",
-                "st_taxable": bool(ch.st_taxable),
-                "wht_taxable": bool(ch.wht_taxable),
-                "extra_taxable": bool(ch.extra_taxable),
-            })
     rs = ReportSettings.get()
     return render_template("purchases/form_inv.html",
                            order=order,
@@ -103,31 +88,20 @@ def save_purchase():
 
     order.supplier_id = data.get("supplier_id")
     order.party_account_id = data.get("party_account_id") or None
-    order.discount_mode = data.get("discount_mode", "general")
-    order.charges_mode = data.get("charges_mode", "general")
+    # An order carries no discount, charges, withholding or further tax — those
+    # are decided at invoicing (their columns were dropped). Tax scope stays.
     order.tax_mode = data.get("tax_mode", "general")
     order.order_date = datetime.strptime(data.get("order_date"), "%Y-%m-%d").date() if data.get("order_date") else date.today()
     order.expected_date = datetime.strptime(data.get("expected_date"), "%Y-%m-%d").date() if data.get("expected_date") else None
 
-    order.global_discount_pct = float(data.get("global_discount_pct", 0))
-    order.global_discount_value = float(data.get("global_discount_value", 0))
     order.global_sales_tax_pct = float(data.get("global_sales_tax_pct", 0))
-    # §8: purchases carry NO further tax — force the fields off regardless of payload.
-    order.further_tax_pct = 0
-    order.apply_further_tax = False
-    order.withholding_tax_pct = float(data.get("withholding_tax_pct", 0))
-    order.apply_withholding_tax = bool(data.get("apply_withholding_tax", False))
     order.notes = data.get("notes", "")
     order.driver_name = data.get("driver_name", "")
     order.driver_contact = data.get("driver_contact", "")
     order.vehicle_number = data.get("vehicle_number", "")
     order.gate_pass = data.get("gate_pass", "")
     order.subtotal = float(data.get("subtotal", 0))
-    order.total_discount = float(data.get("total_discount", 0))
-    order.total_charges = float(data.get("total_charges", 0))
     order.total_tax = float(data.get("total_tax", 0))
-    order.total_further_tax = 0
-    order.total_withholding_tax = float(data.get("total_withholding_tax", 0))
     order.total_amount = float(data.get("total_amount", 0))
 
     if action == "approve":
@@ -148,8 +122,7 @@ def save_purchase():
             quantity=float(row.get("quantity", 1)),
             unit=row.get("unit", "pcs"),
             unit_price=float(row.get("unit_price", 0)),
-            discount_pct=float(row.get("discount_pct", 0)),
-            discount_amount=float(row.get("discount_amount", 0)),
+
             sales_tax_pct=float(row.get("sales_tax_pct", 0)),
             total_before_discount=float(row.get("total_before_discount", 0)),
             total_after_discount=float(row.get("total_after_discount", 0)),
@@ -157,27 +130,9 @@ def save_purchase():
         )
         db.session.add(item)
 
+    # Charges are not eligible on an order. The delete stays so rows written
+    # by an older build are cleared the first time the order is re-saved.
     AdditionalCharge.query.filter_by(doc_type="PO", doc_id=order.id).delete()
-    for chg in data.get("charges", []):
-        if not chg.get("charge_account_id"):
-            continue
-        if float(chg.get("amount", 0)) <= 0:
-            continue
-        st_taxable = bool(chg.get("st_taxable", True))
-        db.session.add(AdditionalCharge(
-            doc_type="PO", doc_id=order.id,
-            charge_account_id=int(chg["charge_account_id"]),
-            description=chg.get("description", ""),
-            amount=float(chg["amount"]),
-            scope=chg.get("scope", "general"),
-            treatment=chg.get("treatment", "bill"),
-            st_taxable=st_taxable,
-            wht_taxable=bool(chg.get("wht_taxable", False)),
-            extra_taxable=bool(chg.get("extra_taxable", False)),
-            # Legacy mirror so old readers still work; st_taxable is authoritative.
-            taxable=st_taxable,
-            tax_base="after_discount",
-        ))
 
     db.session.commit()
     if action == "approve":

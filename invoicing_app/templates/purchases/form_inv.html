@@ -1108,5 +1108,40 @@ window.addEventListener('resize', refreshScrollHint);
   window.addEventListener('scroll',placeAll,true);
   window.addEventListener('resize',placeAll);
 })();
+
+// ============================================================
+// ORDER SCOPE
+// ============================================================
+// Discount, additional charges, withholding tax and further tax are not
+// eligible on an order — they are decided at invoicing, and their columns have
+// been dropped from the order tables. The controls are withdrawn and the values
+// pinned to zero here rather than cut out of the markup, because recalc() and
+// collectData() dereference these ids directly in a dozen places; pinned at
+// zero they contribute nothing and the save route ignores them anyway.
+(function orderScope(){
+  ['globalDiscPct','globalDiscVal','furtherTaxPct','withholdingTaxPct'].forEach(function(id){
+    var el=document.getElementById(id);
+    if(el){el.value=0;el.disabled=true}
+  });
+  if(typeof charges!=='undefined')charges.length=0;
+  ['furtherTaxRow','withholdingTaxRow','totalChargesRow','absorbedRow','expenseRow',
+   'chargesSummaryContainer','chargesBtn'].forEach(function(id){
+    var el=document.getElementById(id);
+    if(el)el.style.display='none';
+  });
+  // The discount and charges sections of the settings panel have nothing left
+  // to configure; the tax section keeps its scope control.
+  document.querySelectorAll('#sidePanel .accordion').forEach(function(acc){
+    var h=acc.querySelector('.acc-h');
+    if(h&&/discount|charges/i.test(h.textContent))acc.style.display='none';
+  });
+  // No discount or charges columns in the grid. A stylesheet rule with
+  // !important is used because refreshCols() writes inline display on these
+  // cells every time it runs.
+  var st=document.createElement('style');
+  st.textContent='.c-disc,.c-chg{display:none!important}';
+  document.head.appendChild(st);
+  if(typeof recalc==='function')recalc();
+})();
 </script>
 {% endblock %}
