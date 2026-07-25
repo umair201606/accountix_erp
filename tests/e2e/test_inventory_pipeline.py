@@ -75,7 +75,12 @@ class TestInvPurchaseInvoice:
     def test_purchase_invoice_pill_toggles(self, admin_page):
         admin_page.goto(f"{BASE_URL}/inventory/purchase-invoice/")
         admin_page.wait_for_load_state("networkidle")
+        # The scope pills now live in the Additional Settings slide-over, which
+        # starts closed. A hidden pill still reports is_enabled(), so the guard
+        # below would pass and the click would then time out on visibility.
+        admin_page.locator(".bsm-settings").click()
         pill_combined = admin_page.locator("#discountMode .pill-b").first
+        pill_combined.wait_for(state="visible")
         if pill_combined.is_enabled():
             pill_combined.click()
             admin_page.wait_for_timeout(100)
