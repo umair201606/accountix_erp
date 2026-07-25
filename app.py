@@ -301,6 +301,8 @@ def _migrate_schema(db):
         ("inv_purchase_invoices", "payment_status", "VARCHAR(20) DEFAULT 'unpaid'"),
         ("inv_purchase_invoices", "purchase_order_id", "INTEGER"),
         ("inv_products", "hs_code", "VARCHAR(50) DEFAULT ''"),
+        ("inv_products", "weight", "FLOAT DEFAULT 0"),
+        ("additional_charges", "manual_allocations", "TEXT DEFAULT ''"),
         ("inv_sales_orders", "party_account_id", "INTEGER"),
         ("inv_sales_orders", "expected_date", "DATE"),
         ("inv_sales_orders", "discount_mode", "VARCHAR(20) DEFAULT 'general'"),

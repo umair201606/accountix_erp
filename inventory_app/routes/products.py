@@ -46,6 +46,7 @@ def create_product():
             current_stock=request.form.get("current_stock", 0, type=int),
             unit=request.form.get("unit", "pcs"),
             hs_code=request.form.get("hs_code", "").strip(),
+            weight=request.form.get("weight", 0, type=float),
         )
         db.session.add(prod)
         db.session.flush()
@@ -74,6 +75,7 @@ def edit_product(id):
         prod.reorder_level = request.form.get("reorder_level", 0, type=int)
         prod.unit = request.form.get("unit", "pcs")
         prod.hs_code = request.form.get("hs_code", "").strip()
+        prod.weight = request.form.get("weight", 0, type=float)
         prod.is_active = request.form.get("is_active") == "on"
         create_entity_account("product", prod.id, f"{prod.name} ({prod.sku})")
         db.session.commit()

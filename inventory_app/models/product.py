@@ -15,6 +15,10 @@ class InvProduct(db.Model):
     current_stock = db.Column(db.Integer, default=0)
     unit = db.Column(db.String(20), default="pcs")
     hs_code = db.Column(db.String(50), default="")
+    # Unit weight, for the "By weight" charge distribution (§6.2). The basis is
+    # the line's total mass — this times the quantity — since freight and the
+    # like scale with what is actually shipped, not with the unit.
+    weight = db.Column(db.Float, default=0)
     is_active = db.Column(db.Boolean, default=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

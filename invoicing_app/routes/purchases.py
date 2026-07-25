@@ -34,6 +34,9 @@ def purchase_form(id):
             order_items.append({
                 "product_id": it.product_id,
                 "product": {"sku": it.product.sku if it.product else ""},
+                # §6.2 — the "By weight" split needs the line's unit weight
+                # client-side; a reopened invoice must carry it too.
+                "weight": (it.product.weight or 0) if it.product else 0,
                 "description": it.description,
                 "quantity": it.quantity,
                 "unit": it.unit,
@@ -289,7 +292,7 @@ def api_products():
     return jsonify([{
         "id": p.id, "name": p.name, "sku": p.sku,
         "unit_price": p.unit_price, "current_stock": p.current_stock,
-        "unit": p.unit,
+        "unit": p.unit, "weight": p.weight or 0,
     } for p in products])
 
 

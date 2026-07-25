@@ -57,6 +57,11 @@
         <input type="text" name="hs_code" class="form-control focus-ring" value="{{ product.hs_code if product else '' }}" placeholder="e.g. 8541.4000">
         <small style="display:block;margin-top:4px;color:#64748b;">Harmonised System tariff code — sent to FBR Digital Invoicing.</small>
       </div>
+      <div class="form-group">
+        <label>Unit Weight</label>
+        <input type="number" name="weight" step="any" min="0" class="form-control focus-ring" value="{{ product.weight if product else '' }}" placeholder="0.00">
+        <small style="display:block;margin-top:4px;color:#64748b;">Weight of one unit. Used to split charges set to &ldquo;By weight&rdquo; — lines with no weight fall back to value.</small>
+      </div>
     </div>
     <div class="form-row">
       <div class="form-group">

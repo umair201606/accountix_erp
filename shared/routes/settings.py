@@ -124,6 +124,24 @@ def index():
         ctx["charge_ledger_choices"] = [
             a for a in _postable_accounts()
             if a.id not in taken and a.type in ("expense", "revenue")]
+        # §12.2 — the two posting maps: category -> revenue account, and
+        # sales-tax rate -> Output Sales Tax sub-account.
+        from shared.models.invoice_settings import (CategoryRevenueAccount,
+                                                    TaxRateAccount)
+        from inventory_app.models.category import InvCategory
+        cat_maps = CategoryRevenueAccount.query.all()
+        ctx["category_revenue_maps"] = sorted(
+            cat_maps, key=lambda m: (m.account.code if m.account else ""))
+        mapped_cats = {m.category_id for m in cat_maps}
+        ctx["categories"] = InvCategory.query.order_by(InvCategory.name).all()
+        ctx["unmapped_categories"] = [
+            c for c in ctx["categories"] if c.id not in mapped_cats]
+        ctx["revenue_accounts"] = [
+            a for a in _postable_accounts() if a.type == "revenue"]
+        ctx["tax_rate_maps"] = TaxRateAccount.query.order_by(
+            TaxRateAccount.rate_pct).all()
+        ctx["tax_accounts"] = [
+            a for a in _postable_accounts() if a.type == "liability"]
     elif tab == "templates":
         ctx["sales_templates"] = InvoiceTemplate.query.filter_by(type="sales").order_by(InvoiceTemplate.name).all()
         ctx["purchase_templates"] = InvoiceTemplate.query.filter_by(type="purchase").order_by(InvoiceTemplate.name).all()
@@ -433,6 +451,41 @@ def save_invoicing():
             wht_taxable=billed and request.form.get("cld_new_wht") == "on",
             extra_taxable=billed and request.form.get("cld_new_extra") == "on",
         ))
+
+    # §12.2 — category -> revenue account. Deleting a row is not a loss of
+    # data: an unmapped category simply posts to the global revenue account.
+    from shared.models.invoice_settings import (CategoryRevenueAccount,
+                                                TaxRateAccount)
+    for m in CategoryRevenueAccount.query.all():
+        if request.form.get(f"cra_delete_{m.id}") == "on":
+            db.session.delete(m)
+            continue
+        acct = request.form.get(f"cra_account_{m.id}", type=int)
+        if acct:
+            m.account_id = acct
+
+    new_cat = request.form.get("cra_new_category", type=int)
+    new_cat_acct = request.form.get("cra_new_account", type=int)
+    if new_cat and new_cat_acct and not CategoryRevenueAccount.query.filter_by(
+            category_id=new_cat).first():
+        db.session.add(CategoryRevenueAccount(category_id=new_cat,
+                                              account_id=new_cat_acct))
+
+    # §12.2 — sales-tax rate -> Output Sales Tax sub-account.
+    for m in TaxRateAccount.query.all():
+        if request.form.get(f"tra_delete_{m.id}") == "on":
+            db.session.delete(m)
+            continue
+        acct = request.form.get(f"tra_account_{m.id}", type=int)
+        if acct:
+            m.account_id = acct
+
+    new_rate = request.form.get("tra_new_rate", type=float)
+    new_rate_acct = request.form.get("tra_new_account", type=int)
+    if new_rate is not None and new_rate_acct and not TaxRateAccount.query.filter_by(
+            rate_pct=new_rate).first():
+        db.session.add(TaxRateAccount(rate_pct=new_rate,
+                                      account_id=new_rate_acct))
 
     db.session.commit()
     flash("Invoice settings updated.", "success")

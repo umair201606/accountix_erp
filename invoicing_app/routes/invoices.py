@@ -1,6 +1,7 @@
 from flask import Blueprint, render_template, redirect, url_for, flash, request, jsonify
 from flask_login import login_required, current_user
 from datetime import datetime, date
+import json
 from decimal import Decimal
 from inventory_app.extensions import db
 from inventory_app.models.invoice import InvInvoice, InvInvoiceItem
@@ -22,7 +23,37 @@ inv_inv_bp = Blueprint("inv_invoices", __name__, url_prefix="/inventory/invoices
 
 # The v3 §8 chain lives in one place so the posted journal, the printed
 # invoice and the FBR payload can never disagree about the same invoice.
-from shared.invoice_totals import sales_totals as _sales_totals  # noqa: E402
+from shared.invoice_totals import (  # noqa: E402
+    sales_totals as _sales_totals,
+    revenue_splits as _revenue_splits,
+    output_tax_splits as _output_tax_splits,
+)
+
+
+def _manual_allocations(chg):
+    """Per-line amounts for a "Manual per line" charge (§5.1), as JSON.
+
+    Stored only for that method — every other one derives the split from the
+    lines, so a saved copy would just go stale. Anything unparseable is dropped
+    rather than saved half-read: the split falls back to pro-rata, which is
+    visible, instead of to a silently wrong allocation.
+    """
+    if chg.get("distribution") != "manual":
+        return ""
+    try:
+        return json.dumps([round(float(v or 0), 2) for v in (chg.get("manual") or [])])
+    except (TypeError, ValueError):
+        return ""
+
+
+def _read_manual(raw):
+    """The stored manual split, or [] if it is absent or unreadable."""
+    if not raw:
+        return []
+    try:
+        return [float(v or 0) for v in json.loads(raw)]
+    except (TypeError, ValueError):
+        return []
 
 
 def next_voucher():
@@ -52,6 +83,9 @@ def invoice_form(id):
             invoice_items.append({
                 "product_id": it.product_id,
                 "product": {"sku": product.sku if product else ""},
+                # §6.2 — the "By weight" split needs the line's unit weight
+                # client-side; a reopened invoice must carry it too.
+                "weight": (product.weight or 0) if product else 0,
                 "description": it.description,
                 "quantity": it.quantity,
                 "unit": it.unit,
@@ -83,6 +117,11 @@ def invoice_form(id):
                 "description": chg.description,
                 "amount": chg.amount,
                 "scope": chg.scope,
+                # Without these two a reopened invoice silently reverted to
+                # pro-rata by value, losing the chosen method and any manual
+                # split along with it.
+                "distribution": chg.distribution or "pro_rata_value",
+                "manual": _read_manual(chg.manual_allocations),
                 "treatment": chg.treatment or "bill",
                 "st_taxable": bool(chg.st_taxable),
                 "wht_taxable": bool(chg.wht_taxable),
@@ -483,6 +522,7 @@ def save_invoice():
                 amount=float(chg["amount"]),
                 scope=chg.get("scope", "general"),
                 distribution=chg.get("distribution", "pro_rata_value"),
+                manual_allocations=_manual_allocations(chg),
                 treatment=treatment,
                 st_taxable=st,
                 wht_taxable=billed and bool(chg.get("wht_taxable", False)),
@@ -531,9 +571,15 @@ def save_invoice():
         lines = [
             {"account_id": ar_acc.id, "debit": t["net_receivable"], "credit": 0,
              "description": f"AR - {inv.invoice_number}"},
-            {"account_id": rev_acc.id, "debit": 0, "credit": t["effective_subtotal"],
-             "description": f"Revenue - {inv.invoice_number}"},
         ]
+        # §12.2 — revenue credits the account mapped to each line's product
+        # category. With nothing mapped this is one bucket against rev_acc, i.e.
+        # the single credit it has always been.
+        for account_id, amount in _revenue_splits(inv, t["effective_subtotal"]):
+            lines.append(
+                {"account_id": account_id or rev_acc.id, "debit": 0, "credit": amount,
+                 "description": f"Revenue - {inv.invoice_number}"},
+            )
         if t["discount"] > 0:
             disc_acc = ChartOfAccount.query.filter_by(code="4-02-02-01-0001").first() \
                 or posting_account("sales_returns")
@@ -548,10 +594,14 @@ def save_invoice():
                  "description": f"{row.description or 'Charge'} - {inv.invoice_number}"},
             )
         if t["sales_tax"] > 0 and out_tax_acc:
-            lines.append(
-                {"account_id": out_tax_acc.id, "debit": 0, "credit": t["sales_tax"],
-                 "description": f"Output Tax - {inv.invoice_number}"},
-            )
+            # §12.2 — one credit per tax rate, so the sales-tax return is not
+            # left unpicking a single pooled balance.
+            for account_id, amount in _output_tax_splits(inv, t["sales_tax"]):
+                lines.append(
+                    {"account_id": account_id or out_tax_acc.id, "debit": 0,
+                     "credit": amount,
+                     "description": f"Output Tax - {inv.invoice_number}"},
+                )
         if t["further_tax"] > 0:
             # Further tax is its own liability — netting it into Output Sales
             # Tax would misstate both on the sales-tax return.
@@ -731,7 +781,7 @@ def api_products():
     return jsonify([{
         "id": p.id, "name": p.name, "sku": p.sku,
         "unit_price": p.unit_price, "current_stock": p.current_stock,
-        "unit": p.unit,
+        "unit": p.unit, "weight": p.weight or 0,
     } for p in products])
 
 

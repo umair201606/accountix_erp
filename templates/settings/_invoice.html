@@ -319,6 +319,118 @@
 
   </div>
 
+  <!-- §12.2 — Posting accounts: which revenue account each category credits,
+       and which Output Sales Tax sub-account each rate credits ───────────── -->
+  <div class="set-card set-boxed">
+    <div class="set-card-hd">Posting accounts (per-line)</div>
+    <div class="set-card-bd">
+      <div class="set-note" style="margin-bottom:12px;">
+        Per-line mode can post several lines against the same natural account type.
+        Map a category or a rate here and an invoice credits that account instead of
+        the single global one. <strong>Anything left unmapped keeps posting to the
+        global Revenue / Output Sales Tax account</strong>, so these tables are
+        optional — an empty pair changes nothing.
+      </div>
+
+      <label class="lbl">Revenue account by product category</label>
+      <div class="set-table-wrap">
+        <table class="set-table">
+          <thead><tr><th>Category</th><th>Revenue account</th><th style="text-align:center;">Remove</th></tr></thead>
+          <tbody>
+          {% for m in category_revenue_maps %}
+            <tr>
+              <td>{% for c in categories %}{% if c.id == m.category_id %}{{ c.name }}{% endif %}{% endfor %}</td>
+              <td>
+                <select name="cra_account_{{ m.id }}" class="inp">
+                  {% for a in revenue_accounts %}
+                  <option value="{{ a.id }}" {{ 'selected' if a.id == m.account_id }}>{{ a.code }} — {{ a.name }}</option>
+                  {% endfor %}
+                </select>
+              </td>
+              <td style="text-align:center;">
+                <label style="font-size:11px;color:var(--danger);cursor:pointer;">
+                  <input type="checkbox" name="cra_delete_{{ m.id }}"> remove</label>
+              </td>
+            </tr>
+          {% else %}
+            <tr><td colspan="3" style="text-align:center;color:var(--muted);padding:18px;">
+              No category mapped — all revenue posts to the global account.</td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <div class="fgrid" style="margin-top:12px;align-items:end;">
+        <div class="fgroup">
+          <label class="lbl">Add a category</label>
+          <select name="cra_new_category" class="inp">
+            <option value="">— pick a category —</option>
+            {% for c in unmapped_categories %}
+            <option value="{{ c.id }}">{{ c.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="fgroup">
+          <label class="lbl">Revenue account</label>
+          <select name="cra_new_account" class="inp">
+            <option value="">— pick a level-5 revenue ledger —</option>
+            {% for a in revenue_accounts %}
+            <option value="{{ a.id }}">{{ a.code }} — {{ a.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+
+      <label class="lbl" style="margin-top:20px;display:block;">Output Sales Tax sub-account by rate</label>
+      <div class="set-table-wrap">
+        <table class="set-table">
+          <thead><tr><th>Rate %</th><th>Output tax sub-account</th><th style="text-align:center;">Remove</th></tr></thead>
+          <tbody>
+          {% for m in tax_rate_maps %}
+            <tr>
+              <td>{{ '%g'|format(m.rate_pct) }}%</td>
+              <td>
+                <select name="tra_account_{{ m.id }}" class="inp">
+                  {% for a in tax_accounts %}
+                  <option value="{{ a.id }}" {{ 'selected' if a.id == m.account_id }}>{{ a.code }} — {{ a.name }}</option>
+                  {% endfor %}
+                </select>
+              </td>
+              <td style="text-align:center;">
+                <label style="font-size:11px;color:var(--danger);cursor:pointer;">
+                  <input type="checkbox" name="tra_delete_{{ m.id }}"> remove</label>
+              </td>
+            </tr>
+          {% else %}
+            <tr><td colspan="3" style="text-align:center;color:var(--muted);padding:18px;">
+              No rate mapped — all output tax posts to the global account.</td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <div class="fgrid" style="margin-top:12px;align-items:end;">
+        <div class="fgroup">
+          <label class="lbl">Add a rate</label>
+          <input type="number" name="tra_new_rate" class="inp" step="0.01" min="0" placeholder="e.g. 18">
+        </div>
+        <div class="fgroup">
+          <label class="lbl">Output tax sub-account</label>
+          <select name="tra_new_account" class="inp">
+            <option value="">— pick a level-5 liability ledger —</option>
+            {% for a in tax_accounts %}
+            <option value="{{ a.id }}">{{ a.code }} — {{ a.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+      <div class="set-note">
+        The sales-tax return is filed by rate, so a document carrying two rates
+        credits two sub-accounts rather than pooling both into one balance that
+        then has to be taken apart again. The split apportions the tax already
+        posted, so the journal can never drift from the invoice total.
+      </div>
+    </div>
+  </div>
+
   <div class="set-actions">
     <button type="submit" class="btn btn-primary">Save Invoice Settings</button>
   </div>

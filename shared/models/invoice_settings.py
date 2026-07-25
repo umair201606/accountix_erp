@@ -69,3 +69,44 @@ class ChargeLedgerDefault(db.Model):
     @property
     def has_switches(self):
         return self.treatment == "bill"
+
+
+class CategoryRevenueAccount(db.Model):
+    """Product category -> revenue account (§12.2).
+
+    Per-line mode "can post multiple lines against the same natural account
+    type": a sale of two categories credits two revenue accounts rather than
+    one. Mapping by category rather than by product keeps the table small and
+    means a new product inherits its category's account automatically.
+
+    Unmapped categories fall back to the single global revenue account, so a
+    system that configures none of this posts exactly as it did before.
+    """
+    __tablename__ = "category_revenue_accounts"
+    id = db.Column(db.Integer, primary_key=True)
+    category_id = db.Column(db.Integer, db.ForeignKey("inv_categories.id"),
+                            nullable=False, unique=True)
+    account_id = db.Column(db.Integer, db.ForeignKey("chart_of_accounts.id"),
+                           nullable=False)
+
+    account = db.relationship("ChartOfAccount")
+
+
+class TaxRateAccount(db.Model):
+    """Sales-tax rate -> Output Sales Tax sub-account (§12.2).
+
+    The return is filed by rate, so a document carrying two rates should credit
+    two sub-accounts instead of pooling both into one balance that then has to
+    be taken apart again.
+
+    Keyed on the rate itself: rates are what the lines carry, and the same rate
+    means the same sub-account whichever product it came from. Unmapped rates
+    fall back to the single global Output Sales Tax account.
+    """
+    __tablename__ = "tax_rate_accounts"
+    id = db.Column(db.Integer, primary_key=True)
+    rate_pct = db.Column(db.Float, nullable=False, unique=True)
+    account_id = db.Column(db.Integer, db.ForeignKey("chart_of_accounts.id"),
+                           nullable=False)
+
+    account = db.relationship("ChartOfAccount")

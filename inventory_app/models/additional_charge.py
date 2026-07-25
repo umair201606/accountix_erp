@@ -16,6 +16,10 @@ class AdditionalCharge(db.Model):
     # scope is per-line; a combined charge is a single document-level value.
     # pro_rata_value | pro_rata_qty | by_weight | manual
     distribution = db.Column(db.String(20), default="pro_rata_value")
+    # "Manual per line" (§5.1): a JSON list of per-line amounts, in line order.
+    # Only read when distribution is "manual" — every other method derives the
+    # split, so storing it would just go stale against the lines.
+    manual_allocations = db.Column(db.Text, default="")
     # How the charge flows (v3 spec §6.3): bill = separate billed charge added to
     # net payable; absorb = folded into item/inventory value (carriage inward on
     # purchases); expense = expense-only, not billed, excluded from payable.

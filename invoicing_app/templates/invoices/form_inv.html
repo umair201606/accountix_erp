@@ -360,6 +360,24 @@ body{background:#fff;font-size:10px}
     </div>
   </div>
 
+  {% if editable and not invoice %}
+  <!-- §4.1 / Figure 2: on a NEW invoice the source is the first decision, put
+       as an explicit two-option choice rather than left implicit in a button.
+       It is not offered when reopening a saved invoice — that answer is already
+       recorded in whether the lines carry an order link. -->
+  <div class="card" id="sourceCard">
+    <div class="card-h"><span>Source</span></div>
+    <div style="padding:12px 14px;">
+      <div class="src-choice">
+        <label class="src-opt"><input type="radio" name="invStartSource" value="blank" checked>
+          <span><b>Blank invoice</b><em>every line typed by hand &mdash; no order link, and the Order ref column stays hidden</em></span></label>
+        <label class="src-opt"><input type="radio" name="invStartSource" value="orders">
+          <span><b>Load from sales orders</b><em>pick one or more open orders; lines, prices, discounts, charges and tax settings copy in</em></span></label>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
   <!-- OPTIONS BAR: Pill toggles + action buttons -->
   <div class="card">
     <div class="card-h">
@@ -924,18 +942,22 @@ inp.addEventListener('input',async function(){var q=this.value.trim();if(!q.leng
 inp.addEventListener('blur',function(){setTimeout(function(){drop.classList.remove('show')},200)})
 if(inp.tagName==='TEXTAREA'){inp.addEventListener('input',function(){this.style.height='auto';this.style.height=this.scrollHeight+'px'})}
 function hlr(){drop.querySelectorAll('.ac-it').forEach(function(e,i){e.classList.toggle('hl',i===hl)})}
-function selP(i){var p=list[i];if(!p)return;row.dataset.productId=p.id;row.querySelector('.ac-code').value=p.sku;inp.value=p.name;row.querySelector('.ac-unit').textContent=p.unit;row.querySelector('[data-col="unit_price"]').value=p.unit_price;row.querySelector('.info-badge').innerHTML='Stock: <strong>'+p.current_stock+'</strong>';drop.classList.remove('show');recalcRow(row);recalc();var qty=row.querySelector('[data-col="quantity"]');if(qty)qty.focus()}
+function selP(i){var p=list[i];if(!p)return;row.dataset.productId=p.id;row.dataset.weight=p.weight||0;row.querySelector('.ac-code').value=p.sku;inp.value=p.name;row.querySelector('.ac-unit').textContent=p.unit;row.querySelector('[data-col="unit_price"]').value=p.unit_price;row.querySelector('.info-badge').innerHTML='Stock: <strong>'+p.current_stock+'</strong>';drop.classList.remove('show');recalcRow(row);recalc();var qty=row.querySelector('[data-col="quantity"]');if(qty)qty.focus()}
 drop.addEventListener('mousedown',function(e){var t=e.target.closest('.ac-it');if(!t)return;hl=parseInt(t.dataset.index);selP(hl)})}
 
 // ============================================================
 // ROW MANAGEMENT
 // ============================================================
-function addRow(data){var tbody=document.getElementById('itemsBody'),tr=document.createElement('tr');rowCount++;var d=getMode('discount'),c=getMode('charges'),t=getMode('tax'),id=d==='individual',ic=c==='individual',it=t==='individual',dis=editable?'':'disabled';tr.dataset.productId=(data&&data.product_id)||'';
+function addRow(data){var tbody=document.getElementById('itemsBody'),tr=document.createElement('tr');rowCount++;var d=getMode('discount'),c=getMode('charges'),t=getMode('tax'),id=d==='individual',ic=c==='individual',it=t==='individual',dis=editable?'':'disabled';tr.dataset.productId=(data&&data.product_id)||'';tr.dataset.weight=(data&&data.weight)||0;
 tr.innerHTML='<td class="rn">'+rowCount+'</td><td class="c-ord" style="'+(loadedOrderIds.length?'':'display:none;')+'"><span class="ri rc" data-col="order_ref" style="font-size:10px;color:var(--muted);">'+esc((data&&data.order_ref)||'')+'</span></td><td><input type="text" class="ri ac-code" data-col="code" placeholder="SKU" value="'+((data&&data.product&&data.product.sku)||'')+'" '+dis+'></td><td><div class="ac-wrap"><textarea class="ri ac-desc-input" data-col="description" placeholder="Search or Space..." rows="1" style="resize:none;overflow:hidden" '+dis+'>'+esc(data&&data.description||'')+'</textarea><div class="ac-dd"></div><div class="info-badge" style="font-size:10px;color:var(--light);"></div></div></td><td><input type="number" class="ri num" data-col="quantity" value="'+((data&&data.quantity)||1)+'" min="0.01" step="any" '+dis+'></td><td><span class="ri rc ac-unit">'+((data&&data.unit)||'pcs')+'</span></td><td><input type="number" class="ri num" data-col="unit_price" value="'+((data&&data.unit_price)||0)+'" step="0.01" min="0" '+dis+'></td><td><input type="text" class="ri rc num" data-col="amount" value="0" readonly></td><td class="c-disc" style="'+(id?'':'display:none;')+'"><div class="row-disc"><input type="number" class="ri num" data-col="discount_pct" value="'+((data&&data.discount_pct)||0)+'" step="0.01" min="0" max="100" '+(editable&&id?'':'disabled')+'></div></td><td class="c-disc" style="'+(id?'':'display:none;')+'"><div class="row-disc"><input type="number" class="ri num" data-col="discount_amount" value="'+((data&&data.discount_amount)||0)+'" step="0.01" min="0" '+(editable&&id?'':'disabled')+'></div></td><td class="c-chg num" style="'+(ic?'':'display:none;')+'"><span class="ri rc num chg-cell zero" data-col="addcharges" title="Click for breakdown" onclick="openChgPopover(this)">0.00</span></td><td class="c-tax" style="'+(it?'':'display:none;')+'"><div class="row-tax"><input type="number" class="ri num" data-col="sales_tax_pct" value="'+((data&&data.sales_tax_pct)||0)+'" step="0.01" min="0" max="100" '+(editable&&it?'':'disabled')+'></div></td><td class="c-net" style="'+((id||ic)?'':'display:none;')+'"><input type="text" class="ri rc num" data-col="net_amount" value="0" readonly></td><td><div class="ra"><button type="button" onclick="removeRow(this)">&times;</button><button type="button" class="del" onclick="addRowAfter(this)" title="Duplicate this row">+</button></div></td>';tbody.appendChild(tr);var di=tr.querySelector('.ac-desc-input');if(di)setupDescInput(di);tr.querySelectorAll('input[data-col]').forEach(function(inp){inp.addEventListener('input',function(){recalcRow(tr);recalc()});inp.addEventListener('change',function(){recalcRow(tr);recalc()})})
-var ci=tr.querySelector('.ac-code');if(ci){ci.addEventListener('input',function(){var v=this.value.trim().toLowerCase();if(v.length===1)autoAddCheck();var m=allProducts.find(function(p){return p.sku.toLowerCase()===v});if(m){tr.dataset.productId=m.id;tr.querySelector('.ac-desc-input').value=m.name;tr.querySelector('.ac-unit').textContent=m.unit;tr.querySelector('[data-col="unit_price"]').value=m.unit_price;tr.querySelector('.info-badge').innerHTML='Stock: <strong>'+m.current_stock+'</strong>';recalcRow(tr);recalc()}})}
+var ci=tr.querySelector('.ac-code');if(ci){ci.addEventListener('input',function(){var v=this.value.trim().toLowerCase();if(v.length===1)autoAddCheck();var m=allProducts.find(function(p){return p.sku.toLowerCase()===v});if(m){tr.dataset.productId=m.id;tr.dataset.weight=m.weight||0;tr.querySelector('.ac-desc-input').value=m.name;tr.querySelector('.ac-unit').textContent=m.unit;tr.querySelector('[data-col="unit_price"]').value=m.unit_price;tr.querySelector('.info-badge').innerHTML='Stock: <strong>'+m.current_stock+'</strong>';recalcRow(tr);recalc()}})}
 if(di){di.addEventListener('input',function(){if(this.value.length===1)autoAddCheck()})}
 if(editable)setTimeout(function(){var f=tr.querySelector('.ac-code');if(f)f.focus()},30);return tr}
-function addRowAfter(btn){var tr=btn.closest('tr');addRow({product_id:tr.dataset.productId})}
+function addRowAfter(btn){var tr=btn.closest('tr');addRow({product_id:tr.dataset.productId,weight:tr.dataset.weight})}
+// §6.2 — a line's total mass: the product's unit weight times the quantity.
+// Zero when the product carries no weight, which sends the "By weight" split
+// back to value rather than dividing by nothing.
+function lineWeight(tr){var w=parseFloat(tr.dataset.weight)||0,q=parseFloat(tr.querySelector('[data-col="quantity"]')?.value)||0;return w*q}
 function autoAddCheck(){var rows=qsa('#itemsBody tr');if(!rows.length)return;var last=rows[rows.length-1],code=last.querySelector('.ac-code')?.value||'',desc=last.querySelector('.ac-desc-input')?.value||'';if(code.length||desc.length)addRow({})}
 function removeRow(btn){var tr=btn.closest('tr');var tbody=document.getElementById('itemsBody');if(tbody.children.length<=1)return;tr.remove();renumberRows();recalc()}
 function renumberRows(){qsa('#itemsBody .rn').forEach(function(e,i){e.textContent=i+1})}
@@ -963,6 +985,7 @@ function normalizeCharge(chg){
   if(chg.extra_taxable===undefined)chg.extra_taxable=false;
   if(!chg.scope)chg.scope='general';
   if(!chg.distribution)chg.distribution='pro_rata_value';
+  if(!Array.isArray(chg.manual))chg.manual=[];
   if(chg._meta===undefined)chg._meta=(chg.account_code?('ledger '+chg.account_code+' · '+(chg.account_type||'')):'');
   return chg;
 }
@@ -980,6 +1003,12 @@ function renderCharges(){
       ? '<div class="chg-radios">'+DIST_OPTS.map(function(d){
           return'<label><input type="radio" name="dist'+i+'" class="chg-dist" value="'+d[0]+'"'+
                  ((chg.distribution||'pro_rata_value')===d[0]?' checked':'')+'><span>'+d[1]+'</span></label>'}).join('')+'</div>'
+          +((chg.distribution==='manual')
+            ? '<div class="chg-none" style="margin-top:6px;">Click a line\'s <strong>Add. charges</strong> cell to set its amount.'
+              +(Math.abs(chg._unallocated||0)>0.004
+                ? ' <span style="color:var(--danger,#dc2626);font-weight:600;">'+fmt(chg._unallocated)+' unallocated.</span>'
+                : '')+'</div>'
+            : '')
       : '<div class="chg-none">— single invoice-level value (no per-line split)</div>';
     var bases = billed
       ? '<div class="chg-checks">'+
@@ -1101,6 +1130,7 @@ function collectCharges(){
     var billed=(c.treatment||'bill')==='bill';
     return{charge_account_id:parseInt(c.charge_account_id),amount:parseFloat(c.amount)||0,
       scope:c.scope||'general',distribution:c.distribution||'pro_rata_value',
+      manual:(c.distribution==='manual')?(c.manual||[]):[],
       treatment:c.treatment||'bill',st_taxable:billed&&!!c.st_taxable,
       wht_taxable:billed&&!!c.wht_taxable,extra_taxable:billed&&!!c.extra_taxable,
       description:chargeName(c)}
@@ -1109,12 +1139,31 @@ function collectCharges(){
 
 // Per-line Add. charges breakdown popover
 function openChgPopover(el){
-  if(el.classList.contains('zero'))return;
   var tr=el.closest('tr'),bd=tr._chgBreakdown||[];
+  // A manual charge opens the editor even on a zero line — typing the first
+  // amount is exactly what the operator came here to do (§5.1).
+  var hasManual=bd.some(function(b){return b.manual});
+  if(el.classList.contains('zero')&&!hasManual)return;
   var body=document.getElementById('chgPopBody');
   if(!bd.length){body.innerHTML='<div class="pop-r muted">No per-item charges on this line.</div>';}
-  else{body.innerHTML=bd.map(function(b){return'<div class="pop-r'+(b.muted?' muted':'')+'"><span><span class="pop-n">'+esc(b.name)+'</span><br><span class="pop-m">'+esc(b.method)+'</span></span><span>'+(b.share===null?'—':fmt(b.share))+'</span></div>'}).join('')
-    +'<div class="pop-r" style="border-top:1px solid var(--border);font-weight:700;"><span>Cell value = sum of per-item charges</span><span>'+fmt(cv(el.textContent))+'</span></div>';}
+  else{body.innerHTML=bd.map(function(b,i){
+    var right=b.manual&&editable
+      ? '<input type="number" step="0.01" min="0" class="pop-man" data-bd="'+i+'" value="'+(b.share||0)+'" style="width:90px;text-align:right;">'
+      : (b.share===null?'—':fmt(b.share));
+    var note=b.manual?(' · '+fmt(b.chg._unallocated||0)+' unallocated'):'';
+    return'<div class="pop-r'+(b.muted?' muted':'')+'"><span><span class="pop-n">'+esc(b.name)+'</span><br><span class="pop-m">'+esc(b.method)+esc(note)+'</span></span><span>'+right+'</span></div>'}).join('')
+    +'<div class="pop-r" style="border-top:1px solid var(--border);font-weight:700;"><span>Cell value = sum of per-item charges</span><span>'+fmt(cv(el.textContent))+'</span></div>';
+    // Write straight back onto the charge, then recalc: the amounts live in
+    // `charges`, not in the DOM, so the popover can be thrown away freely.
+    body.querySelectorAll('.pop-man').forEach(function(inp){
+      inp.addEventListener('change',function(){
+        var b=bd[parseInt(this.dataset.bd)];if(!b||!b.chg)return;
+        b.chg.manual[b.line]=Math.round((parseFloat(this.value)||0)*100)/100;
+        recalc();recalcChargeSummary&&recalcChargeSummary();
+        openChgPopover(el);   // re-render so the unallocated figure follows
+      });
+    });
+  }
   var pop=document.getElementById('chgPopover');pop.classList.add('show');
   var r=el.getBoundingClientRect(),pw=Math.min(320,window.innerWidth-16);
   var left=Math.min(r.left,window.innerWidth-pw-8),top=r.bottom+4;
@@ -1128,14 +1177,36 @@ document.addEventListener('click',function(e){var pop=document.getElementById('c
 // ORDER SOURCING (multi-select, per-line partial qty)
 // ============================================================
 var _fetchedOrders=[];
-document.getElementById('fromOrdersBtn')?.addEventListener('click',async function(){
+// §4.1 / Figure 2 — the source choice is the FIRST decision on a new invoice,
+// not something reached by pressing a button on an already-blank one. Opening
+// it needs no customer: the picker below simply stays empty until one is
+// chosen, and "Blank invoice" is answerable straight away.
+async function openSourceModal(){
   if(!editable)return;
   var cid=parseInt(document.getElementById('customerId').value);
-  if(!cid){toast('Select a customer first','error');return}
-  try{_fetchedOrders=await fetchJSON('/inventory/invoices/api/orders/'+cid)||[]}catch(e){_fetchedOrders=[]}
+  if(cid){
+    try{_fetchedOrders=await fetchJSON('/inventory/invoices/api/orders/'+cid)||[]}catch(e){_fetchedOrders=[]}
+  }else{_fetchedOrders=[]}
   renderOrderPicker();
   document.getElementById('orderModal').classList.add('show');
+}
+document.getElementById('fromOrdersBtn')?.addEventListener('click',function(){
+  var cid=parseInt(document.getElementById('customerId').value);
+  if(!cid){toast('Select a customer first','error');return}
+  openSourceModal();
 });
+// §4.1 — answering "Load from sales orders" on the source card takes you
+// straight to the picker; "Blank invoice" is already the state of the page, so
+// it only has to undo any order link a previous answer left behind.
+qsa('input[name="invStartSource"]').forEach(function(r){r.addEventListener('change',function(){
+  if(this.value!=='orders'){
+    loadedOrderIds=[];loadedSalesOrderId=null;
+    qsa('#itemsBody tr').forEach(function(tr){tr.dataset.sourceOrderId='';tr.dataset.sourceOrderItemId='';tr.dataset.orderRef=''});
+    refreshCols();recalc();return}
+  var cid=parseInt(document.getElementById('customerId').value);
+  if(!cid){toast('Select a customer first','error');return}
+  openSourceModal();
+})});
 // §4.2 picker: order value, what is still uninvoiced, and a status badge.
 // A fully-invoiced order stays visible but greyed and unselectable.
 function statusBadge(s){
@@ -1147,7 +1218,13 @@ function statusBadge(s){
 }
 function renderOrderPicker(){
   var container=document.getElementById('ordersList');container.innerHTML='';
-  if(!_fetchedOrders.length){container.innerHTML='<p style="color:var(--light);font-size:13px;text-align:center;padding:24px;">No approved orders for this customer</p>';return}
+  if(!_fetchedOrders.length){
+    // Opened as the first step there may be no customer yet, which is a
+    // different thing from a customer having no orders — say which.
+    var noCust=!parseInt(document.getElementById('customerId').value);
+    container.innerHTML='<p style="color:var(--light);font-size:13px;text-align:center;padding:24px;">'+
+      (noCust?'Select a customer to list their open orders':'No approved orders for this customer')+'</p>';
+    return}
   _fetchedOrders.forEach(function(o,oi){
     var open=o.selectable!==false;
     // Quantity to invoice is editable and capped at the line's balance (§4.2).
@@ -1335,22 +1412,48 @@ function recalc(){
   // §6.2: each per-item charge splits by its own chosen method. Rounding
   // residuals are forced onto the last line so the invoice foots exactly (§13).
   var totalQty=lineData.reduce(function(s,l){return s+(parseFloat(l.tr.querySelector('[data-col="quantity"]')?.value)||0)},0);
+  var totalWeight=lineData.reduce(function(s,l){return s+lineWeight(l.tr)},0);
   var DIST_LABEL={pro_rata_value:'Pro-rata by value',pro_rata_qty:'Pro-rata by qty',
                   by_weight:'By weight',manual:'Manual per line'};
   perItem.forEach(function(chg){
     var amt=parseFloat(chg.amount)||0,name=chargeName(chg),isBill=(chg.treatment||'bill')==='bill';
     var method=chg.distribution||'pro_rata_value',allocated=0,n=lineData.length;
+    // Say so when "By weight" could not be honoured, rather than labelling a
+    // value-based split as a weight-based one.
+    var methodLabel=(DIST_LABEL[method]||method)+
+      ((method==='by_weight'&&!(totalWeight>0))?' → by value (no weights set)':'');
+    // §5.1 — Manual per line: the typed amounts ARE the split. Nothing is
+    // derived and no residual is forced onto the last line; what is left
+    // unallocated is reported instead, so the operator can see the gap rather
+    // than have it quietly land somewhere.
+    if(method==='manual'){
+      var man=chg.manual||(chg.manual=[]);
+      var manTotal=0;
+      lineData.forEach(function(l,idx){
+        var share=Math.round((parseFloat(man[idx])||0)*100)/100;
+        manTotal+=share;
+        if(isBill){l.chgShare+=share;if(chg.st_taxable)l.chgShareST+=share}
+        l.tr._chgBreakdown.push({name:name,method:methodLabel+(isBill?'':' · absorbed'),
+                                 share:share,muted:!isBill,manual:true,chg:chg,line:idx});
+      });
+      chg._unallocated=Math.round((amt-manTotal)*100)/100;
+      return;
+    }
     lineData.forEach(function(l,idx){
       var share,weight,basis;
       if(method==='pro_rata_qty'){
         weight=parseFloat(l.tr.querySelector('[data-col="quantity"]')?.value)||0;basis=totalQty;
-      }else{ // value-based; "by weight" has no per-product weight to read yet
+      }else if(method==='by_weight'&&totalWeight>0){
+        // §6.2 — freight and the like scale with mass shipped, so the basis is
+        // the line's TOTAL weight (unit weight x qty), not the unit weight.
+        weight=lineWeight(l.tr);basis=totalWeight;
+      }else{ // value-based, and where no line carries a weight to divide by
         weight=l.net;basis=totalNet;
       }
       if(idx===n-1)share=Math.round((amt-allocated)*100)/100;
       else{share=(basis>0)?Math.round(amt*weight/basis*100)/100:Math.round(amt/n*100)/100;allocated+=share}
       if(isBill){l.chgShare+=share;if(chg.st_taxable)l.chgShareST+=share}
-      l.tr._chgBreakdown.push({name:name,method:(DIST_LABEL[method]||method)+(isBill?'':' · absorbed'),share:share,muted:!isBill});
+      l.tr._chgBreakdown.push({name:name,method:methodLabel+(isBill?'':' · absorbed'),share:share,muted:!isBill});
     });
   });
   // Figure 3: charges that are Combined or expense-only are listed in the

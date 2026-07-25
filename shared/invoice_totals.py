@@ -48,6 +48,93 @@ def charge_pools(doc_type, doc_id):
     return pools
 
 
+def _line_value(it):
+    """A line's pre-discount goods value — the figure that sums to subtotal."""
+    v = float(it.total_before_discount or 0)
+    if v:
+        return v
+    return float(it.quantity or 0) * float(it.unit_price or 0)
+
+
+def _allocate(total, buckets):
+    """Split ``total`` across ``[(key, weight)]`` pro-rata, footing exactly.
+
+    The residual lands on the last bucket, as everywhere else in the v3 rounding
+    rules, so the split always adds back to the figure being posted. Weightless
+    buckets share equally rather than vanishing.
+    """
+    total = round(float(total or 0), 2)
+    buckets = [(k, float(w or 0)) for k, w in buckets]
+    if not buckets or total == 0:
+        return []
+    basis = sum(w for _, w in buckets)
+    out, allocated, n = [], 0.0, len(buckets)
+    for i, (key, weight) in enumerate(buckets):
+        if i == n - 1:
+            share = round(total - allocated, 2)
+        else:
+            share = round(total * weight / basis, 2) if basis > 0 else round(total / n, 2)
+            allocated = round(allocated + share, 2)
+        if share:
+            out.append((key, share))
+    return out
+
+
+def revenue_splits(inv, amount):
+    """``amount`` of revenue split across per-category accounts (§12.2).
+
+    Returns ``[(account_id_or_None, amount)]``; ``None`` means the caller's
+    global revenue account. With no category mapped this is a single unmapped
+    bucket, which posts exactly the one credit it always did.
+
+    Absorbed charges are inside ``amount`` but belong to no category, so they
+    ride along pro-rata with the goods they were absorbed into.
+    """
+    from shared.models.invoice_settings import CategoryRevenueAccount
+    mapping = {m.category_id: m.account_id for m in CategoryRevenueAccount.query.all()}
+    weights = {}
+    for it in inv.items.all():
+        product = getattr(it, "product", None)
+        account_id = mapping.get(getattr(product, "category_id", None))
+        weights[account_id] = weights.get(account_id, 0.0) + _line_value(it)
+    # Sorted so the residual always lands on the same bucket for the same
+    # invoice; dict order would otherwise depend on how the rows came back.
+    ordered = sorted(weights.items(), key=lambda kv: (kv[0] is not None, kv[0] or 0))
+    return _allocate(amount, ordered)
+
+
+def output_tax_splits(inv, amount):
+    """``amount`` of output sales tax split by rate (§12.2).
+
+    Returns ``[(account_id_or_None, amount)]``; ``None`` means the caller's
+    global Output Sales Tax account.
+
+    Each rate's weight is its lines' taxable value times the rate, so the split
+    follows the tax each rate actually generated. It apportions the tax that was
+    already posted rather than recomputing it, so the journal cannot start
+    disagreeing with the invoice total over a rounding difference.
+    """
+    from shared.models.invoice_settings import TaxRateAccount
+    mapping = {round(float(m.rate_pct or 0), 4): m.account_id
+               for m in TaxRateAccount.query.all()}
+    per_line = (inv.tax_mode or "general") != "general"
+    weights = {}
+    for it in inv.items.all():
+        rate = round(float(it.sales_tax_pct or 0), 4) if per_line \
+            else round(float(inv.global_sales_tax_pct or 0), 4)
+        if rate <= 0:
+            continue
+        account_id = mapping.get(rate)
+        weights[account_id] = weights.get(account_id, 0.0) + _line_value(it) * rate
+    if not weights:
+        # Combined mode over lines that carry no rate of their own, or a rate
+        # recorded only at document level: one bucket at the global rate.
+        rate = round(float(inv.global_sales_tax_pct or 0), 4)
+        weights = {mapping.get(rate): 1.0}
+    ordered = sorted(weights.items(), key=lambda kv: (kv[0] is not None, kv[0] or 0))
+    return _allocate(amount, ordered)
+
+
 def sales_totals(inv):
     """The full §8 chain for a sales invoice.
 
