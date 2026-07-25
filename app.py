@@ -385,24 +385,44 @@ def _migrate_schema(db):
         ("inv_invoices", "subtotal", "DOUBLE PRECISION"),
         ("inv_invoices", "total_discount", "DOUBLE PRECISION"),
         ("inv_invoices", "total_tax", "DOUBLE PRECISION"),
+        ("inv_invoices", "total_charges", "DOUBLE PRECISION"),
+        ("inv_invoices", "global_delivery", "DOUBLE PRECISION"),
+        ("inv_invoices", "global_installation", "DOUBLE PRECISION"),
+        ("inv_invoices", "further_tax_pct", "DOUBLE PRECISION"),
+        ("inv_invoices", "withholding_tax_pct", "DOUBLE PRECISION"),
+        ("inv_invoices", "total_further_tax", "DOUBLE PRECISION"),
+        ("inv_invoices", "total_withholding_tax", "DOUBLE PRECISION"),
         ("inv_invoices", "created_by", "INTEGER"),
+        ("inv_purchase_invoices", "further_tax_pct", "DOUBLE PRECISION"),
+        ("inv_purchase_invoices", "total_further_tax", "DOUBLE PRECISION"),
+        ("inv_purchase_invoices", "total_withholding_tax", "DOUBLE PRECISION"),
+        ("inv_purchase_invoices", "total_amount", "DOUBLE PRECISION"),
+        ("inv_purchase_invoices", "paid_amount", "DOUBLE PRECISION"),
+        ("inv_purchase_invoices", "purchase_order_id", "INTEGER"),
+        ("inv_purchase_invoice_items", "source_order_id", "INTEGER"),
+        ("inv_purchase_invoice_items", "source_order_item_id", "INTEGER"),
     ]
     if is_pg:
-        for table, col, target in retyped_columns:
-            if table not in existing_tables:
-                continue
-            current = {c["name"]: c["type"].__class__.__name__.upper()
-                       for c in inspector.get_columns(table)}
-            if col not in current or current[col] != "VARCHAR":
-                continue  # already the right type — nothing to do
-            try:
-                with engine.begin() as conn:
+        conn = engine.connect()
+        try:
+            for table, col, target in retyped_columns:
+                if table not in existing_tables:
+                    continue
+                current = {c["name"]: c["type"].__class__.__name__.upper()
+                           for c in inspector.get_columns(table)}
+                if col not in current or current[col] != "VARCHAR":
+                    continue
+                try:
                     conn.execute(db.text(
                         f"ALTER TABLE {table} ALTER COLUMN {col} TYPE {target} "
                         f"USING NULLIF(TRIM({col}), '')::{target}"))
-                print(f"MIGRATION retyped {table}.{col} -> {target}")
-            except Exception as e:
-                print(f"MIGRATION SKIP retype {table}.{col}: {e}")
+                    conn.commit()
+                    print(f"MIGRATION retyped {table}.{col} -> {target}")
+                except Exception as e:
+                    conn.rollback()
+                    print(f"MIGRATION SKIP retype {table}.{col}: {e}")
+        finally:
+            conn.close()
 
     # Charges, discount, withholding and further tax are not eligible on an
     # order — they are decided at invoicing. The columns are dropped rather than
