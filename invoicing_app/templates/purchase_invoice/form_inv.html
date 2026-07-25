@@ -231,8 +231,6 @@ body{background:#fff;font-size:10px}
 .tb-tot td{background:var(--surface-variant);font-weight:700;border-top:2px solid var(--primary);padding:8px;font-size:12px}
 .modes-row{display:flex;align-items:center;gap:10px;padding:12px;border-bottom:1px solid var(--border);background:var(--surface-low);flex-wrap:wrap}
 .modes-lbl{font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
-.chip{display:inline-flex;align-items:center;gap:5px;padding:3px 11px;font-size:10.5px;font-weight:600;border-radius:12px;background:#fff;color:#c2410c;border:1px solid #fdba74}
-.chip-k{color:#9a3412;font-weight:700}
 .chip.chip-off{color:var(--muted);border-color:var(--border)}
 .chip.chip-off .chip-k{color:var(--light)}
 .bsm-charges{background:#fff;border-color:var(--border);color:var(--text)}
@@ -254,7 +252,7 @@ body{background:#fff;font-size:10px}
 .tcard p{margin:0;font-size:11px;line-height:1.5;color:var(--muted)}
 .tcard-bill{border-color:#93c5fd;background:#eff6ff}.tcard-bill h4{color:#1d4ed8}
 .tcard-absorb{border-color:#86efac;background:#f0fdf4}.tcard-absorb h4{color:#15803d}
-.tcard-expense{border-color:#fdba74;background:#fff7ed}.tcard-expense h4{color:#c2410c}
+.tcard-expense{border-color:var(--border);background:var(--surface-low)}.tcard-expense h4{color:var(--muted)}
 .tnote{background:#fefce8;border:1px solid #fde68a;border-radius:8px;padding:10px 12px;font-size:11px;line-height:1.5;color:#713f12}
 @media(max-width:900px){.chg-shell{grid-template-columns:1fr}.chg-aside{display:none}}
 /* Figure 2 — picker source choice and running selection summary */
@@ -272,6 +270,56 @@ body{background:#fff;font-size:10px}
 .acc-h.open .acc-sum{color:var(--muted)}
 
 @media(min-width:1500px){.side-panel{right:0;box-shadow:none}.wrap{max-width:none;margin:0;padding-right:424px}.sp-overlay,.sp-h button{display:none!important}}
+/* Page header (template): display title, document number + status beneath,
+   actions on the right. The action bar is relocated here rather than copied, so
+   the button ids stay unique. */
+.pg-h{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:20px;flex-wrap:wrap}
+.pg-t{font-size:32px;font-weight:700;line-height:40px;letter-spacing:-.02em;color:var(--text);margin:0}
+.pg-s{font-size:13px;color:var(--muted);margin:2px 0 0;display:flex;align-items:center;gap:8px}
+.pg-num{background:var(--surface-variant);color:var(--text);padding:2px 10px;border-radius:9999px;font-weight:600;font-size:12px}
+.pg-dot{color:var(--light)}
+.pg-a{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.pg-a .ab{border-top:none;padding:0}
+@media(max-width:640px){.pg-t{font-size:24px;line-height:32px}}
+/* The grid's own title reads as a heading, not as a label-caps column header —
+   .card-h uppercases by default, which is right for field labels and wrong for
+   the name of the section. */
+.grid-title{font-size:16px;font-weight:600;text-transform:none;letter-spacing:0;color:var(--text)}
+/* Summary panel (DESIGN.md §3): plain rows, a memo row that is not part of the
+   arithmetic, deductions in error, and one 2px navy rule above the net. */
+.sl{display:flex;justify-content:space-between;align-items:center;padding:5px 0;font-size:13px}
+.sll{color:var(--text)}
+.slv{font-variant-numeric:tabular-nums;color:var(--text)}
+.sl-memo .sll,.sl-memo .slv{font-size:12px;color:var(--muted);font-style:italic}
+.sl-deduct .slv{color:var(--danger)}
+.sl-net{border-top:2px solid var(--primary);margin-top:8px;padding-top:12px;font-size:20px;font-weight:600}
+.sl-net .slv{font-weight:700;color:var(--primary)}
+/* Header strip: three info cards (party · logistics · dates), collapsing to one
+   column on narrow screens. */
+.hdr-strip{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:16px}
+/* An order has no logistics block, so it runs two cards wide rather than
+   leaving a third of the strip empty. */
+.hdr-strip.two{grid-template-columns:repeat(2,1fr)}
+.icard{background:var(--card);border:1px solid var(--border);border-radius:var(--radius-card);box-shadow:var(--shadow);overflow:hidden;display:flex;flex-direction:column}
+.icard-h{display:flex;align-items:center;gap:8px;padding:16px 20px 0;font-size:12px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--primary)}
+.icard-i{font-size:16px;line-height:1}
+.icard-b{padding:14px 20px 18px;flex:1}
+.two-up{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.party-read{margin-top:10px;padding-top:10px;border-top:1px solid var(--border)}
+@media(max-width:1100px){.hdr-strip{grid-template-columns:1fr}}
+/* Labelled read-out field, as the template's document header uses. */
+.fld{margin-bottom:12px}
+.fld .lbl{margin-bottom:2px}
+.fld-v{font-size:14px;color:var(--text);font-weight:500}
+.fld-v.strong{font-weight:700}
+.fld-sub{font-size:12px;color:var(--muted);line-height:1.45}
+/* Panel inset: the charge roll-up, on the tonal layer with a 4px inner radius
+   (DESIGN.md — nesting inside an 8px container). */
+.sp-inset{background:var(--surface-low);border-radius:4px;padding:12px 14px;margin-top:12px}
+.sp-inset .spi-r{display:flex;justify-content:space-between;align-items:center;font-size:13px;padding:3px 0;color:var(--text)}
+.sp-inset .spi-r span:last-child{font-variant-numeric:tabular-nums}
+.sp-inset .spi-t{border-top:1px solid var(--border);margin-top:6px;padding-top:8px;font-weight:700}
+.sp-inset .spi-e{font-size:12px;color:var(--light);font-style:italic;padding:2px 0}
 </style>
 {% endblock %}
 
@@ -294,14 +342,26 @@ body{background:#fff;font-size:10px}
   <div style="background:#fffbeb;border:1px solid #fde68a;border-radius:var(--radius);padding:10px 16px;margin-bottom:16px;font-size:13px;color:#92400e;">&#9888; Unapproved — all fields editable</div>
   {% endif %}
 
-  <!-- HEADER: Entity | Logistics | Metadata -->
-  <div class="card">
-    <div class="card-h">Transaction Details</div>
-    <div class="card-b">
-      <div class="hdr-g">
-        <div>
-          <div class="ac-wrap" style="margin-bottom:8px;">
-            <label class="lbl">Supplier <span style="color:var(--danger);">*</span></label>
+  <!-- PAGE HEADER (template: title + "PI-… • Draft" left, actions right) -->
+  <div class="pg-h">
+    <div>
+      <h1 class="pg-t">Purchase Invoice</h1>
+      <p class="pg-s">
+        <span class="pg-num">{{ invoice.voucher_number if invoice else 'New' }}</span>
+        <span class="pg-dot">&bull;</span>
+        <span>{{ 'Approved' if is_approved else 'Draft' }}</span>
+      </p>
+    </div>
+    <div class="pg-a" id="pageActions"></div>
+  </div>
+
+  <!-- DOCUMENT HEADER STRIP — supplier, logistics, dates. -->
+  <div class="hdr-strip">
+    <div class="icard">
+      <div class="icard-h"><span class="icard-i">&#127978;</span><span>Supplier Details</span></div>
+      <div class="icard-b">
+        <div class="ac-wrap">
+          <label class="lbl">Supplier <span style="color:var(--danger);">*</span></label>
             <input type="text" class="inp" id="supplierSearch" placeholder="Search or press Space..." value="{{ invoice.supplier.name if invoice else '' }}" autocomplete="off" {{ 'disabled' if not editable else '' }}>
             <input type="hidden" id="supplierId" value="{{ invoice.supplier_id if invoice else '' }}">
             <div class="ac-dd" id="supplierDropdown"></div>
@@ -316,41 +376,58 @@ body{background:#fff;font-size:10px}
           {% else %}
           <input type="hidden" id="partyAccountId" value="">
           {% endif %}
-          <div>
-            <label class="lbl">Billing Address</label>
-            <textarea class="inp {{ 'inp-plain' if not editable else '' }}" id="billingAddress" rows="2" style="resize:none;" readonly>{{ invoice.supplier.address if invoice and invoice.supplier else '' }}</textarea>
+          <!-- Picking a supplier fills this read-out, directly under the search
+               that chose it, as on the mockup. -->
+          <div id="suppDetails" class="party-read" style="display:none;">
+            <div class="fld-v strong" id="suppName"></div>
+            <div class="fld-sub" id="suppAddr"></div>
+            <div class="fld-sub" id="suppTax"></div>
           </div>
+          <textarea id="billingAddress" style="display:none;" readonly>{{ invoice.supplier.address if invoice and invoice.supplier else '' }}</textarea>
         </div>
-        <div>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">
-            <div><label class="lbl">Driver Name</label><input type="text" class="inp" id="driverName" value="{{ invoice.driver_name if invoice else '' }}" {{ 'disabled' if not editable else '' }}></div>
-            <div><label class="lbl">Phone</label><input type="text" class="inp" id="driverContact" value="{{ invoice.driver_contact if invoice else '' }}" {{ 'disabled' if not editable else '' }}></div>
+      </div>
+
+      <div class="icard" id="logisticsCard">
+        <div class="icard-h"><span class="icard-i">&#128666;</span><span>Logistics &amp; Delivery</span></div>
+        <div class="icard-b">
+          <div class="two-up">
+            <div class="fld"><label class="lbl">Driver name</label>
+              <input type="text" class="inp inp-sm" id="driverName" value="{{ invoice.driver_name if invoice else '' }}" {{ 'disabled' if not editable else '' }}></div>
+            <div class="fld"><label class="lbl">Phone</label>
+              <input type="text" class="inp inp-sm" id="driverContact" value="{{ invoice.driver_contact if invoice else '' }}" {{ 'disabled' if not editable else '' }}></div>
           </div>
-          <div><label class="lbl">Vehicle Number</label><input type="text" class="inp" id="vehicleNumber" value="{{ invoice.vehicle_number if invoice else '' }}" {{ 'disabled' if not editable else '' }}></div>
+          <div class="fld" style="margin-bottom:0;"><label class="lbl">Vehicle number</label>
+            <input type="text" class="inp inp-sm" id="vehicleNumber" value="{{ invoice.vehicle_number if invoice else '' }}" {{ 'disabled' if not editable else '' }}></div>
         </div>
-        <div>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">
-            <div><label class="lbl">Date</label><input type="date" class="inp" id="invDate" value="{{ invoice.created_at.strftime('%Y-%m-%d') if invoice else '' }}" {{ 'disabled' if not editable else '' }}></div>
-            <div><label class="lbl">Time</label><input type="time" class="inp" id="invTime" value="{{ invoice.created_at.strftime('%H:%M') if invoice else '' }}" {{ 'disabled' if not editable else '' }}></div>
+      </div>
+
+      <div class="icard">
+        <div class="icard-h"><span class="icard-i">&#128197;</span><span>Document Dates</span></div>
+        <div class="icard-b">
+          <!-- One document, one number — see next_voucher() in the route. -->
+          <div class="fld"><label class="lbl">Document #</label>
+            <input type="text" class="inp inp-sm inp-plain" readonly id="invVoucher" value="{{ invoice.voucher_number if invoice else '(auto)' }}"></div>
+          <div class="two-up">
+            <div class="fld"><label class="lbl">Invoice date</label>
+              <input type="date" class="inp inp-sm" id="invDate" value="{{ invoice.created_at.strftime('%Y-%m-%d') if invoice else '' }}" {{ 'disabled' if not editable else '' }}></div>
+            <div class="fld"><label class="lbl">Time</label>
+              <input type="time" class="inp inp-sm" id="invTime" value="{{ invoice.created_at.strftime('%H:%M') if invoice else '' }}" {{ 'disabled' if not editable else '' }}></div>
           </div>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
-            <div><label class="lbl">Voucher #</label><input type="text" class="inp" readonly style="background:#f8fafc;" id="invVoucher" value="{{ invoice.voucher_number if invoice else '(auto)' }}"></div>
-            <div><label class="lbl">Status</label><div><span class="bdg bdg-{{ status }}" id="statusBadge">{{ status|title }}</span></div></div>
-          </div>
+          <div class="fld" style="margin-bottom:0;"><label class="lbl">Status</label>
+            <div><span class="bdg bdg-{{ status }}" id="statusBadge">{{ status|title }}</span></div></div>
         </div>
       </div>
     </div>
-  </div>
 
-  <!-- OPTIONS BAR: Pill toggles + action buttons -->
+  <!-- LINE ITEMS: the card owns its toolbar and grid (DESIGN.md §3). -->
   <div class="card">
     <div class="card-h">
-      <span>Items</span>
+      <span class="grid-title">Line Items</span>
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
         {% if editable %}
         <button type="button" class="bsm" id="fromOrdersBtn" title="Import items from approved purchase orders">From Orders</button>
-        <button type="button" class="bsm bsm-charges" id="chargesBtn">Additional Charges <span id="chargesCount"></span></button>
-        <button type="button" class="bsm bsm-settings" onclick="openSidePanel()">&#9881; Additional Settings</button>
+        <button type="button" class="bsm bsm-charges" id="chargesBtn">&#8853; Additional Charges <span id="chargesCount"></span></button>
+        <button type="button" class="bsm bsm-settings" onclick="openSidePanel()">&#9881; Settings</button>
         {% endif %}
         <!-- Scope toggles live in the Additional Settings panel (§13);
              the grid header states the active modes read-only (Figure 3). -->
@@ -372,8 +449,8 @@ body{background:#fff;font-size:10px}
               <th>Unit</th>
               <th class="num" style="min-width:80px;">Rate</th>
               <th class="num">Amount</th>
-              <th class="c-disc num" style="{{ 'display:none;' if not invoice or invoice.discount_mode != 'individual' else '' }}">Discount %</th>
-              <th class="c-disc num" style="{{ 'display:none;' if not invoice or invoice.discount_mode != 'individual' else '' }}">Disc. Amount</th>
+              <th class="c-disc c-disc-pct num" style="{{ 'display:none;' if not invoice or invoice.discount_mode != 'individual' else '' }}">Discount %</th>
+              <th class="c-disc c-disc-amt num" style="{{ 'display:none;' if not invoice or invoice.discount_mode != 'individual' else '' }}">Disc. Amount</th>
               <th class="c-exp num" style="{{ 'display:none;' if not invoice or invoice.expenses_mode != 'individual' else '' }}">Commission</th>
               <th class="c-exp num" style="{{ 'display:none;' if not invoice or invoice.expenses_mode != 'individual' else '' }}">Freight</th>
               <th class="c-exp num" style="{{ 'display:none;' if not invoice or invoice.expenses_mode != 'individual' else '' }}">Load/Unload</th>
@@ -428,7 +505,7 @@ body{background:#fff;font-size:10px}
           <div class="sl">
             <span class="sll">Discount</span>
             <span style="display:flex;align-items:center;gap:4px;">
-              <span style="color:var(--muted);font-size:11px;">%</span>
+              <span style="color:var(--muted);font-size:11px;" id="globalDiscPctSign">%</span>
               <input type="number" class="sli sli-pct" id="globalDiscPct" placeholder="%" step="0.01" min="0" max="100" value="{{ invoice.global_discount_pct if invoice else '0' }}" {{ 'disabled' if not editable else '' }}>
               <input type="number" class="sli sli-amt" id="globalDiscVal" placeholder="Val" step="0.01" min="0" value="{{ invoice.global_discount_value if invoice else '0' }}" {{ 'disabled' if not editable else '' }}>
               <span class="slv" id="summaryDiscount" style="color:var(--danger);width:70px;text-align:right;min-width:auto;">-0.00</span>
@@ -447,7 +524,7 @@ body{background:#fff;font-size:10px}
           </div>
           <!-- Every additional charge, itemised below the input-sales-tax line (§6.5 / §9) -->
           <div id="chargesSummaryContainer"></div>
-          <div class="sl" id="withholdingTaxRow" style="display:none;">
+          <div class="sl sl-deduct" id="withholdingTaxRow" style="display:none;">
             <span class="sll">Withholding (from supplier)</span>
             <span style="display:flex;align-items:center;gap:4px;">
               <span style="color:var(--muted);font-size:11px;">%</span>
@@ -455,7 +532,7 @@ body{background:#fff;font-size:10px}
               <span class="slv" id="summaryWithholdingTax" style="color:var(--danger);width:70px;text-align:right;min-width:auto;">-0.00</span>
             </span>
           </div>
-          <div class="sl tl"><span class="sll" style="font-weight:700;">Amount payable</span><span class="slv" id="summaryNetPayable" style="font-size:20px;font-weight:800;">0.00</span></div>
+          <div class="sl sl-net"><span class="sll">Net Payable</span><span class="slv" id="summaryNetPayable">0.00</span></div>
         </div>
       </div>
     </div>
@@ -560,11 +637,12 @@ body{background:#fff;font-size:10px}
           <button type="button" class="pill-b {{ 'active' if not invoice or invoice.discount_mode == 'general' else '' }}" data-value="general" {{ 'disabled' if not editable else '' }}>Combined</button>
           <button type="button" class="pill-b {{ 'active' if invoice and invoice.discount_mode == 'individual' else '' }}" data-value="individual" {{ 'disabled' if not editable else '' }}>Per line</button>
         </div>
-        <div class="lbl" style="margin-top:10px;">Method (per line)</div>
+        <div class="lbl" style="margin-top:10px;">Method</div>
         <select class="inp inp-sm" id="settingsDiscountMethod" {{ 'disabled' if not editable else '' }}>
-          <option value="manual">Manual (type per line)</option>
-          <option value="auto">Auto-split by value</option>
+          <option value="pct">By percentage</option>
+          <option value="amount">By amount</option>
         </select>
+        <div class="chg-none" style="margin-top:6px;" id="discMethodNote"></div>
       </div>
     </div>
     <!-- 2 · ADDITIONAL CHARGES -->
@@ -724,7 +802,28 @@ si.addEventListener('keydown',async function(e){if(!editable)return;if(e.key==='
 si.addEventListener('input',async function(){if(!editable)return;var q=this.value.trim();if(!q.length){sd.classList.remove('show');return}rSup(await loadSuppliers(q))})
 si.addEventListener('blur',function(){setTimeout(function(){sd.classList.remove('show')},200)})
 function hSup(){sd.querySelectorAll('.ac-it').forEach(function(e,i){e.classList.toggle('hl',i===shl)})}
-function sSup(i){var t=sl[i];if(!t)return;sid.value=t.id;si.value=t.name;sd.classList.remove('show');if(sa&&t.address)sa.value=t.address}
+function sSup(i){var t=sl[i];if(!t)return;sid.value=t.id;si.value=t.name;sd.classList.remove('show');if(sa&&t.address)sa.value=t.address;showSuppDetails(t)}
+// Confirm the chosen supplier right under the search that chose it.
+function showSuppDetails(c){
+  var box=document.getElementById('suppDetails');if(!box)return;
+  if(!c||!c.name){box.style.display='none';return}
+  document.getElementById('suppName').textContent=c.name;
+  document.getElementById('suppAddr').textContent=[c.address,c.city].filter(Boolean).join(', ');
+  var tax=document.getElementById('suppTax');
+  tax.textContent=c.tax_id?('Tax ID: '+c.tax_id):'';
+  tax.style.display=c.tax_id?'':'none';
+  box.style.display='';
+}
+// The save/approve controls belong beside the title. Moved, not duplicated:
+// two copies would mean two elements sharing every button id.
+(function relocateActions(){
+  var bar=document.querySelector('.ab'),slot=document.getElementById('pageActions');
+  if(bar&&slot)slot.appendChild(bar);
+})();
+(function seedSuppDetails(){
+  var n=document.getElementById('supplierSearch'),a=document.getElementById('billingAddress');
+  if(n&&n.value)showSuppDetails({name:n.value,address:a?a.value:'',tax_id:''});
+})();
 sd.addEventListener('mousedown',function(e){var t=e.target.closest('.ac-it');if(!t)return;shl=parseInt(t.dataset.index);sSup(shl)})
 
 // PARTY ACCOUNT OVERRIDE
@@ -782,6 +881,8 @@ qsa('#sidePanel .pill[data-panel-mode] .pill-b').forEach(function(b){b.addEventL
   g.querySelectorAll('.pill-b').forEach(function(x){x.classList.remove('active')});
   this.classList.add('active');
   if(typeof seedCombinedFromRollup==='function'&&oldMode==='individual'&&newMode==='general')seedCombinedFromRollup(name);
+  // Changing the discount scope changes which control is offered.
+  if(name==='discount')applyDiscountUI();
   refreshCols();recalc();renderModeChips();
 })});
 // Figure 3: the grid header states the active modes read-only.
@@ -798,9 +899,9 @@ function renderModeChips(){
   // Figure 5: every collapsed section header carries a live summary, so
   // nothing in the panel is hidden blind.
   function put(id,txt){var e=document.getElementById(id);if(e)e.textContent=txt}
-  var dMethod=(document.getElementById('settingsDiscountMethod')||{}).value||'manual';
+  var dLabel=(discMethod()==='pct')?'by %':'by amount';
   put('accSumDiscount',getMode('discount')==='individual'
-      ?('Per line · '+(dMethod==='auto'?'Auto':'Manual')):'Combined');
+      ?('Per line · '+dLabel):('Combined · '+dLabel));
   put('accSumCharges',n?(perItem+' of '+n+' per item'):'None');
   var ft=document.getElementById('settingsApplyFurtherTax'),wh=document.getElementById('settingsApplyWHT');
   var tx=(getMode('tax')==='individual'?'Per line':'Combined');
@@ -810,7 +911,34 @@ function renderModeChips(){
   var emx=document.getElementById('expensesMode');
   put('accSumColumns',emx?('Carriage: '+(getMode('expenses')==='individual'?'Per line':'Combined')):'Defaults');
 }
-function refreshCols(){var d=getMode('discount'),e=getMode('expenses'),t=getMode('tax'),id=d==='individual',ie=e==='individual',it=t==='individual';qsa('.c-disc').forEach(function(el){el.style.display=id?'':'none'});qsa('.c-exp').forEach(function(el){el.style.display=ie?'':'none'});qsa('.c-tax').forEach(function(el){el.style.display=it?'':'none'});qsa('#itemsBody tr').forEach(function(tr){qsa('.row-disc input',tr).forEach(function(i){i.disabled=!id||!editable});qsa('.row-exp input',tr).forEach(function(i){i.disabled=!ie||!editable});qsa('.row-tax input',tr).forEach(function(i){i.disabled=!it||!editable})});refreshScrollHint();}
+// ============================================================
+// DISCOUNT (scope x method) — see the sales invoice for the rationale.
+// Scope and method are independent; exactly one control is offered for the
+// combination, and the VISIBLE field is the sole authority. The old rule
+// ("gVal>0 ? gVal : subtotal*gPct/100", and per line writing the % result into
+// the amount box) made the winner depend on typing order.
+// ============================================================
+function discMethod(){
+  var el=document.getElementById('settingsDiscountMethod');
+  return (el&&el.value==='amount')?'amount':'pct';
+}
+function applyDiscountUI(){
+  var per=getMode('discount')==='individual',byPct=discMethod()==='pct';
+  var pctIn=document.getElementById('globalDiscPct'),valIn=document.getElementById('globalDiscVal'),
+      sign=document.getElementById('globalDiscPctSign');
+  if(pctIn)pctIn.style.display=(!per&&byPct)?'':'none';
+  if(sign)sign.style.display=(!per&&byPct)?'':'none';
+  if(valIn)valIn.style.display=(!per&&!byPct)?'':'none';
+  var note=document.getElementById('discMethodNote');
+  if(note)note.textContent=per
+    ? ('Per line — a '+(byPct?'Disc %':'Disc amount')+' column is shown; the total is a rollup.')
+    : ('Combined — one '+(byPct?'percentage':'amount')+' entered below the table.');
+  refreshCols();
+  qsa('#itemsBody tr').forEach(function(tr){recalcRow(tr)});
+  recalc();
+}
+document.getElementById('settingsDiscountMethod')?.addEventListener('change',applyDiscountUI);
+function refreshCols(){var d=getMode('discount'),e=getMode('expenses'),t=getMode('tax'),id=d==='individual',ie=e==='individual',it=t==='individual';var byPct=discMethod()==='pct';qsa('.c-disc-pct').forEach(function(el){el.style.display=(id&&byPct)?'':'none'});qsa('.c-disc-amt').forEach(function(el){el.style.display=(id&&!byPct)?'':'none'});qsa('.c-exp').forEach(function(el){el.style.display=ie?'':'none'});qsa('.c-tax').forEach(function(el){el.style.display=it?'':'none'});qsa('#itemsBody tr').forEach(function(tr){qsa('.row-disc input',tr).forEach(function(i){i.disabled=!id||!editable});qsa('.row-exp input',tr).forEach(function(i){i.disabled=!ie||!editable});qsa('.row-tax input',tr).forEach(function(i){i.disabled=!it||!editable})});refreshScrollHint();}
 
 // PRODUCT AUTOCOMPLETE
 function setupDescInput(inp){var row=inp.closest('tr'),drop=row.querySelector('.ac-dd'),hl=-1,list=[];
@@ -823,8 +951,8 @@ function selP(i){var p=list[i];if(!p)return;row.dataset.productId=p.id;row.datas
 drop.addEventListener('mousedown',function(e){var t=e.target.closest('.ac-it');if(!t)return;hl=parseInt(t.dataset.index);selP(hl)})}
 
 // ROW MANAGEMENT
-function addRow(data){var tbody=document.getElementById('itemsBody'),tr=document.createElement('tr');rowCount++;var d=getMode('discount'),e=getMode('expenses'),t=getMode('tax'),id=d==='individual',ie=e==='individual',it=t==='individual',dis=editable?'':'disabled';tr.dataset.productId=(data&&data.product_id)||'';tr.dataset.weight=(data&&data.weight)||0;
-tr.innerHTML='<td class="rn">'+rowCount+'</td><td><input type="text" class="ri ac-code" data-col="code" placeholder="SKU" value="'+((data&&data.product&&data.product.sku)||'')+'" '+dis+'></td><td><div class="ac-wrap"><textarea class="ri ac-desc-input" data-col="description" placeholder="Search or Space..." rows="1" style="resize:none;overflow:hidden" '+dis+'>'+esc(data&&data.description||'')+'</textarea><div class="ac-dd"></div><div class="info-badge" style="font-size:10px;color:var(--light);"></div></div></td><td><input type="number" class="ri num" data-col="quantity" value="'+((data&&data.quantity)||1)+'" min="0.01" step="any" '+dis+'></td><td><span class="ri rc ac-unit">'+((data&&data.unit)||'pcs')+'</span></td><td><input type="number" class="ri num" data-col="unit_price" value="'+((data&&data.unit_price)||0)+'" step="0.01" min="0" '+dis+'></td><td><input type="text" class="ri rc num" data-col="amount" value="0" readonly></td><td class="c-disc" style="'+(id?'':'display:none;')+'"><div class="row-disc"><input type="number" class="ri num" data-col="discount_pct" value="'+((data&&data.discount_pct)||0)+'" step="0.01" min="0" max="100" '+(editable&&id?'':'disabled')+'></div></td><td class="c-disc" style="'+(id?'':'display:none;')+'"><div class="row-disc"><input type="number" class="ri num" data-col="discount_amount" value="'+((data&&data.discount_amount)||0)+'" step="0.01" min="0" '+(editable&&id?'':'disabled')+'></div></td><td class="c-exp" style="'+(ie?'':'display:none;')+'"><div class="row-exp"><input type="number" class="ri num" data-col="commission" value="'+((data&&data.commission)||0)+'" step="0.01" min="0" '+(editable&&ie?'':'disabled')+'></div></td><td class="c-exp" style="'+(ie?'':'display:none;')+'"><div class="row-exp"><input type="number" class="ri num" data-col="freight" value="'+((data&&data.freight)||0)+'" step="0.01" min="0" '+(editable&&ie?'':'disabled')+'></div></td><td class="c-exp" style="'+(ie?'':'display:none;')+'"><div class="row-exp"><input type="number" class="ri num" data-col="loading_unloading" value="'+((data&&data.loading_unloading)||0)+'" step="0.01" min="0" '+(editable&&ie?'':'disabled')+'></div></td><td class="c-tax" style="'+(it?'':'display:none;')+'"><div class="row-tax"><input type="number" class="ri num" data-col="sales_tax_pct" value="'+((data&&data.sales_tax_pct)||0)+'" step="0.01" min="0" max="100" '+(editable&&it?'':'disabled')+'></div></td><td><input type="text" class="ri rc num" data-col="net_amount" value="0" readonly></td><td><div class="ra"><button type="button" onclick="removeRow(this)">&times;</button><button type="button" class="del" onclick="addRowAfter(this)" title="Duplicate this row">+</button></div></td>';tbody.appendChild(tr);var di=tr.querySelector('.ac-desc-input');if(di)setupDescInput(di);tr.querySelectorAll('input[data-col]').forEach(function(inp){inp.addEventListener('input',function(){recalcRow(tr);recalc()});inp.addEventListener('change',function(){recalcRow(tr);recalc()})})
+function addRow(data){var tbody=document.getElementById('itemsBody'),tr=document.createElement('tr');rowCount++;var d=getMode('discount'),e=getMode('expenses'),t=getMode('tax'),id=d==='individual',ie=e==='individual',it=t==='individual',dis=editable?'':'disabled';var byPct=discMethod()==='pct';tr.dataset.productId=(data&&data.product_id)||'';tr.dataset.weight=(data&&data.weight)||0;
+tr.innerHTML='<td class="rn">'+rowCount+'</td><td><input type="text" class="ri ac-code" data-col="code" placeholder="SKU" value="'+((data&&data.product&&data.product.sku)||'')+'" '+dis+'></td><td><div class="ac-wrap"><textarea class="ri ac-desc-input" data-col="description" placeholder="Search or Space..." rows="1" style="resize:none;overflow:hidden" '+dis+'>'+esc(data&&data.description||'')+'</textarea><div class="ac-dd"></div><div class="info-badge" style="font-size:10px;color:var(--light);"></div></div></td><td><input type="number" class="ri num" data-col="quantity" value="'+((data&&data.quantity)||1)+'" min="0.01" step="any" '+dis+'></td><td><span class="ri rc ac-unit">'+((data&&data.unit)||'pcs')+'</span></td><td><input type="number" class="ri num" data-col="unit_price" value="'+((data&&data.unit_price)||0)+'" step="0.01" min="0" '+dis+'></td><td><input type="text" class="ri rc num" data-col="amount" value="0" readonly></td><td class="c-disc c-disc-pct" style="'+((id&&byPct)?'':'display:none;')+'"><div class="row-disc"><input type="number" class="ri num" data-col="discount_pct" value="'+((data&&data.discount_pct)||0)+'" step="0.01" min="0" max="100" '+(editable&&id?'':'disabled')+'></div></td><td class="c-disc c-disc-amt" style="'+((id&&!byPct)?'':'display:none;')+'"><div class="row-disc"><input type="number" class="ri num" data-col="discount_amount" value="'+((data&&data.discount_amount)||0)+'" step="0.01" min="0" '+(editable&&id?'':'disabled')+'></div></td><td class="c-exp" style="'+(ie?'':'display:none;')+'"><div class="row-exp"><input type="number" class="ri num" data-col="commission" value="'+((data&&data.commission)||0)+'" step="0.01" min="0" '+(editable&&ie?'':'disabled')+'></div></td><td class="c-exp" style="'+(ie?'':'display:none;')+'"><div class="row-exp"><input type="number" class="ri num" data-col="freight" value="'+((data&&data.freight)||0)+'" step="0.01" min="0" '+(editable&&ie?'':'disabled')+'></div></td><td class="c-exp" style="'+(ie?'':'display:none;')+'"><div class="row-exp"><input type="number" class="ri num" data-col="loading_unloading" value="'+((data&&data.loading_unloading)||0)+'" step="0.01" min="0" '+(editable&&ie?'':'disabled')+'></div></td><td class="c-tax" style="'+(it?'':'display:none;')+'"><div class="row-tax"><input type="number" class="ri num" data-col="sales_tax_pct" value="'+((data&&data.sales_tax_pct)||0)+'" step="0.01" min="0" max="100" '+(editable&&it?'':'disabled')+'></div></td><td><input type="text" class="ri rc num" data-col="net_amount" value="0" readonly></td><td><div class="ra"><button type="button" onclick="removeRow(this)">&times;</button><button type="button" class="del" onclick="addRowAfter(this)" title="Duplicate this row">+</button></div></td>';tbody.appendChild(tr);var di=tr.querySelector('.ac-desc-input');if(di)setupDescInput(di);tr.querySelectorAll('input[data-col]').forEach(function(inp){inp.addEventListener('input',function(){recalcRow(tr);recalc()});inp.addEventListener('change',function(){recalcRow(tr);recalc()})})
 var ci=tr.querySelector('.ac-code');if(ci){ci.addEventListener('input',function(){var v=this.value.trim().toLowerCase();if(v.length===1)autoAddCheck();var m=allProducts.find(function(p){return p.sku.toLowerCase()===v});if(m){tr.dataset.productId=m.id;tr.dataset.weight=m.weight||0;tr.querySelector('.ac-desc-input').value=m.name;tr.querySelector('.ac-unit').textContent=m.unit;tr.querySelector('[data-col="unit_price"]').value=m.unit_price;tr.querySelector('.info-badge').innerHTML='Stock: <strong>'+m.current_stock+'</strong>';recalcRow(tr);recalc()}})}
 if(di){di.addEventListener('input',function(){if(this.value.length===1)autoAddCheck()})}
 if(editable)setTimeout(function(){var f=tr.querySelector('.ac-code');if(f)f.focus()},30);return tr}
@@ -1079,7 +1207,7 @@ function closeOrderModal(){document.getElementById('orderModal').classList.remov
 // ============================================================
 // CALCULATIONS
 // ============================================================
-function recalcRow(tr){var qty=parseFloat(tr.querySelector('[data-col="quantity"]')?.value)||0,price=parseFloat(tr.querySelector('[data-col="unit_price"]')?.value)||0,amt=qty*price;tr.querySelector('[data-col="amount"]').value=fmt(amt);var dp=parseFloat(tr.querySelector('[data-col="discount_pct"]')?.value)||0,da=parseFloat(tr.querySelector('[data-col="discount_amount"]')?.value)||0;if(dp>0&&da===0){da=amt*dp/100;var dai=tr.querySelector('[data-col="discount_amount"]');if(dai)dai.value=da.toFixed(2)}var ta=Math.max(0,amt-da);tr.querySelector('[data-col="net_amount"]').value=fmt(ta)}
+function recalcRow(tr){var qty=parseFloat(tr.querySelector('[data-col="quantity"]')?.value)||0,price=parseFloat(tr.querySelector('[data-col="unit_price"]')?.value)||0,amt=qty*price;tr.querySelector('[data-col="amount"]').value=fmt(amt);var dpi=tr.querySelector('[data-col="discount_pct"]'),dai=tr.querySelector('[data-col="discount_amount"]');var dp=parseFloat(dpi?.value)||0,da=parseFloat(dai?.value)||0;if(discMethod()==='pct'){da=Math.round(amt*dp/100*100)/100;if(dai)dai.value=da.toFixed(2);}else{dp=amt>0?Math.round(da/amt*10000)/100:0;if(dpi)dpi.value=dp;}var ta=Math.max(0,amt-da);tr.querySelector('[data-col="net_amount"]').value=fmt(ta)}
 // Charge pools from the last recalc, read back by collectData().
 var lastBilled=0,lastAbsorb=0,lastExpense=0,lastTaxBase=0;
 function r2(n){return Math.round(n*100)/100}
@@ -1123,7 +1251,7 @@ function recalc(){
     lines.push({tr:tr,net:Math.max(0,amt-lineDisc),carriage:car});
   });
   subtotal=r2(subtotal);
-  if(d==='general'){var gVal=gv('globalDiscVal');totalDisc=gVal>0?gVal:(subtotal*gv('globalDiscPct')/100)}
+  if(d==='general'){totalDisc=(discMethod()==='pct')?(subtotal*gv('globalDiscPct')/100):gv('globalDiscVal')}
   totalDisc=r2(totalDisc);
   if(e==='general')lineCarriage=gv('globalCommission')+gv('globalFreight')+gv('globalLoading');
 
@@ -1204,7 +1332,7 @@ async function deleteInvoice(){var id=document.getElementById('invoiceId').value
 // INIT
 {% if invoice_items %}try{var items={{ invoice_items|tojson }};if(items.length===0){addRow({})}else{items.forEach(function(item){addRow(item)})}}catch(e){addRow({})}{% else %}addRow({});{% endif %}
 {% if invoice_charges %}try{charges={{ invoice_charges|tojson }};var _cc=document.getElementById('chargesCount');if(_cc&&charges.length)_cc.textContent='('+charges.length+' charges)'}catch(e){charges=[]}{% endif %}
-(async function init(){try{allProducts=await loadProducts('')}catch(e){console.warn('Product load failed',e)}setTimeout(function(){qsa('#itemsBody tr').forEach(function(tr){recalcRow(tr)});refreshCols();recalc();var d=document.getElementById('invDate');if(d&&!d.value){var n=new Date();d.value=n.getFullYear()+'-'+String(n.getMonth()+1).padStart(2,'0')+'-'+String(n.getDate()).padStart(2,'0')}var t=document.getElementById('invTime');if(t&&!t.value){var n2=new Date();t.value=String(n2.getHours()).padStart(2,'0')+':'+String(n2.getMinutes()).padStart(2,'0')}},50)})();
+(async function init(){try{allProducts=await loadProducts('')}catch(e){console.warn('Product load failed',e)}setTimeout(function(){qsa('#itemsBody tr').forEach(function(tr){recalcRow(tr)});refreshCols();recalc();var d=document.getElementById('invDate');if(d&&!d.value){var n=new Date();d.value=n.getFullYear()+'-'+String(n.getMonth()+1).padStart(2,'0')+'-'+String(n.getDate()).padStart(2,'0')}var t=document.getElementById('invTime');if(t&&!t.value){var n2=new Date();t.value=String(n2.getHours()).padStart(2,'0')+':'+String(n2.getMinutes()).padStart(2,'0')}applyDiscountUI()},50)})();
 
 // The horizontal-scroll hint is noise when nothing overflows — it reads as a
 // stray empty strip under the grid. Show it only when the grid really is wider

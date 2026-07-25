@@ -16,10 +16,15 @@ method and a passing test cannot be ambiguous about which rule ran.
 
 BASE_URL = "http://localhost:5000"
 SALES_INVOICE = f"{BASE_URL}/inventory/invoices/"
+PURCHASE_INVOICE = f"{BASE_URL}/inventory/purchase-invoice/"
 
 SETUP = """
 ([scope, method]) => {
-  setScopeMode('discount', scope);
+  // Click the real scope pill rather than an internal helper — only one of
+  // the two templates defines one, and the pill is what a user touches.
+  const grp = document.getElementById('discountMode');
+  const btn = grp && grp.querySelector('.pill-b[data-value="' + scope + '"]');
+  if (btn && !btn.disabled) btn.click();
   document.getElementById('settingsDiscountMethod').value = method;
   applyDiscountUI();
   document.getElementById('itemsBody').innerHTML = '';
@@ -48,8 +53,8 @@ READ = """
 """
 
 
-def _prepare(page, scope, method):
-    page.goto(SALES_INVOICE)
+def _prepare(page, scope, method, url=SALES_INVOICE):
+    page.goto(url)
     page.wait_for_load_state("networkidle")
     gate = page.locator("#gateBlank")
     if gate.count():
@@ -180,3 +185,45 @@ class TestPerLineScope:
           applyDiscountUI();
         }""")
         assert _num(_read(admin_page)["discount"]) == 200.0
+
+
+class TestPurchaseInvoiceParity:
+    """The purchase invoice carries the same rule. It is a separate template
+    with its own recalc(), so the fix has to be proven there too rather than
+    assumed from the sales side."""
+
+    def test_combined_by_percentage(self, admin_page):
+        _prepare(admin_page, "general", "pct", PURCHASE_INVOICE)
+        s = _read(admin_page)
+        assert s["pctBox"] is True and s["valBox"] is False
+        admin_page.evaluate(
+            "() => { document.getElementById('globalDiscPct').value = 10; recalc(); }")
+        assert _num(_read(admin_page)["discount"]) == 200.0
+
+    def test_combined_by_amount_ignores_a_stale_percentage(self, admin_page):
+        _prepare(admin_page, "general", "amount", PURCHASE_INVOICE)
+        admin_page.evaluate("""() => {
+          document.getElementById('globalDiscPct').value = 10;
+          document.getElementById('globalDiscVal').value = 250;
+          recalc();
+        }""")
+        assert _num(_read(admin_page)["discount"]) == 250.0
+
+    def test_per_line_shows_one_column_only(self, admin_page):
+        _prepare(admin_page, "individual", "pct", PURCHASE_INVOICE)
+        s = _read(admin_page)
+        assert s["pctCol"] is True and s["amtCol"] is False
+        _prepare(admin_page, "individual", "amount", PURCHASE_INVOICE)
+        s = _read(admin_page)
+        assert s["amtCol"] is True and s["pctCol"] is False
+
+    def test_per_line_rolls_up_and_derives(self, admin_page):
+        _prepare(admin_page, "individual", "amount", PURCHASE_INVOICE)
+        admin_page.evaluate("""() => {
+          const row = document.querySelector('#itemsBody tr');
+          row.querySelector('[data-col="discount_amount"]').value = 300;
+          recalcRow(row); recalc();
+        }""")
+        s = _read(admin_page)
+        assert float(s["linePct"]) == 15.0
+        assert _num(s["discount"]) == 300.0

@@ -163,6 +163,56 @@ body{background:var(--bg);font-family:Inter,-apple-system,BlinkMacSystemFont,'Se
 .chip-k{color:var(--primary);font-weight:700}
 
 @media(min-width:1500px){.side-panel{right:0;box-shadow:none}.wrap{max-width:none;margin:0;padding-right:424px}.sp-overlay,.sp-h button{display:none!important}}
+/* Page header (template): display title, document number + status beneath,
+   actions on the right. The action bar is relocated here rather than copied, so
+   the button ids stay unique. */
+.pg-h{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:20px;flex-wrap:wrap}
+.pg-t{font-size:32px;font-weight:700;line-height:40px;letter-spacing:-.02em;color:var(--text);margin:0}
+.pg-s{font-size:13px;color:var(--muted);margin:2px 0 0;display:flex;align-items:center;gap:8px}
+.pg-num{background:var(--surface-variant);color:var(--text);padding:2px 10px;border-radius:9999px;font-weight:600;font-size:12px}
+.pg-dot{color:var(--light)}
+.pg-a{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.pg-a .ab{border-top:none;padding:0}
+@media(max-width:640px){.pg-t{font-size:24px;line-height:32px}}
+/* The grid's own title reads as a heading, not as a label-caps column header —
+   .card-h uppercases by default, which is right for field labels and wrong for
+   the name of the section. */
+.grid-title{font-size:16px;font-weight:600;text-transform:none;letter-spacing:0;color:var(--text)}
+/* Summary panel (DESIGN.md §3): plain rows, a memo row that is not part of the
+   arithmetic, deductions in error, and one 2px navy rule above the net. */
+.sl{display:flex;justify-content:space-between;align-items:center;padding:5px 0;font-size:13px}
+.sll{color:var(--text)}
+.slv{font-variant-numeric:tabular-nums;color:var(--text)}
+.sl-memo .sll,.sl-memo .slv{font-size:12px;color:var(--muted);font-style:italic}
+.sl-deduct .slv{color:var(--danger)}
+.sl-net{border-top:2px solid var(--primary);margin-top:8px;padding-top:12px;font-size:20px;font-weight:600}
+.sl-net .slv{font-weight:700;color:var(--primary)}
+/* Header strip: three info cards (party · logistics · dates), collapsing to one
+   column on narrow screens. */
+.hdr-strip{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:16px}
+/* An order has no logistics block, so it runs two cards wide rather than
+   leaving a third of the strip empty. */
+.hdr-strip.two{grid-template-columns:repeat(2,1fr)}
+.icard{background:var(--card);border:1px solid var(--border);border-radius:var(--radius-card);box-shadow:var(--shadow);overflow:hidden;display:flex;flex-direction:column}
+.icard-h{display:flex;align-items:center;gap:8px;padding:16px 20px 0;font-size:12px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--primary)}
+.icard-i{font-size:16px;line-height:1}
+.icard-b{padding:14px 20px 18px;flex:1}
+.two-up{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.party-read{margin-top:10px;padding-top:10px;border-top:1px solid var(--border)}
+@media(max-width:1100px){.hdr-strip{grid-template-columns:1fr}}
+/* Labelled read-out field, as the template's document header uses. */
+.fld{margin-bottom:12px}
+.fld .lbl{margin-bottom:2px}
+.fld-v{font-size:14px;color:var(--text);font-weight:500}
+.fld-v.strong{font-weight:700}
+.fld-sub{font-size:12px;color:var(--muted);line-height:1.45}
+/* Panel inset: the charge roll-up, on the tonal layer with a 4px inner radius
+   (DESIGN.md — nesting inside an 8px container). */
+.sp-inset{background:var(--surface-low);border-radius:4px;padding:12px 14px;margin-top:12px}
+.sp-inset .spi-r{display:flex;justify-content:space-between;align-items:center;font-size:13px;padding:3px 0;color:var(--text)}
+.sp-inset .spi-r span:last-child{font-variant-numeric:tabular-nums}
+.sp-inset .spi-t{border-top:1px solid var(--border);margin-top:6px;padding-top:8px;font-weight:700}
+.sp-inset .spi-e{font-size:12px;color:var(--light);font-style:italic;padding:2px 0}
 </style>
 {% endblock %}
 
@@ -177,13 +227,26 @@ body{background:var(--bg);font-family:Inter,-apple-system,BlinkMacSystemFont,'Se
   <div class="ap-b"><span class="ap-t">&#10003; APPROVED</span><span>{{ order.approver.full_name if order.approver else '' }} @ {{ order.approved_at.strftime('%Y-%m-%d %H:%M') if order.approved_at else '' }}</span></div>
   {% endif %}
 
-  <div class="card">
-    <div class="card-h">Purchase Order</div>
-    <div class="card-b">
-      <div class="hdr-g">
-        <div>
-          <div class="ac-wrap" style="margin-bottom:8px;">
-            <label class="lbl">Supplier <span style="color:var(--danger);">*</span></label>
+  <!-- PAGE HEADER -->
+  <div class="pg-h">
+    <div>
+      <h1 class="pg-t">Purchase Order</h1>
+      <p class="pg-s">
+        <span class="pg-num">{{ order.po_number if order else 'New' }}</span>
+        <span class="pg-dot">&bull;</span>
+        <span>{{ 'Approved' if is_approved else 'Draft' }}</span>
+      </p>
+    </div>
+    <div class="pg-a" id="pageActions"></div>
+  </div>
+
+  <!-- DOCUMENT HEADER STRIP -->
+  <div class="hdr-strip">
+    <div class="icard">
+      <div class="icard-h"><span class="icard-i">&#127978;</span><span>Supplier Details</span></div>
+      <div class="icard-b">
+        <div class="ac-wrap">
+          <label class="lbl">Supplier <span style="color:var(--danger);">*</span></label>
             <input type="text" class="inp" id="supplierSearch" placeholder="Search or press Space..." value="{{ order.supplier.name if order else '' }}" autocomplete="off" {{ 'disabled' if not editable else '' }}>
             <input type="hidden" id="supplierId" value="{{ order.supplier_id if order else '' }}">
             <div class="ac-dd" id="supplierDropdown"></div>
@@ -198,33 +261,46 @@ body{background:var(--bg);font-family:Inter,-apple-system,BlinkMacSystemFont,'Se
           {% else %}
           <input type="hidden" id="partyAccountId" value="">
           {% endif %}
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
-            <div><label class="lbl">Driver Name</label><input type="text" class="inp inp-sm" id="driverName" value="{{ order.driver_name if order else '' }}" {{ 'disabled' if not editable else '' }}></div>
-            <div><label class="lbl">Contact</label><input type="text" class="inp inp-sm" id="driverContact" value="{{ order.driver_contact if order else '' }}" {{ 'disabled' if not editable else '' }}></div>
-            <div><label class="lbl">Vehicle #</label><input type="text" class="inp inp-sm" id="vehicleNumber" value="{{ order.vehicle_number if order else '' }}" {{ 'disabled' if not editable else '' }}></div>
-            <div><label class="lbl">Gate Pass</label><input type="text" class="inp inp-sm" id="gatePass" value="{{ order.gate_pass if order else '' }}" {{ 'disabled' if not editable else '' }}></div>
-          </div>
-        </div>
-        <div>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">
-            <div><label class="lbl">Order Date</label><input type="date" class="inp" id="orderDate" value="{{ order.order_date.strftime('%Y-%m-%d') if order and order.order_date else '' }}" {{ 'disabled' if not editable else '' }}></div>
-            <div><label class="lbl">Expected Date</label><input type="date" class="inp" id="expectedDate" value="{{ order.expected_date.strftime('%Y-%m-%d') if order and order.expected_date else '' }}" {{ 'disabled' if not editable else '' }}></div>
-          </div>
-          <div><label class="lbl">PO #</label><input type="text" class="inp" readonly style="background:#f8fafc;" id="poNumber" value="{{ order.po_number if order else '(auto)' }}"></div>
-        </div>
-        <div>
-          <div style="margin-bottom:8px;">
-            <label class="lbl">Status</label>
-            <div><span class="bdg bdg-{{ vstatus }}" id="statusBadge">{{ vstatus|title }}</span></div>
+          <div id="suppDetails" class="party-read" style="display:none;">
+            <div class="fld-v strong" id="suppName"></div>
+            <div class="fld-sub" id="suppAddr"></div>
+            <div class="fld-sub" id="suppTax"></div>
           </div>
         </div>
       </div>
+
+      <div class="icard">
+        <div class="icard-h"><span class="icard-i">&#128666;</span><span>Logistics &amp; Delivery</span></div>
+        <div class="icard-b">
+          <div class="two-up">
+            <div class="fld"><label class="lbl">Driver name</label><input type="text" class="inp inp-sm" id="driverName" value="{{ order.driver_name if order else '' }}" {{ 'disabled' if not editable else '' }}></div>
+            <div class="fld"><label class="lbl">Contact</label><input type="text" class="inp inp-sm" id="driverContact" value="{{ order.driver_contact if order else '' }}" {{ 'disabled' if not editable else '' }}></div>
+          </div>
+          <div class="two-up" style="margin-bottom:0;">
+            <div class="fld" style="margin-bottom:0;"><label class="lbl">Vehicle #</label><input type="text" class="inp inp-sm" id="vehicleNumber" value="{{ order.vehicle_number if order else '' }}" {{ 'disabled' if not editable else '' }}></div>
+            <div class="fld" style="margin-bottom:0;"><label class="lbl">Gate pass</label><input type="text" class="inp inp-sm" id="gatePass" value="{{ order.gate_pass if order else '' }}" {{ 'disabled' if not editable else '' }}></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="icard">
+        <div class="icard-h"><span class="icard-i">&#128197;</span><span>Order Details</span></div>
+        <div class="icard-b">
+          <div class="fld"><label class="lbl">Document #</label>
+            <input type="text" class="inp inp-sm inp-plain" readonly id="poNumber" value="{{ order.po_number if order else '(auto)' }}"></div>
+          <div class="two-up">
+            <div class="fld"><label class="lbl">Order date</label><input type="date" class="inp inp-sm" id="orderDate" value="{{ order.order_date.strftime('%Y-%m-%d') if order and order.order_date else '' }}" {{ 'disabled' if not editable else '' }}></div>
+            <div class="fld"><label class="lbl">Expected date</label><input type="date" class="inp inp-sm" id="expectedDate" value="{{ order.expected_date.strftime('%Y-%m-%d') if order and order.expected_date else '' }}" {{ 'disabled' if not editable else '' }}></div>
+          </div>
+          <div class="fld" style="margin-bottom:0;"><label class="lbl">Status</label>
+            <div><span class="bdg bdg-{{ vstatus }}" id="statusBadge">{{ vstatus|title }}</span></div></div>
+        </div>
+      </div>
     </div>
-  </div>
 
   <div class="card">
     <div class="card-h">
-      <span>Items</span>
+      <span class="grid-title">Line Items</span>
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
         {% if editable %}
         <button type="button" class="bsm" id="fromOrdersBtn" title="Import items from approved purchase orders">From Orders</button>
@@ -308,7 +384,7 @@ body{background:var(--bg);font-family:Inter,-apple-system,BlinkMacSystemFont,'Se
               <span class="slv" id="summaryWithholdingTax" style="color:var(--danger);width:70px;text-align:right;min-width:auto;">-0.00</span>
             </span>
           </div>
-          <div class="sl tl"><span class="sll" style="font-weight:700;">Net Total</span><span class="slv" id="summaryNetTotal" style="font-size:20px;font-weight:800;">0.00</span></div>
+          <div class="sl sl-net"><span class="sll">Net Total</span><span class="slv" id="summaryNetTotal">0.00</span></div>
         </div>
       </div>
     </div>
@@ -527,7 +603,26 @@ si.addEventListener('keydown',async function(e){if(!editable)return;if(e.key==='
 si.addEventListener('input',async function(){if(!editable)return;var q=this.value.trim();if(!q.length){sd.classList.remove('show');return}rSup(await loadSuppliers(q))})
 si.addEventListener('blur',function(){setTimeout(function(){sd.classList.remove('show')},200)})
 function hSup(){sd.querySelectorAll('.ac-it').forEach(function(e,i){e.classList.toggle('hl',i===shl)})}
-function sSup(i){var t=sl[i];if(!t)return;sid.value=t.id;si.value=t.name;sd.classList.remove('show')}
+function sSup(i){var t=sl[i];if(!t)return;sid.value=t.id;si.value=t.name;sd.classList.remove('show');showSuppDetails(t)}
+function showSuppDetails(c){
+  var box=document.getElementById('suppDetails');if(!box)return;
+  if(!c||!c.name){box.style.display='none';return}
+  document.getElementById('suppName').textContent=c.name;
+  document.getElementById('suppAddr').textContent=[c.address,c.city].filter(Boolean).join(', ');
+  var tax=document.getElementById('suppTax');
+  tax.textContent=c.tax_id?('Tax ID: '+c.tax_id):'';
+  tax.style.display=c.tax_id?'':'none';
+  box.style.display='';
+}
+// Moved, not duplicated — two copies would share every button id.
+(function relocateActions(){
+  var bar=document.querySelector('.ab'),slot=document.getElementById('pageActions');
+  if(bar&&slot)slot.appendChild(bar);
+})();
+(function seedSuppDetails(){
+  var n=document.getElementById('supplierSearch');
+  if(n&&n.value)showSuppDetails({name:n.value,address:'',tax_id:''});
+})();
 sd.addEventListener('mousedown',function(e){var t=e.target.closest('.ac-it');if(!t)return;shl=parseInt(t.dataset.index);sSup(shl)})
 
 // Party account override

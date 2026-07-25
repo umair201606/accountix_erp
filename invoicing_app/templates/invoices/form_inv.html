@@ -305,9 +305,25 @@ body{background:#fff;font-size:10px}
 .pg-a{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
 .pg-a .ab{border-top:none;padding:0}
 @media(max-width:640px){.pg-t{font-size:24px;line-height:32px}}
+/* The grid's own title reads as a heading, not as a label-caps column header —
+   .card-h uppercases by default, which is right for field labels and wrong for
+   the name of the section. */
+.grid-title{font-size:16px;font-weight:600;text-transform:none;letter-spacing:0;color:var(--text)}
+/* Summary panel (DESIGN.md §3): plain rows, a memo row that is not part of the
+   arithmetic, deductions in error, and one 2px navy rule above the net. */
+.sl{display:flex;justify-content:space-between;align-items:center;padding:5px 0;font-size:13px}
+.sll{color:var(--text)}
+.slv{font-variant-numeric:tabular-nums;color:var(--text)}
+.sl-memo .sll,.sl-memo .slv{font-size:12px;color:var(--muted);font-style:italic}
+.sl-deduct .slv{color:var(--danger)}
+.sl-net{border-top:2px solid var(--primary);margin-top:8px;padding-top:12px;font-size:20px;font-weight:600}
+.sl-net .slv{font-weight:700;color:var(--primary)}
 /* Header strip: three info cards (party · logistics · dates), collapsing to one
    column on narrow screens. */
 .hdr-strip{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:16px}
+/* An order has no logistics block, so it runs two cards wide rather than
+   leaving a third of the strip empty. */
+.hdr-strip.two{grid-template-columns:repeat(2,1fr)}
 .icard{background:var(--card);border:1px solid var(--border);border-radius:var(--radius-card);box-shadow:var(--shadow);overflow:hidden;display:flex;flex-direction:column}
 .icard-h{display:flex;align-items:center;gap:8px;padding:16px 20px 0;font-size:12px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--primary)}
 .icard-i{font-size:16px;line-height:1}
@@ -449,17 +465,17 @@ body{background:#fff;font-size:10px}
     </div>
 
 
-  <!-- OPTIONS BAR: Pill toggles + action buttons -->
+  <!-- LINE ITEMS: the card owns its toolbar and grid (DESIGN.md §3). -->
   <div class="card">
     <div class="card-h">
-      <span>Items</span>
+      <span class="grid-title">Line Items</span>
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
         {% if editable %}
         <button type="button" class="bsm" id="fromOrdersBtn" title="Import items from approved sales orders">From Orders</button>
-        <!-- Figure 3 gives these two the weight: the charges button carries its
-             count and running total, and Settings is the primary dark control. -->
-        <button type="button" class="bsm bsm-charges" id="chargesBtn">Additional Charges <span id="chargesCount"></span></button>
-        <button type="button" class="bsm bsm-settings" onclick="openSidePanel()">&#9881; Additional Settings</button>
+        <!-- The charges button carries its count and running total, so the
+             charge position is readable without opening anything. -->
+        <button type="button" class="bsm bsm-charges" id="chargesBtn">&#8853; Additional Charges <span id="chargesCount"></span></button>
+        <button type="button" class="bsm bsm-settings" onclick="openSidePanel()">&#9881; Settings</button>
         {% endif %}
         <!-- Scope toggles live in the Additional Settings panel (§13: "all
              configuration lives in the right-hand slide-over"). The grid header
@@ -536,7 +552,7 @@ body{background:#fff;font-size:10px}
         </div>
         <div class="btm-r">
           <div class="sl"><span class="sll">Subtotal (sum of line Amounts) <span class="mbadge mb-c">computed</span></span><span class="slv" id="summarySubtotal">0.00</span></div>
-          <div class="sl" id="absorbMemoRow" style="display:none;"><span class="sll" style="font-size:11px;color:var(--light);">+ Absorbed charges (in item values)</span><span class="slv" id="summaryAbsorb" style="width:70px;text-align:right;min-width:auto;color:var(--light);">0.00</span></div>
+          <div class="sl sl-memo" id="absorbMemoRow" style="display:none;"><span class="sll">Absorbed charges (in item values) &mdash; memo</span><span class="slv" id="summaryAbsorb" style="width:70px;text-align:right;min-width:auto;">0.00</span></div>
           <div class="sl">
             <span class="sll">Total discount <span class="mbadge" id="badgeDiscount"></span></span>
             <span style="display:flex;align-items:center;gap:4px;">
@@ -569,7 +585,7 @@ body{background:#fff;font-size:10px}
               <span class="slv" id="summaryFurtherTax" style="width:70px;text-align:right;min-width:auto;">0.00</span>
             </span>
           </div>
-          <div class="sl" id="withholdingTaxRow" style="display:none;">
+          <div class="sl sl-deduct" id="withholdingTaxRow" style="display:none;">
             <span class="sll">W/H Tax</span>
             <span style="display:flex;align-items:center;gap:4px;">
               <span style="color:var(--muted);font-size:11px;">%</span>
@@ -577,7 +593,7 @@ body{background:#fff;font-size:10px}
               <span class="slv" id="summaryWithholdingTax" style="color:var(--danger);width:70px;text-align:right;min-width:auto;">-0.00</span>
             </span>
           </div>
-          <div class="sl tl"><span class="sll" style="font-weight:700;">Net Receivable</span><span class="slv" id="summaryNetTotal" style="font-size:20px;font-weight:800;">0.00</span></div>
+          <div class="sl sl-net"><span class="sll">Net Receivable</span><span class="slv" id="summaryNetTotal">0.00</span></div>
         </div>
       </div>
     </div>
@@ -953,6 +969,17 @@ function renderPanelChargeList(){
   }).join('')
    +'<div class="spi-r spi-t"><span>Total</span><span>'+fmt(total)+'</span></div>';
 }
+// The charges button label had three writers in three different formats —
+// "(3) · 200.00", "(3)" and "(3 · 200.00)" — so whichever ran last decided what
+// the button said. One writer now, derived from `charges` itself rather than
+// from a cached total that may be a recalc behind.
+function renderChargesCount(){
+  var el=document.getElementById('chargesCount');if(!el)return;
+  var n=charges.length;
+  if(!n){el.textContent='';return}
+  var total=charges.reduce(function(s,c){return s+(parseFloat(c.amount)||0)},0);
+  el.textContent='('+n+') · '+fmt(total);
+}
 function renderChips(){
   var box=document.getElementById('modeChips');if(!box)return;
   var dm=getMode('discount'),cm=getMode('charges'),tm=getMode('tax');
@@ -971,8 +998,7 @@ function renderChips(){
   box.innerHTML=chips.map(function(c){
     return'<span class="chip'+(c[2]?'':' chip-off')+'"><span class="chip-k">'+c[0]+'</span>'+esc(c[1])+'</span>'}).join('');
   // Figure 3 puts the count and the running total on the button itself.
-  var cnt=document.getElementById('chargesCount');
-  if(cnt)cnt.textContent=charges.length?('('+charges.length+') · '+fmt(lastChargesTotal)):'';
+  renderChargesCount();
 }
 
 // Sync side panel <-> main form fields
@@ -1196,7 +1222,7 @@ function renderCharges(){
       setupChargeAcct(r.querySelector('.chg-acct'),idx);
     })(i,card);
   });
-  document.getElementById('chargesCount').textContent=charges.length?'('+charges.length+')':'';
+  renderChargesCount();
   recalcChargeSummary();
 }
 // Changing a charge's scope changes the derived charges mode, so the grid
@@ -1259,7 +1285,7 @@ function recalcChargeSummary(){
   if(foot)foot.innerHTML='<div style="font-size:14px;font-weight:700;">Total charges &nbsp;'+fmt(billed+absorb+expense)+'</div>'+
     '<div style="font-size:11px;color:var(--muted);margin-top:2px;">billed to customer '+fmt(billed)+
     ' &nbsp;·&nbsp; absorbed '+fmt(absorb)+' &nbsp;·&nbsp; expense only '+fmt(expense)+'</div>';
-  var cnt=document.getElementById('chargesCount');if(cnt)cnt.textContent=charges.length?('('+charges.length+' · '+fmt(billed+absorb+expense)+')'):'';
+  renderChargesCount();
 }
 function collectCharges(){
   return charges.filter(function(c){return c.charge_account_id&&parseFloat(c.amount)>0}).map(function(c){
@@ -1790,7 +1816,15 @@ document.getElementById('settingsDiscountMethod')?.addEventListener('change',app
 (function wireTransportToggle(){
   var chk=document.getElementById('settingsShowTransport'),card=document.getElementById('logisticsCard');
   if(!chk||!card)return;
-  function sync(){card.style.display=chk.checked?'':'none'}
+  function sync(){
+    var on=chk.checked;
+    card.style.display=on?'':'none';
+    // The strip is a fixed 3-column grid, so hiding the middle card would
+    // otherwise leave the two survivors squeezed into two thirds with a hole
+    // where the third was. Drop to two columns when it is not shown.
+    var strip=card.closest('.hdr-strip');
+    if(strip)strip.classList.toggle('two',!on);
+  }
   chk.addEventListener('change',sync);sync();
 })();
 // A saved invoice already has its customer; show the read-out on load.
