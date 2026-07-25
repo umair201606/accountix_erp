@@ -399,8 +399,13 @@ def _migrate_schema(db):
         ("inv_purchase_invoices", "total_amount", "DOUBLE PRECISION"),
         ("inv_purchase_invoices", "paid_amount", "DOUBLE PRECISION"),
         ("inv_purchase_invoices", "purchase_order_id", "INTEGER"),
+        ("inv_invoice_items", "delivery", "DOUBLE PRECISION"),
+        ("inv_invoice_items", "installation", "DOUBLE PRECISION"),
+        ("inv_invoice_items", "source_order_id", "INTEGER"),
+        ("inv_invoice_items", "source_order_item_id", "INTEGER"),
         ("inv_purchase_invoice_items", "source_order_id", "INTEGER"),
         ("inv_purchase_invoice_items", "source_order_item_id", "INTEGER"),
+        ("inv_products", "weight", "DOUBLE PRECISION"),
     ]
     if is_pg:
         conn = engine.connect()
