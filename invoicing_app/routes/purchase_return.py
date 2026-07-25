@@ -196,6 +196,7 @@ def save_return():
     db.session.flush()
 
     InvPurchaseReturnItem.query.filter_by(return_id=ret.id).delete()
+    returned_by_product = {}
     for row in data.get("items", []):
         qty = float(row.get("current_return_qty", 0))
         if qty <= 0:
@@ -228,6 +229,12 @@ def save_return():
             net_return_value=float(row.get("net_return_value", 0)),
         )
         db.session.add(item)
+        if item.product_id:
+            # Tallied here rather than from the cost block below, which skips
+            # lines that never moved stock. A service line still consumed an
+            # order balance, so returning it still has to give that back.
+            returned_by_product[item.product_id] = (
+                returned_by_product.get(item.product_id, 0.0) + qty)
 
         if action == "approve" and item.product_id:
             prod = InvProduct.query.get(item.product_id)
@@ -271,6 +278,16 @@ def save_return():
                 created_by=current_user.id,
             )
 
+    if action == "approve":
+        # §4.4 — crediting a posted invoice restores the order balances it
+        # consumed and reopens the order, so the quantity can be billed again.
+        from shared.order_linkage import apply_return_writeback
+        apply_return_writeback(
+            "purchase",
+            InvPurchaseInvoiceItem.query.filter_by(
+                invoice_id=ret.original_invoice_id).all(),
+            returned_by_product, sign=-1)
+
     db.session.commit()
     if action == "approve":
         msg = "approved and posted"
@@ -293,6 +310,19 @@ def unapprove_return(id):
         return jsonify({"ok": False, "error": "Only approved returns can be unapproved"}), 400
 
     reverse_journal_entry("PR", ret.id, current_user.id)
+
+    # Withdrawing the credit note re-consumes the order balances it released
+    # (§4.4). Skipping this would leave the balance permanently inflated and let
+    # the same quantity be billed twice.
+    from shared.order_linkage import (apply_return_writeback,
+                                      tally_returned_quantities)
+    apply_return_writeback(
+        "purchase",
+        InvPurchaseInvoiceItem.query.filter_by(
+            invoice_id=ret.original_invoice_id).all(),
+        tally_returned_quantities(
+            InvPurchaseReturnItem.query.filter_by(return_id=ret.id).all()),
+        sign=1)
 
     ret.status = "unapproved"
     ret.approved_by = None

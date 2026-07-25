@@ -191,3 +191,78 @@ def apply_writeback(side, invoice_items, sign=1):
             refresh_order_status(order)
     db.session.flush()
     return touched
+
+
+class _Release:
+    """A minimal stand-in for an invoice item, for apply_writeback's benefit.
+
+    A credit note releases a quantity against an *order line*, but its own rows
+    do not carry that link, so the allocation below synthesises the two
+    attributes apply_writeback reads.
+    """
+
+    __slots__ = ("source_order_item_id", "quantity")
+
+    def __init__(self, order_item_id, quantity):
+        self.source_order_item_id = order_item_id
+        self.quantity = quantity
+
+
+def tally_returned_quantities(return_items):
+    """Total returned quantity per product across a credit note's rows.
+
+    One product can appear on several rows, and the allocation below works per
+    product, so the rows are summed first.
+    """
+    totals = {}
+    for item in return_items:
+        if not item.product_id:
+            continue
+        totals[item.product_id] = (totals.get(item.product_id, 0.0)
+                                   + float(item.current_return_qty or 0))
+    return totals
+
+
+def allocate_return_to_order_lines(original_invoice_items, returned_by_product):
+    """Spread returned quantities back over the invoice lines that billed them.
+
+    A credit-note row names a product, not an invoice line, so a product billed
+    on two lines of one invoice needs the returned quantity apportioned. Lines
+    are filled in invoice order, each capped at what it actually billed, which
+    keeps the total released equal to the total returned. Lines not drawn from
+    an order are skipped — they never consumed a balance.
+
+    Returns a list of ``_Release`` shims for :func:`apply_writeback`.
+    """
+    remaining = {pid: float(qty) for pid, qty in returned_by_product.items()
+                 if float(qty or 0) > 0}
+    releases = []
+    for it in original_invoice_items:
+        order_item_id = getattr(it, "source_order_item_id", None)
+        if not order_item_id:
+            continue
+        left = remaining.get(it.product_id, 0.0)
+        if left <= 0:
+            continue
+        take = min(left, float(it.quantity or 0))
+        if take <= 0:
+            continue
+        remaining[it.product_id] = round(left - take, 6)
+        releases.append(_Release(order_item_id, take))
+    return releases
+
+
+def apply_return_writeback(side, original_invoice_items, returned_by_product,
+                           sign=-1):
+    """Restore (or re-consume) order balances for a credit note (§4.4).
+
+    ``sign=-1`` when the credit note is approved: the returned quantity stops
+    counting as invoiced, so the order reopens and the quantity can be billed
+    again. ``sign=+1`` when that approval is withdrawn — without the symmetric
+    move the balance would stay inflated and the line could be over-billed.
+    """
+    releases = allocate_return_to_order_lines(original_invoice_items,
+                                              returned_by_product)
+    if not releases:
+        return set()
+    return apply_writeback(side, releases, sign=sign)
