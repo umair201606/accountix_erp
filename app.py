@@ -366,6 +366,44 @@ def _migrate_schema(db):
         except Exception as e:
             print(f"MIGRATION SKIP {table}.{col}: {e}")
 
+    # Columns added by an EARLIER version of the list above, with the wrong
+    # type. The add loop skips any column that already exists, so a column that
+    # arrived as VARCHAR stays VARCHAR forever no matter what the model says.
+    #
+    # On SQLite that is harmless — it is typeless in practice. On Postgres it is
+    # fatal to every page that reads the table: psycopg2 hands SQLAlchemy's
+    # numeric result processor a varchar OID and the query dies with
+    # "Unknown PG numeric type: 1043", which is what took out the invoice list,
+    # the invoice form and everything else touching inv_invoices.
+    #
+    # NULLIF(...,'') matters: these columns hold '' where they should hold NULL,
+    # and a bare cast of '' to double precision raises.
+    retyped_columns = [
+        ("inv_invoices", "global_discount_pct", "DOUBLE PRECISION"),
+        ("inv_invoices", "global_discount_value", "DOUBLE PRECISION"),
+        ("inv_invoices", "global_sales_tax_pct", "DOUBLE PRECISION"),
+        ("inv_invoices", "subtotal", "DOUBLE PRECISION"),
+        ("inv_invoices", "total_discount", "DOUBLE PRECISION"),
+        ("inv_invoices", "total_tax", "DOUBLE PRECISION"),
+        ("inv_invoices", "created_by", "INTEGER"),
+    ]
+    if is_pg:
+        for table, col, target in retyped_columns:
+            if table not in existing_tables:
+                continue
+            current = {c["name"]: c["type"].__class__.__name__.upper()
+                       for c in inspector.get_columns(table)}
+            if col not in current or current[col] != "VARCHAR":
+                continue  # already the right type — nothing to do
+            try:
+                with engine.begin() as conn:
+                    conn.execute(db.text(
+                        f"ALTER TABLE {table} ALTER COLUMN {col} TYPE {target} "
+                        f"USING NULLIF(TRIM({col}), '')::{target}"))
+                print(f"MIGRATION retyped {table}.{col} -> {target}")
+            except Exception as e:
+                print(f"MIGRATION SKIP retype {table}.{col}: {e}")
+
     # Charges, discount, withholding and further tax are not eligible on an
     # order — they are decided at invoicing. The columns are dropped rather than
     # left dormant so nothing can quietly read a stale figure, and the entries
