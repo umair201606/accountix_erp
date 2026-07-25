@@ -22,12 +22,12 @@ body{background:var(--bg);font-family:Inter,-apple-system,BlinkMacSystemFont,'Se
 .inp-sm{padding:5px 8px;font-size:12px}
 .hdr-g{display:grid;grid-template-columns:1.6fr 1.2fr 1fr;gap:20px;align-items:start}
 .ac-wrap{position:relative}
-.ac-dd{position:absolute;top:100%;left:0;right:0;background:#fff;border:1px solid var(--border);border-radius:0 0 5px 5px;z-index:200;max-height:220px;overflow-y:auto;box-shadow:0 8px 24px rgba(0,0,0,.1);display:none}
+.ac-dd{position:absolute;top:100%;left:0;right:0;background:#fff;border:1px solid var(--border);border-radius:0 0 5px 5px;z-index:2600;max-height:220px;overflow-y:auto;box-shadow:0 8px 24px rgba(0,0,0,.1);display:none}
 .ac-dd.show{display:block}
 .ac-it{padding:7px 12px;cursor:pointer;font-size:13px;border-bottom:1px solid #f1f5f9;display:flex;justify-content:space-between;align-items:center}
 .ac-it:hover,.ac-it.hl{background:var(--primary-light)}
-.ac-it .ac-n{font-weight:600}
-.ac-it .ac-s{font-size:11px;color:var(--light)}
+.ac-it .ac-n{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.ac-it .ac-s{font-size:11px;color:var(--light);flex:0 0 auto;margin-left:14px;white-space:nowrap}
 .pills{display:flex;gap:16px;align-items:center}
 .pill-g{display:flex;align-items:center;gap:6px}
 .pill-lbl{font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.3px}
@@ -741,13 +741,16 @@ function lineQty(tr){return parseFloat(tr.querySelector('[data-col="quantity"]')
 function lineWeight(tr){return (parseFloat(tr.dataset.weight)||0)*lineQty(tr)}
 
 // Row management
-function addRow(data){var tbody=document.getElementById('itemsBody'),tr=document.createElement('tr');rowCount++;var d=getMode('discount'),c=getMode('charges'),t=getMode('tax'),id=d==='individual',ic=c==='individual',it=t==='individual',dis=editable?'':'disabled';tr.dataset.productId=(data&&data.product_id)||'';tr.dataset.weight=(data&&data.weight)||0;
+function addRow(data,noFocus){var tbody=document.getElementById('itemsBody'),tr=document.createElement('tr');rowCount++;var d=getMode('discount'),c=getMode('charges'),t=getMode('tax'),id=d==='individual',ic=c==='individual',it=t==='individual',dis=editable?'':'disabled';tr.dataset.productId=(data&&data.product_id)||'';tr.dataset.weight=(data&&data.weight)||0;
 tr.innerHTML='<td class="rn">'+rowCount+'</td><td><input type="text" class="ri ac-code" data-col="code" placeholder="SKU" value="'+((data&&data.product&&data.product.sku)||(data&&data.product_sku)||'')+'" '+dis+'></td><td><div class="ac-wrap"><textarea class="ri ac-desc-input" data-col="description" placeholder="Search or Space..." rows="1" style="resize:none;overflow:hidden" '+dis+'>'+esc(data&&data.description||'')+'</textarea><div class="ac-dd"></div><div class="info-badge" style="font-size:10px;color:var(--light);"></div></div></td><td><input type="number" class="ri num" data-col="quantity" value="'+((data&&data.quantity)||1)+'" min="0.01" step="any" '+dis+'></td><td><span class="ri rc ac-unit">'+((data&&data.unit)||'pcs')+'</span></td><td><input type="number" class="ri num" data-col="unit_price" value="'+((data&&data.unit_price)||0)+'" step="0.01" min="0" '+dis+'></td><td><input type="text" class="ri rc num" data-col="amount" value="0" readonly></td><td class="c-disc" style="'+(id?'':'display:none;')+'"><div class="row-disc"><input type="number" class="ri num" data-col="discount_pct" value="'+((data&&data.discount_pct)||0)+'" step="0.01" min="0" max="100" '+(editable&&id?'':'disabled')+'></div></td><td class="c-disc" style="'+(id?'':'display:none;')+'"><div class="row-disc"><input type="number" class="ri num" data-col="discount_amount" value="'+((data&&data.discount_amount)||0)+'" step="0.01" min="0" '+(editable&&id?'':'disabled')+'></div></td><td class="c-chg" style="'+(ic?'':'display:none;')+'"><div class="row-chg"><input type="number" class="ri num" data-col="delivery" value="'+((data&&data.delivery)||0)+'" step="0.01" min="0" '+(editable&&ic?'':'disabled')+'></div></td><td class="c-chg" style="'+(ic?'':'display:none;')+'"><div class="row-chg"><input type="number" class="ri num" data-col="installation" value="'+((data&&data.installation)||0)+'" step="0.01" min="0" '+(editable&&ic?'':'disabled')+'></div></td><td class="c-tax" style="'+(it?'':'display:none;')+'"><div class="row-tax"><input type="number" class="ri num" data-col="sales_tax_pct" value="'+((data&&data.sales_tax_pct)||0)+'" step="0.01" min="0" max="100" '+(editable&&it?'':'disabled')+'></div></td><td class="c-net" style="'+(id?'':'display:none;')+'"><input type="text" class="ri rc num" data-col="net_amount" value="0" readonly></td><td><div class="ra"><button type="button" class="del" onclick="removeRow(this)">&times;</button></div></td>';
+// The row was built, wired up and returned — but never put in the document, so
+// this grid rendered no lines at all. The other three documents all append here.
+tbody.appendChild(tr);
 var ci=tr.querySelector('.ac-code');if(ci){ci.addEventListener('input',function(){var v=this.value.trim().toLowerCase();if(v.length===1)autoAddCheck();var m=allProducts.find(function(p){return p.sku.toLowerCase()===v});if(m){tr.dataset.productId=m.id;tr.dataset.weight=m.weight||0;tr.querySelector('.ac-desc-input').value=m.name;tr.querySelector('.ac-unit').textContent=m.unit;tr.querySelector('[data-col="unit_price"]').value=m.unit_price;tr.querySelector('.info-badge').innerHTML='Stock: <strong>'+m.current_stock+'</strong>';recalcRow(tr);recalc()}})}
 var di=tr.querySelector('.ac-desc-input');if(di){setupDescInput(di)}
 qsa('.ri:not(.rc):not(.ac-code)',tr).forEach(function(el){el.addEventListener('input',function(){recalcRow(tr);recalc()});el.addEventListener('change',function(){recalcRow(tr);recalc()})});
-if(editable)setTimeout(function(){var f=tr.querySelector('.ac-code');if(f)f.focus()},30);return tr}
-function autoAddCheck(){var rows=qsa('#itemsBody tr');if(!rows.length)return;var last=rows[rows.length-1],code=last.querySelector('.ac-code')?.value||'',desc=last.querySelector('.ac-desc-input')?.value||'';if(code.length||desc.length)addRow({})}
+if(editable&&!noFocus)setTimeout(function(){var f=tr.querySelector('.ac-code');if(f)f.focus()},30);return tr}
+function autoAddCheck(){var rows=qsa('#itemsBody tr');if(!rows.length)return;var last=rows[rows.length-1],code=last.querySelector('.ac-code')?.value||'',desc=last.querySelector('.ac-desc-input')?.value||'';if(code.length||desc.length)addRow({},true)}
 function removeRow(btn){var tr=btn.closest('tr');var tbody=document.getElementById('itemsBody');if(tbody.children.length<=1)return;tr.remove();renumberRows();recalc()}
 function renumberRows(){qsa('#itemsBody .rn').forEach(function(e,i){e.textContent=i+1})}
 function clearAllRows(){document.getElementById('itemsBody').innerHTML='';rowCount=0;addRow({});recalc();toast('Cleared all lines','info')}
@@ -782,7 +785,7 @@ function renderCharges(){
       '<button type="button" class="chg-del" title="Remove charge" onclick="removeCharge(this,'+i+')">&times;</button>'+
       '<div class="chg-top">'+
         '<div><span class="chg-lbl">Charge type &mdash; expense ledger</span>'+
-          '<div class="ac-wrap" style="position:relative;"><input type="text" class="inp inp-sm chg-acct" value="'+esc(chg._display||'')+'" placeholder="Search ledger account..." autocomplete="off"><input type="hidden" class="chg-acct-id" value="'+(chg.charge_account_id||'')+'"><div class="ac-dd" style="position:absolute;top:100%;left:0;right:0;background:#fff;border:1px solid var(--border);z-index:200;max-height:180px;overflow-y:auto;display:none;"></div></div>'+
+          '<div class="ac-wrap" style="position:relative;"><input type="text" class="inp inp-sm chg-acct" value="'+esc(chg._display||'')+'" placeholder="Search ledger account..." autocomplete="off"><input type="hidden" class="chg-acct-id" value="'+(chg.charge_account_id||'')+'"><div class="ac-dd"></div><!-- No inline style: it carried display:none, which .ac-dd.show could not override, so this list never appeared. The .ac-dd rule and the placement helper own its look and position. --></div>'+
           '<div class="chg-meta">'+esc(chg._meta||'')+'</div></div>'+
         '<div><span class="chg-lbl">Amount</span>'+
           '<input type="number" class="inp inp-sm chg-amount" value="'+(chg.amount||0)+'" step="0.01" min="0" style="text-align:right;"></div>'+
@@ -824,6 +827,12 @@ function renderCharges(){
 function setupChargeAccountAutocomplete(inp,idx){
   if(!inp)return;
   var row=inp.closest('.chg-card'),drop=row.querySelector('.ac-dd'),hl=-1,list=[];
+  // Clicking the field lists every account; typing filters it. It used to
+  // open only on Space and only while empty, so a click did nothing and a
+  // filled field could not be browsed again.
+  async function openList(q){list=await loadAccts(q||'');render(list)}
+  inp.addEventListener('focus',function(){openList(this.value.trim())});
+  inp.addEventListener('mousedown',function(){var v=this.value.trim();setTimeout(function(){openList(v)},0)});
   async function loadAccts(q){return fetchJSON('/inventory/sales/api/accounts?q='+encodeURIComponent(q))}
   function render(l){hl=-1;if(!l||!l.length){drop.classList.remove('show');return}drop.innerHTML=l.map(function(a,i){return'<div class="ac-it" data-index="'+i+'" data-id="'+a.id+'" data-code="'+a.code+'" data-name="'+a.name+'"><span class="ac-n">'+a.code+' — '+a.name+'</span><span class="ac-s">'+a.type+'</span></div>'}).join('');drop.classList.add('show')}
   function selectItem(i){var t=list[i];if(!t)return;row.querySelector('.chg-acct-id').value=t.id;inp.value=t.code+' — '+t.name;
@@ -1162,5 +1171,52 @@ function refreshScrollHint(){
   });
 }
 window.addEventListener('resize', refreshScrollHint);
+
+// ============================================================
+// AUTOCOMPLETE DROPDOWN PLACEMENT
+// ============================================================
+// The dropdown is absolutely positioned inside a row, and three ancestors clip
+// it: .card and .icard hide overflow so their corners stay square against the
+// radius, and .tb-w scrolls horizontally. Any of those cuts the list off — it
+// appeared trapped inside the grid instead of overlapping the page.
+//
+// Rather than surrender the overflow (which the card-wrapped table depends on),
+// the list is taken out of the flow and placed against the viewport. A
+// MutationObserver drives it so every call site that adds .show is covered,
+// including ones added later.
+(function(){
+  function place(dd){
+    var w=dd.closest('.ac-wrap');if(!w)return;
+    var r=w.getBoundingClientRect();
+    dd.style.position='fixed';
+    var w=Math.max(r.width,320);
+    w=Math.min(w,window.innerWidth-16);
+    dd.style.width=w+'px';
+    dd.style.left=Math.max(8,Math.min(r.left,window.innerWidth-w-8))+'px';
+    dd.style.right='auto';
+    // Beats the charges modal (2000). The markup carries an inline
+    // z-index:200 that a stylesheet rule cannot override.
+    dd.style.zIndex='3200';
+    // Flip above the field when there is not enough room beneath it.
+    var below=window.innerHeight-r.bottom;
+    if(below<200&&r.top>below){
+      dd.style.top='auto';dd.style.bottom=(window.innerHeight-r.top)+'px';
+      dd.style.borderRadius='5px 5px 0 0';
+    }else{
+      dd.style.bottom='auto';dd.style.top=r.bottom+'px';
+      dd.style.borderRadius='0 0 5px 5px';
+    }
+  }
+  function placeAll(){document.querySelectorAll('.ac-dd.show').forEach(place)}
+  new MutationObserver(function(muts){
+    muts.forEach(function(m){
+      var el=m.target;
+      if(el.classList&&el.classList.contains('ac-dd')&&el.classList.contains('show'))place(el);
+    });
+  }).observe(document.body,{subtree:true,attributes:true,attributeFilter:['class']});
+  // A fixed element does not travel with the page, so it has to be re-placed.
+  window.addEventListener('scroll',placeAll,true);
+  window.addEventListener('resize',placeAll);
+})();
 </script>
 {% endblock %}

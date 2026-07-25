@@ -25,12 +25,12 @@ body{background:var(--bg);font-family:Inter,-apple-system,BlinkMacSystemFont,'Se
 .inp-sm{padding:5px 8px;font-size:12px}
 .hdr-g{display:grid;grid-template-columns:1.6fr 1.2fr 1fr;gap:20px;align-items:start}
 .ac-wrap{position:relative}
-.ac-dd{position:absolute;top:100%;left:0;right:0;background:#fff;border:1px solid var(--border);border-radius:0 0 5px 5px;z-index:200;max-height:220px;overflow-y:auto;box-shadow:0 8px 24px rgba(0,0,0,.1);display:none}
+.ac-dd{position:absolute;top:100%;left:0;right:0;background:#fff;border:1px solid var(--border);border-radius:0 0 5px 5px;z-index:2600;max-height:220px;overflow-y:auto;box-shadow:0 8px 24px rgba(0,0,0,.1);display:none}
 .ac-dd.show{display:block}
 .ac-it{padding:7px 12px;cursor:pointer;font-size:13px;border-bottom:1px solid #f1f5f9;display:flex;justify-content:space-between;align-items:center}
 .ac-it:hover,.ac-it.hl{background:var(--primary-light)}
-.ac-it .ac-n{font-weight:600}
-.ac-it .ac-s{font-size:11px;color:var(--light)}
+.ac-it .ac-n{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.ac-it .ac-s{font-size:11px;color:var(--light);flex:0 0 auto;margin-left:14px;white-space:nowrap}
 .pills{display:flex;gap:16px;align-items:center}
 .pill-g{display:flex;align-items:center;gap:6px}
 .pill-lbl{font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.3px}
@@ -1111,17 +1111,17 @@ drop.addEventListener('mousedown',function(e){var t=e.target.closest('.ac-it');i
 // ============================================================
 // ROW MANAGEMENT
 // ============================================================
-function addRow(data){var tbody=document.getElementById('itemsBody'),tr=document.createElement('tr');rowCount++;var d=getMode('discount'),c=getMode('charges'),t=getMode('tax'),id=d==='individual',ic=c==='individual',it=t==='individual',dis=editable?'':'disabled';var byPct=discMethod()==='pct';tr.dataset.productId=(data&&data.product_id)||'';tr.dataset.weight=(data&&data.weight)||0;
+function addRow(data,noFocus){var tbody=document.getElementById('itemsBody'),tr=document.createElement('tr');rowCount++;var d=getMode('discount'),c=getMode('charges'),t=getMode('tax'),id=d==='individual',ic=c==='individual',it=t==='individual',dis=editable?'':'disabled';var byPct=discMethod()==='pct';tr.dataset.productId=(data&&data.product_id)||'';tr.dataset.weight=(data&&data.weight)||0;
 tr.innerHTML='<td class="rn">'+rowCount+'</td><td class="c-ord" style="'+(loadedOrderIds.length?'':'display:none;')+'"><span class="ri rc" data-col="order_ref" style="font-size:10px;color:var(--muted);">'+esc((data&&data.order_ref)||'')+'</span></td><td><input type="text" class="ri ac-code" data-col="code" placeholder="SKU" value="'+((data&&data.product&&data.product.sku)||'')+'" '+dis+'></td><td><div class="ac-wrap"><textarea class="ri ac-desc-input" data-col="description" placeholder="Search or Space..." rows="1" style="resize:none;overflow:hidden" '+dis+'>'+esc(data&&data.description||'')+'</textarea><div class="ac-dd"></div><div class="info-badge" style="font-size:10px;color:var(--light);"></div></div></td><td><input type="number" class="ri num" data-col="quantity" value="'+((data&&data.quantity)||1)+'" min="0.01" step="any" '+dis+'></td><td><span class="ri rc ac-unit">'+((data&&data.unit)||'pcs')+'</span></td><td><input type="number" class="ri num" data-col="unit_price" value="'+((data&&data.unit_price)||0)+'" step="0.01" min="0" '+dis+'></td><td><input type="text" class="ri rc num" data-col="amount" value="0" readonly></td><td class="c-disc c-disc-pct" style="'+((id&&byPct)?'':'display:none;')+'"><div class="row-disc"><input type="number" class="ri num" data-col="discount_pct" value="'+((data&&data.discount_pct)||0)+'" step="0.01" min="0" max="100" '+(editable&&id?'':'disabled')+'></div></td><td class="c-disc c-disc-amt" style="'+((id&&!byPct)?'':'display:none;')+'"><div class="row-disc"><input type="number" class="ri num" data-col="discount_amount" value="'+((data&&data.discount_amount)||0)+'" step="0.01" min="0" '+(editable&&id?'':'disabled')+'></div></td><td class="c-chg num" style="'+(ic?'':'display:none;')+'"><span class="ri rc num chg-cell zero" data-col="addcharges" title="Click for breakdown" onclick="openChgPopover(this)">0.00</span></td><td class="c-tax" style="'+(it?'':'display:none;')+'"><div class="row-tax"><input type="number" class="ri num" data-col="sales_tax_pct" value="'+((data&&data.sales_tax_pct)||0)+'" step="0.01" min="0" max="100" '+(editable&&it?'':'disabled')+'></div></td><td class="c-net" style="'+((id||ic)?'':'display:none;')+'"><input type="text" class="ri rc num" data-col="net_amount" value="0" readonly></td><td><div class="ra"><button type="button" onclick="removeRow(this)">&times;</button><button type="button" class="del" onclick="addRowAfter(this)" title="Duplicate this row">+</button></div></td>';tbody.appendChild(tr);var di=tr.querySelector('.ac-desc-input');if(di)setupDescInput(di);tr.querySelectorAll('input[data-col]').forEach(function(inp){inp.addEventListener('input',function(){recalcRow(tr);recalc()});inp.addEventListener('change',function(){recalcRow(tr);recalc()})})
 var ci=tr.querySelector('.ac-code');if(ci){ci.addEventListener('input',function(){var v=this.value.trim().toLowerCase();if(v.length===1)autoAddCheck();var m=allProducts.find(function(p){return p.sku.toLowerCase()===v});if(m){tr.dataset.productId=m.id;tr.dataset.weight=m.weight||0;tr.querySelector('.ac-desc-input').value=m.name;tr.querySelector('.ac-unit').textContent=m.unit;tr.querySelector('[data-col="unit_price"]').value=m.unit_price;tr.querySelector('.info-badge').innerHTML='Stock: <strong>'+m.current_stock+'</strong>';recalcRow(tr);recalc()}})}
 if(di){di.addEventListener('input',function(){if(this.value.length===1)autoAddCheck()})}
-if(editable)setTimeout(function(){var f=tr.querySelector('.ac-code');if(f)f.focus()},30);return tr}
+if(editable&&!noFocus)setTimeout(function(){var f=tr.querySelector('.ac-code');if(f)f.focus()},30);return tr}
 function addRowAfter(btn){var tr=btn.closest('tr');addRow({product_id:tr.dataset.productId,weight:tr.dataset.weight})}
 // §6.2 — a line's total mass: the product's unit weight times the quantity.
 // Zero when the product carries no weight, which sends the "By weight" split
 // back to value rather than dividing by nothing.
 function lineWeight(tr){var w=parseFloat(tr.dataset.weight)||0,q=parseFloat(tr.querySelector('[data-col="quantity"]')?.value)||0;return w*q}
-function autoAddCheck(){var rows=qsa('#itemsBody tr');if(!rows.length)return;var last=rows[rows.length-1],code=last.querySelector('.ac-code')?.value||'',desc=last.querySelector('.ac-desc-input')?.value||'';if(code.length||desc.length)addRow({})}
+function autoAddCheck(){var rows=qsa('#itemsBody tr');if(!rows.length)return;var last=rows[rows.length-1],code=last.querySelector('.ac-code')?.value||'',desc=last.querySelector('.ac-desc-input')?.value||'';if(code.length||desc.length)addRow({},true)}
 function removeRow(btn){var tr=btn.closest('tr');var tbody=document.getElementById('itemsBody');if(tbody.children.length<=1)return;tr.remove();renumberRows();recalc()}
 function renumberRows(){qsa('#itemsBody .rn').forEach(function(e,i){e.textContent=i+1})}
 function clearAllRows(){document.getElementById('itemsBody').innerHTML='';rowCount=0;addRow({});recalc();toast('Cleared all lines','info')}
@@ -1186,7 +1186,7 @@ function renderCharges(){
       '<button type="button" class="chg-del" title="Remove charge" onclick="removeCharge('+i+')">&times;</button>'+
       '<div class="chg-top">'+
         '<div><span class="chg-lbl">Charge type — expense ledger</span>'+
-          '<div class="ac-wrap" style="position:relative;"><input type="text" class="inp inp-sm chg-acct" value="'+esc(chg._display||'')+'" placeholder="Search ledger account..." autocomplete="off"><input type="hidden" class="chg-acct-id" value="'+(chg.charge_account_id||'')+'"><div class="ac-dd" style="position:absolute;top:100%;left:0;right:0;background:#fff;border:1px solid var(--border);z-index:200;max-height:180px;overflow-y:auto;display:none;"></div></div>'+
+          '<div class="ac-wrap" style="position:relative;"><input type="text" class="inp inp-sm chg-acct" value="'+esc(chg._display||'')+'" placeholder="Search ledger account..." autocomplete="off"><input type="hidden" class="chg-acct-id" value="'+(chg.charge_account_id||'')+'"><div class="ac-dd"></div><!-- No inline style: it carried display:none, which .ac-dd.show could not override, so this list never appeared. The .ac-dd rule and the placement helper own its look and position. --></div>'+
           '<div class="chg-meta">'+esc(chg._meta||'')+'</div></div>'+
         '<div><span class="chg-lbl">Amount</span>'+
           '<input type="number" class="inp inp-sm chg-amount" value="'+(chg.amount||0)+'" step="0.01" min="0" style="text-align:right;"></div>'+
@@ -1231,8 +1231,10 @@ function afterChargeEdit(){refreshCols();recalc();updatePanelSummaries()}
 function setupChargeAcct(inp,idx){
   var row=inp.closest('.chg-card'),drop=row.querySelector('.ac-dd'),hl=-1,list=[],hid=row.querySelector('.chg-acct-id');
   async function doSearch(q){list=await loadAccounts(q);hl=-1;if(!list||!list.length){drop.classList.remove('show');return}drop.innerHTML=list.map(function(a,i){return'<div class="ac-it" data-index="'+i+'"><span class="ac-n">'+a.code+' — '+a.name+'</span><span class="ac-s">'+a.type+'</span></div>'}).join('');drop.classList.add('show')}
+  inp.addEventListener('focus',function(){doSearch(this.value.trim())});
+  inp.addEventListener('mousedown',function(){var v=this.value.trim();setTimeout(function(){doSearch(v)},0)});
   inp.addEventListener('keydown',function(e){if(e.key===' '&&!this.value){e.preventDefault();doSearch('');return}if(e.key==='ArrowDown'){e.preventDefault();hl=Math.min(hl+1,list.length-1);dohl();return}if(e.key==='ArrowUp'){e.preventDefault();hl=Math.max(hl-1,0);dohl();return}if(e.key==='Enter'&&drop.classList.contains('show')&&hl>=0){e.preventDefault();sel(hl);return}if(e.key==='Escape'){drop.classList.remove('show')}});
-  inp.addEventListener('input',function(){var q=this.value.trim();if(!q.length){drop.classList.remove('show');hid.value='';charges[idx].charge_account_id='';charges[idx]._display='';return}doSearch(q)});
+  inp.addEventListener('input',function(){var q=this.value.trim();if(!q.length){hid.value='';charges[idx].charge_account_id='';charges[idx]._display=''}doSearch(q)});
   inp.addEventListener('blur',function(){setTimeout(function(){drop.classList.remove('show')},200)});
   function dohl(){drop.querySelectorAll('.ac-it').forEach(function(e,i){e.classList.toggle('hl',i===hl)})}
   function sel(i){var a=list[i];if(!a)return;hid.value=a.id;inp.value=a.code+' — '+a.name;
@@ -1841,5 +1843,52 @@ function refreshScrollHint(){
   });
 }
 window.addEventListener('resize', refreshScrollHint);
+
+// ============================================================
+// AUTOCOMPLETE DROPDOWN PLACEMENT
+// ============================================================
+// The dropdown is absolutely positioned inside a row, and three ancestors clip
+// it: .card and .icard hide overflow so their corners stay square against the
+// radius, and .tb-w scrolls horizontally. Any of those cuts the list off — it
+// appeared trapped inside the grid instead of overlapping the page.
+//
+// Rather than surrender the overflow (which the card-wrapped table depends on),
+// the list is taken out of the flow and placed against the viewport. A
+// MutationObserver drives it so every call site that adds .show is covered,
+// including ones added later.
+(function(){
+  function place(dd){
+    var w=dd.closest('.ac-wrap');if(!w)return;
+    var r=w.getBoundingClientRect();
+    dd.style.position='fixed';
+    var w=Math.max(r.width,320);
+    w=Math.min(w,window.innerWidth-16);
+    dd.style.width=w+'px';
+    dd.style.left=Math.max(8,Math.min(r.left,window.innerWidth-w-8))+'px';
+    dd.style.right='auto';
+    // Beats the charges modal (2000). The markup carries an inline
+    // z-index:200 that a stylesheet rule cannot override.
+    dd.style.zIndex='3200';
+    // Flip above the field when there is not enough room beneath it.
+    var below=window.innerHeight-r.bottom;
+    if(below<200&&r.top>below){
+      dd.style.top='auto';dd.style.bottom=(window.innerHeight-r.top)+'px';
+      dd.style.borderRadius='5px 5px 0 0';
+    }else{
+      dd.style.bottom='auto';dd.style.top=r.bottom+'px';
+      dd.style.borderRadius='0 0 5px 5px';
+    }
+  }
+  function placeAll(){document.querySelectorAll('.ac-dd.show').forEach(place)}
+  new MutationObserver(function(muts){
+    muts.forEach(function(m){
+      var el=m.target;
+      if(el.classList&&el.classList.contains('ac-dd')&&el.classList.contains('show'))place(el);
+    });
+  }).observe(document.body,{subtree:true,attributes:true,attributeFilter:['class']});
+  // A fixed element does not travel with the page, so it has to be re-placed.
+  window.addEventListener('scroll',placeAll,true);
+  window.addEventListener('resize',placeAll);
+})();
 </script>
 {% endblock %}
