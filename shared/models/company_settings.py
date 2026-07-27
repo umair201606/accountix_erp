@@ -117,6 +117,55 @@ class ReportSettings(db.Model):
         self.pl_structure_json = json.dumps(rows) if rows else None
 
 
+class FiscalYearRule(db.Model):
+    __tablename__ = "fiscal_year_rule"
+    id = db.Column(db.Integer, primary_key=True)
+    start_month = db.Column(db.Integer, nullable=False, default=1)
+    start_day = db.Column(db.Integer, nullable=False, default=1)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    @classmethod
+    def get(cls):
+        r = cls.query.first()
+        if not r:
+            r = cls(start_month=1, start_day=1)
+            db.session.add(r)
+            db.session.commit()
+        return r
+
+    def generate_periods(self):
+        """Delete all existing periods and regenerate yearly periods from this rule."""
+
+        from shared.models.ledger import JournalEntry
+
+        AccountingPeriod.query.delete()
+        today = date.today()
+        earliest = db.session.query(db.func.min(JournalEntry.entry_date)).scalar()
+        min_year = earliest.year if earliest else today.year - 5
+        max_year = today.year + 2
+
+        for y in range(min_year, max_year + 1):
+            start_date = date(y, self.start_month, self.start_day)
+            end_date = date(y + 1, self.start_month, self.start_day) - __import__("datetime").timedelta(days=1)
+
+            if self.start_month == 1 and self.start_day == 1:
+                fiscal_year = str(y)
+                period_name = f"FY {y}"
+            else:
+                fiscal_year = f"{y}-{y + 1}"
+                period_name = f"FY {y}-{y + 1}"
+
+            db.session.add(AccountingPeriod(
+                fiscal_year=fiscal_year,
+                period_name=period_name,
+                start_date=start_date,
+                end_date=end_date,
+                is_open=True,
+            ))
+        db.session.commit()
+
+
 class AccountingPeriod(db.Model):
     __tablename__ = "accounting_periods"
     id = db.Column(db.Integer, primary_key=True)
@@ -129,20 +178,3 @@ class AccountingPeriod(db.Model):
     is_active = db.Column(db.Boolean, default=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     closed_at = db.Column(db.DateTime)
-
-    @classmethod
-    def seed_current_year(cls):
-        today = date.today()
-        year = today.year
-        fy = str(year)
-        existing = cls.query.filter_by(fiscal_year=fy).count()
-        if existing > 0:
-            return
-        db.session.add(cls(
-            fiscal_year=fy,
-            period_name=f"FY {fy}",
-            start_date=date(year, 1, 1),
-            end_date=date(year, 12, 31),
-            is_open=True,
-        ))
-        db.session.commit()

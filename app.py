@@ -753,9 +753,11 @@ def _seed_all_data(app):
 
         InventorySettings.get()
 
-        from shared.models.company_settings import CompanyInfo, AccountingPeriod, ReportSettings
+        from shared.models.company_settings import CompanyInfo, AccountingPeriod, FiscalYearRule, ReportSettings
         CompanyInfo.get()
-        AccountingPeriod.seed_current_year()
+        rule = FiscalYearRule.get()
+        if not AccountingPeriod.query.first():
+            rule.generate_periods()
         ReportSettings.get()
 
         # Backfill level-4 subledger accounts for entities created before the

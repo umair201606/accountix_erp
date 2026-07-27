@@ -1,16 +1,49 @@
+{% set months = ["January","February","March","April","May","June","July","August","September","October","November","December"] %}
 <div class="set-card">
-  <h3>Financial Periods</h3>
-  <p class="hint">Reports default to the period containing today. Closing a period is a control step — it doesn't block posting by itself.</p>
+  <h3>Fiscal Year Rule</h3>
+  <p class="hint">Set the start month and day for all financial periods. Every fiscal year will follow this pattern (e.g., 1 July to 30 June, or 1 January to 31 December). Changing this rule will regenerate all periods retroactively.</p>
+  <form method="POST" action="{{ url_for('settings.save_fiscal_year_rule') }}">
+    <div class="fgrid" style="grid-template-columns:1fr 1fr;">
+      <div class="fgroup">
+        <label class="lbl">Start Month</label>
+        <select name="start_month" class="inp">
+          {% for m in range(1, 13) %}
+          <option value="{{ m }}" {% if fiscal_rule.start_month == m %}selected{% endif %}>{{ months[m-1] }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="fgroup">
+        <label class="lbl">Start Day</label>
+        <select name="start_day" class="inp">
+          {% for d in range(1, 29) %}
+          <option value="{{ d }}" {% if fiscal_rule.start_day == d %}selected{% endif %}>{{ d }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+    <div class="set-actions">
+      <button type="submit" class="btn btn-p" onclick="return confirm('This will regenerate ALL financial periods. Existing periods and their open/closed status will be reset. Continue?')">Save &amp; Regenerate Periods</button>
+    </div>
+  </form>
+  <p class="hint" style="margin-top:8px;">
+    Current rule: <strong>{{ fiscal_rule.start_day }} {{ months[fiscal_rule.start_month - 1] }}</strong> &rarr; 
+    <strong>{{ fiscal_rule.start_day - 1 }} {{ months[(fiscal_rule.start_month - 2) % 12] }}</strong>
+    (e.g., FY {{ "%04d"|format(2020) }}: {{ "%02d"|format(fiscal_rule.start_day) }} {{ months[fiscal_rule.start_month - 1] }} 2020 &ndash;
+    {{ "%02d"|format(fiscal_rule.start_day - 1) }} {{ months[(fiscal_rule.start_month - 2) % 12] }} 2021)
+  </p>
+</div>
 
+<div class="set-card" style="margin-top:16px;">
+  <h3>Generated Periods</h3>
+  <p class="hint">Closing a period prevents new postings in that date range. Periods are auto-generated from the fiscal year rule above.</p>
   <div class="tbl-scroll">
     <table class="stbl">
       <thead>
-        <tr><th>Fiscal Year</th><th>Period</th><th>Start</th><th>End</th><th>Status</th><th></th></tr>
+        <tr><th>Period</th><th>Start</th><th>End</th><th>Status</th><th></th></tr>
       </thead>
       <tbody>
         {% for p in periods %}
         <tr>
-          <td>{{ p.fiscal_year }}</td>
           <td>{{ p.period_name }}</td>
           <td>{{ p.start_date.strftime('%d %b %Y') }}</td>
           <td>{{ p.end_date.strftime('%d %b %Y') }}</td>
@@ -32,40 +65,9 @@
           </td>
         </tr>
         {% else %}
-        <tr><td colspan="6" style="text-align:center;color:var(--muted);padding:20px;">No periods defined yet.</td></tr>
+        <tr><td colspan="5" style="text-align:center;color:var(--muted);padding:20px;">No periods generated yet. Save the rule above to generate periods.</td></tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
-
-  <form method="POST" action="{{ url_for('settings.seed_periods') }}" style="margin-top:12px;">
-    <button type="submit" class="btn btn-sm btn-outline">+ Seed current fiscal year</button>
-  </form>
-</div>
-
-<div class="set-card" style="margin-top:16px;">
-  <h3 style="font-size:15px;">Add a Period</h3>
-  <form method="POST" action="{{ url_for('settings.add_period') }}">
-    <div class="fgrid">
-      <div class="fgroup">
-        <label class="lbl">Fiscal Year</label>
-        <input type="text" name="fiscal_year" class="inp" placeholder="2026">
-      </div>
-      <div class="fgroup">
-        <label class="lbl">Period Name</label>
-        <input type="text" name="period_name" class="inp" placeholder="FY 2026">
-      </div>
-      <div class="fgroup">
-        <label class="lbl">Start Date</label>
-        <input type="date" name="start_date" class="inp" required>
-      </div>
-      <div class="fgroup">
-        <label class="lbl">End Date</label>
-        <input type="date" name="end_date" class="inp" required>
-      </div>
-    </div>
-    <div class="set-actions">
-      <button type="submit" class="btn btn-p">Add Period</button>
-    </div>
-  </form>
 </div>

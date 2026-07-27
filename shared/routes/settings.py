@@ -25,7 +25,8 @@ from flask_login import login_required, current_user
 from shared.extensions import db
 from shared.models.base import User, UserPermission
 from shared.models.company_settings import (CompanyInfo, AccountingPeriod,
-                                            ReportSettings, PL_SECTIONS)
+                                            FiscalYearRule, ReportSettings,
+                                            PL_SECTIONS)
 from shared.models.inventory_settings import InventorySettings
 from shared.models.invoice_settings import InvoiceSettings
 from shared.models.invoice_template import (
@@ -99,6 +100,7 @@ def index():
     if tab == "company":
         ctx["company"] = CompanyInfo.get()
     elif tab == "periods":
+        ctx["fiscal_rule"] = FiscalYearRule.get()
         ctx["periods"] = AccountingPeriod.query.order_by(
             AccountingPeriod.start_date.desc()).all()
     elif tab == "reports":
@@ -223,28 +225,35 @@ def save_company():
 
 # ── Financial periods ───────────────────────────────────────────────────────
 
-@settings_bp.route("/periods/add", methods=["POST"])
+MONTHS = ["January", "February", "March", "April", "May", "June",
+          "July", "August", "September", "October", "November", "December"]
+
+
+@settings_bp.route("/periods/rule", methods=["POST"])
 @login_required
-def add_period():
+def save_fiscal_year_rule():
     denied = _require("periods")
     if denied:
         return denied
     back = redirect(url_for("settings.index", tab="periods"))
     try:
-        start = datetime.strptime(request.form["start_date"], "%Y-%m-%d").date()
-        end = datetime.strptime(request.form["end_date"], "%Y-%m-%d").date()
+        start_month = int(request.form["start_month"])
+        start_day = int(request.form["start_day"])
     except (KeyError, ValueError):
-        flash("Start and end dates are required (YYYY-MM-DD).", "error")
+        flash("Start month and day are required.", "error")
         return back
-    if end < start:
-        flash("End date cannot be before the start date.", "error")
+    if start_month < 1 or start_month > 12:
+        flash("Start month must be between 1 and 12.", "error")
         return back
-    db.session.add(AccountingPeriod(
-        fiscal_year=request.form.get("fiscal_year") or str(start.year),
-        period_name=request.form.get("period_name") or f"FY {start.year}",
-        start_date=start, end_date=end, is_open=True))
-    db.session.commit()
-    flash("Period added.", "success")
+    if start_day < 1 or start_day > 28:
+        flash("Start day must be between 1 and 28.", "error")
+        return back
+
+    rule = FiscalYearRule.get()
+    rule.start_month = start_month
+    rule.start_day = start_day
+    rule.generate_periods()
+    flash(f"Fiscal year rule updated to {start_day} {MONTHS[start_month - 1]}. Periods regenerated.", "success")
     return back
 
 
@@ -271,17 +280,6 @@ def reopen_period(id):
     p.is_open, p.is_closed, p.closed_at = True, False, None
     db.session.commit()
     flash(f"Period {p.period_name} reopened.", "success")
-    return redirect(url_for("settings.index", tab="periods"))
-
-
-@settings_bp.route("/periods/seed", methods=["POST"])
-@login_required
-def seed_periods():
-    denied = _require("periods")
-    if denied:
-        return denied
-    AccountingPeriod.seed_current_year()
-    flash("Current fiscal year seeded.", "success")
     return redirect(url_for("settings.index", tab="periods"))
 
 

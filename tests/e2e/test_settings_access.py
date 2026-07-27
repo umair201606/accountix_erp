@@ -141,14 +141,13 @@ def test_employee_cannot_change_valuation_method(employee):
 
 # ── Financial periods ───────────────────────────────────────────────────────
 
-def test_employee_cannot_add_accounting_period(employee):
+def test_employee_cannot_change_fiscal_year_rule(employee):
     from shared.models.company_settings import AccountingPeriod
     with flask_app.app_context():
         before = AccountingPeriod.query.count()
 
-    employee.post("/settings/periods/add", data={"start_date": "2030-01-01",
-                                                 "end_date": "2030-12-31",
-                                                 "period_name": "Rogue FY"})
+    employee.post("/settings/periods/rule", data={"start_month": "7",
+                                                   "start_day": "1"})
 
     with flask_app.app_context():
         assert AccountingPeriod.query.count() == before
