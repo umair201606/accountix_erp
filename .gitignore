@@ -14,3 +14,5 @@ hr_app/uploads/
 .vercel/
 .env
 .env.local
+*.xlsx
+test_pl*

@@ -179,7 +179,7 @@ def _pl_rows(from_date, to_date):
     """
     settings = ReportSettings.get()
     detail = settings.pl_detail_rows or 10
-    movements = _period_movements(from_date, to_date, ["revenue", "expense"])
+    movements = _period_movements(from_date, to_date, ["revenue", "expense", "contra-expense"])
     accounts = {a.id: a for a in ChartOfAccount.query.filter(
         ChartOfAccount.type.in_(["revenue", "expense", "contra-expense"])).all()}
 
@@ -188,7 +188,10 @@ def _pl_rows(from_date, to_date):
         a = accounts.get(aid)
         if a is None:
             continue
-        contrib = cr - dr
+        if a.type == "expense":
+            contrib = dr - cr if cr > dr else cr - dr
+        else:
+            contrib = cr - dr
         if dr == 0 and cr == 0:
             continue
         section = a.effective_pl_section() or (

@@ -235,6 +235,9 @@
       <button type="submit" class="vbtn vbtn-s" onclick="return confirm('Approve this voucher?')">Approve</button>
     </form>
     <a href="{{ url_for('accounting.voucher_preview', id=v.id) }}" target="_blank" class="vbtn vbtn-o">Print</a>
+    <form method="POST" action="{{ url_for('accounting.delete_voucher', id=v.id) }}" style="display:inline" onsubmit="return confirm('Delete this voucher?')">
+      <button type="submit" class="vbtn vbtn-d">Delete</button>
+    </form>
     <a href="{{ url_for('accounting.voucher_list') }}" class="vbtn vbtn-g" style="pointer-events:none;">Cancel</a>
 
     {% elif v and not is_new and editable and edit_mode %}
