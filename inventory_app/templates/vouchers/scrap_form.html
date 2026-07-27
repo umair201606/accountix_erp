@@ -56,17 +56,21 @@
     </div>
   </div>
 
-  {% if not voucher or voucher.status != 'approved' %}
+  {% if not voucher %}
   <div class="form-actions">
     <button type="submit" class="btn btn-primary" onclick="this.form.status.value='unapproved'">Save as Unapproved</button>
     <button type="submit" class="btn btn-success" onclick="this.form.status.value='approved'">Save & Approve</button>
-    {% if voucher %}<a href="{{ url_for('inv_vouchers.voucher_preview', vtype='SCRAP', vid=voucher.id) }}" target="_blank" class="btn btn-outline">Print</a>{% endif %}
     <a href="{{ url_for('inv_vouchers.scrap_list') }}" class="btn btn-outline">Cancel</a>
   </div>
-  {% elif voucher %}
+  {% else %}
   <div class="form-actions">
+    <button type="submit" class="btn btn-primary" onclick="this.form.status.value='unapproved'">Edit</button>
+    {% if voucher.status != 'approved' %}
+    <button type="submit" class="btn btn-success" onclick="this.form.status.value='approved'">Approve</button>
+    {% endif %}
     <a href="{{ url_for('inv_vouchers.voucher_preview', vtype='SCRAP', vid=voucher.id) }}" target="_blank" class="btn btn-outline">Print</a>
-    <a href="{{ url_for('inv_vouchers.scrap_list') }}" class="btn btn-outline">Back</a>
+    <a href="{{ url_for('inv_vouchers.scrap_delete', id=voucher.id) }}" class="btn btn-danger" onclick="return confirm('Delete this scrap voucher?')">Delete</a>
+    <a href="{{ url_for('inv_vouchers.scrap_list') }}" class="btn btn-outline">Cancel</a>
   </div>
   {% endif %}
 </form>
@@ -127,5 +131,6 @@ document.addEventListener('DOMContentLoaded', function() {
   existing.forEach(function(el) { attachAutocomplete(el); });
   if (existing.length === 0) addRow({});
 });
+document.addEventListener('keydown',function(e){if((e.key==='ArrowUp'||e.key==='ArrowDown')&&e.target.type==='number'){e.preventDefault()}});
 </script>
 {% endblock %}

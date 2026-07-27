@@ -45,10 +45,19 @@
     </div>
   </div>
 
-  {% if not st or st.status != 'approved' %}
+  {% if not st %}
   <div class="form-actions">
     <button type="submit" class="btn btn-primary" onclick="this.form.status.value='in_progress'">Save as Unapproved</button>
     <button type="submit" class="btn btn-success" onclick="this.form.status.value='approved'">Approve & Create Adjustment</button>
+    <a href="{{ url_for('inv_vouchers.stock_take_list') }}" class="btn btn-outline">Cancel</a>
+  </div>
+  {% else %}
+  <div class="form-actions">
+    <button type="submit" class="btn btn-primary" onclick="this.form.status.value='in_progress'">Edit</button>
+    {% if st.status != 'approved' %}
+    <button type="submit" class="btn btn-success" onclick="this.form.status.value='approved'">Approve</button>
+    {% endif %}
+    <a href="{{ url_for('inv_vouchers.stock_take_delete', id=st.id) }}" class="btn btn-danger" onclick="return confirm('Delete this stock take voucher?')">Delete</a>
     <a href="{{ url_for('inv_vouchers.stock_take_list') }}" class="btn btn-outline">Cancel</a>
   </div>
   {% endif %}
@@ -121,5 +130,6 @@ document.addEventListener('DOMContentLoaded', function() {
   existing.forEach(function(el) { attachAutocomplete(el); });
   if (existing.length === 0) addRow({});
 });
+document.addEventListener('keydown',function(e){if((e.key==='ArrowUp'||e.key==='ArrowDown')&&e.target.type==='number'){e.preventDefault()}});
 </script>
 {% endblock %}

@@ -386,294 +386,258 @@ def validate_invoice(data):
 @inv_inv_bp.route("/save", methods=["POST"])
 @login_required
 def save_invoice():
-    data = request.get_json(force=True)
-    inv_id = data.get("id")
-    action = data.get("action", "save")
+    import traceback as _tb
+    try:
+        data = request.get_json(force=True)
+        inv_id = data.get("id")
+        action = data.get("action", "save")
 
-    denied = deny_json("sales_invoices",
+        denied = deny_json("sales_invoices",
                        "approve" if action == "approve" else ("edit" if inv_id else "create"))
-    if denied:
-        return denied
-
-    if inv_id:
-        inv = InvInvoice.query.get_or_404(inv_id)
-        if inv.voucher_status == "approved":
-            return jsonify({"ok": False, "error": "Cannot modify approved invoice"}), 400
-    else:
-        number = data.get("invoice_number") or next_voucher()
-        inv = InvInvoice(
-            voucher_number=number,
-            invoice_number=number,
-            created_by=current_user.id,
-        )
-        db.session.add(inv)
-
-    if action == "approve":
-        validation_errors = validate_invoice(data)
-        if validation_errors:
-            return jsonify({"ok": False, "error": "; ".join(validation_errors)}), 400
-        # §4.4: over-invoicing past an order's balance is blocked at save,
-        # beyond whatever tolerance the administrator allows (§11.2). Checked
-        # from the incoming rows so nothing is written before it is refused.
-        from types import SimpleNamespace
-        from shared.order_linkage import check_over_invoicing
-        over = check_over_invoicing("sales", [
-            SimpleNamespace(source_order_item_id=r.get("source_order_item_id"),
-                            quantity=float(r.get("quantity", 0) or 0))
-            for r in data.get("items", [])
-        ])
-        if over:
-            return jsonify({"ok": False,
-                            "error": "Over-invoicing blocked — " + "; ".join(over)}), 400
-
-    inv.customer_id = data.get("customer_id")
-    inv.party_account_id = data.get("party_account_id") or None
-    inv.sales_order_id = data.get("sales_order_id") or None
-    inv.due_date = datetime.strptime(data.get("due_date"), "%Y-%m-%d") if data.get("due_date") else None
-    inv.discount_mode = data.get("discount_mode", "general")
-    inv.charges_mode = data.get("charges_mode", "general")
-    inv.tax_mode = data.get("tax_mode", "general")
-
-    inv.global_discount_pct = float(data.get("global_discount_pct", 0))
-    inv.global_discount_value = float(data.get("global_discount_value", 0))
-    inv.global_delivery = float(data.get("global_delivery", 0))
-    inv.global_installation = float(data.get("global_installation", 0))
-    inv.global_sales_tax_pct = float(data.get("global_sales_tax_pct", 0))
-    inv.further_tax_pct = float(data.get("further_tax_pct", 0))
-    inv.apply_further_tax = bool(data.get("apply_further_tax", False))
-    inv.withholding_tax_pct = float(data.get("withholding_tax_pct", 0))
-    inv.apply_withholding_tax = bool(data.get("apply_withholding_tax", False))
-    inv.notes = data.get("notes", "")
-    inv.subtotal = float(data.get("subtotal", 0))
-    inv.total_discount = float(data.get("total_discount", 0))
-    inv.total_charges = float(data.get("total_charges", 0))
-    inv.total_tax = float(data.get("total_tax", 0))
-    inv.total_further_tax = float(data.get("total_further_tax", 0))
-    inv.total_withholding_tax = float(data.get("total_withholding_tax", 0))
-    inv.total_amount = float(data.get("total_amount", 0))
-
-    if action == "approve":
-        inv.voucher_status = "approved"
-        inv.approved_by = current_user.id
-        inv.approved_at = datetime.utcnow()
-    elif inv.voucher_status != "approved":
-        inv.voucher_status = "unapproved"
-
-    db.session.flush()
-
-    total_cogs = Decimal("0")
-    InvInvoiceItem.query.filter_by(invoice_id=inv.id).delete()
-    for row in data.get("items", []):
-        item = InvInvoiceItem(
-            invoice_id=inv.id,
-            product_id=row.get("product_id"),
-            description=row.get("description", ""),
-            quantity=float(row.get("quantity", 1)),
-            unit=row.get("unit", "pcs"),
-            unit_price=float(row.get("unit_price", 0)),
-            source_order_id=row.get("source_order_id") or None,
-            source_order_item_id=row.get("source_order_item_id") or None,
-            source_order_number=row.get("source_order_number", "") or "",
-            discount_pct=float(row.get("discount_pct", 0)),
-            discount_amount=float(row.get("discount_amount", 0)),
-            delivery=float(row.get("delivery", 0)),
-            installation=float(row.get("installation", 0)),
-            sales_tax_pct=float(row.get("sales_tax_pct", 0)),
-            total_before_discount=float(row.get("total_before_discount", 0)),
-            total_after_discount=float(row.get("total_after_discount", 0)),
-            comments=row.get("comments", ""),
-        )
-        db.session.add(item)
-
-        if action == "approve" and item.product_id:
-            prod = InvProduct.query.get(item.product_id)
-            if prod:
-                db.session.add(InvStockMovement(
-                    product_id=item.product_id, type="sale_out",
-                    quantity=item.quantity,
-                    reference_type="sales_invoice",
-                    reference_id=inv.id,
-                    notes=f"Approved invoice {inv.invoice_number}",
-                    created_by=current_user.id,
+        if denied:
+            return denied
+    
+        if inv_id:
+            inv = InvInvoice.query.get_or_404(inv_id)
+            if inv.voucher_status == "approved":
+                return jsonify({"ok": False, "error": "Cannot modify approved invoice"}), 400
+        else:
+            number = data.get("invoice_number")
+            if not number or number == "(auto)":
+                number = next_voucher()
+            inv = InvInvoice(
+                voucher_number=number,
+                invoice_number=number,
+                created_by=current_user.id,
+            )
+            db.session.add(inv)
+    
+        if action == "approve":
+            validation_errors = validate_invoice(data)
+            if validation_errors:
+                return jsonify({"ok": False, "error": "; ".join(validation_errors)}), 400
+            from types import SimpleNamespace
+            from shared.order_linkage import check_over_invoicing
+            over = check_over_invoicing("sales", [
+                SimpleNamespace(source_order_item_id=r.get("source_order_item_id"),
+                                quantity=float(r.get("quantity", 0) or 0))
+                for r in data.get("items", [])
+            ])
+            if over:
+                return jsonify({"ok": False,
+                                "error": "Over-invoicing blocked — " + "; ".join(over)}), 400
+    
+        inv.customer_id = data.get("customer_id")
+        inv.party_account_id = data.get("party_account_id") or None
+        inv.sales_order_id = data.get("sales_order_id") or None
+        inv.due_date = datetime.strptime(data.get("due_date"), "%Y-%m-%d") if data.get("due_date") else None
+        inv.discount_mode = data.get("discount_mode", "general")
+        inv.charges_mode = data.get("charges_mode", "general")
+        inv.tax_mode = data.get("tax_mode", "general")
+    
+        inv.global_discount_pct = float(data.get("global_discount_pct", 0))
+        inv.global_discount_value = float(data.get("global_discount_value", 0))
+        inv.global_delivery = float(data.get("global_delivery", 0))
+        inv.global_installation = float(data.get("global_installation", 0))
+        inv.global_sales_tax_pct = float(data.get("global_sales_tax_pct", 0))
+        inv.further_tax_pct = float(data.get("further_tax_pct", 0))
+        inv.apply_further_tax = bool(data.get("apply_further_tax", False))
+        inv.withholding_tax_pct = float(data.get("withholding_tax_pct", 0))
+        inv.apply_withholding_tax = bool(data.get("apply_withholding_tax", False))
+        inv.notes = data.get("notes", "")
+        inv.subtotal = float(data.get("subtotal", 0))
+        inv.total_discount = float(data.get("total_discount", 0))
+        inv.total_charges = float(data.get("total_charges", 0))
+        inv.total_tax = float(data.get("total_tax", 0))
+        inv.total_further_tax = float(data.get("total_further_tax", 0))
+        inv.total_withholding_tax = float(data.get("total_withholding_tax", 0))
+        inv.total_amount = float(data.get("total_amount", 0))
+    
+        if action == "approve":
+            inv.voucher_status = "approved"
+            inv.approved_by = current_user.id
+            inv.approved_at = datetime.utcnow()
+        elif inv.voucher_status != "approved":
+            inv.voucher_status = "unapproved"
+    
+        db.session.flush()
+    
+        total_cogs = Decimal("0")
+        InvInvoiceItem.query.filter_by(invoice_id=inv.id).delete()
+        for row in data.get("items", []):
+            item = InvInvoiceItem(
+                invoice_id=inv.id,
+                product_id=row.get("product_id"),
+                description=row.get("description", ""),
+                quantity=float(row.get("quantity", 1)),
+                unit=row.get("unit", "pcs"),
+                unit_price=float(row.get("unit_price", 0)),
+                source_order_id=row.get("source_order_id") or None,
+                source_order_item_id=row.get("source_order_item_id") or None,
+                source_order_number=row.get("source_order_number", "") or "",
+                discount_pct=float(row.get("discount_pct", 0)),
+                discount_amount=float(row.get("discount_amount", 0)),
+                delivery=float(row.get("delivery", 0)),
+                installation=float(row.get("installation", 0)),
+                sales_tax_pct=float(row.get("sales_tax_pct", 0)),
+                total_before_discount=float(row.get("total_before_discount", 0)),
+                total_after_discount=float(row.get("total_after_discount", 0)),
+                comments=row.get("comments", ""),
+            )
+            db.session.add(item)
+    
+            if action == "approve" and item.product_id:
+                prod = InvProduct.query.get(item.product_id)
+                if prod:
+                    db.session.add(InvStockMovement(
+                        product_id=item.product_id, type="sale_out",
+                        quantity=item.quantity,
+                        reference_type="sales_invoice",
+                        reference_id=inv.id,
+                        notes=f"Approved invoice {inv.invoice_number}",
+                        created_by=current_user.id,
+                    ))
+                    _unit, line_cogs = record_out(
+                        item.product_id, "SI", inv.id, inv.voucher_number,
+                        qty=item.quantity,
+                        notes=f"Sale {inv.invoice_number}",
+                        created_by=current_user.id)
+                    total_cogs += line_cogs
+    
+        if action == "approve":
+            from shared.order_linkage import apply_writeback
+            apply_writeback("sales", InvInvoiceItem.query.filter_by(invoice_id=inv.id).all())
+    
+        AdditionalCharge.query.filter_by(doc_type="SI", doc_id=inv.id).delete()
+        for chg in data.get("charges", []):
+            if float(chg.get("amount", 0)) > 0 and chg.get("charge_account_id"):
+                treatment = chg.get("treatment", "bill")
+                if treatment not in ("bill", "absorb", "expense"):
+                    treatment = "bill"
+                billed = treatment == "bill"
+                st = billed and bool(chg.get("st_taxable", chg.get("taxable", True)))
+                db.session.add(AdditionalCharge(
+                    doc_type="SI", doc_id=inv.id,
+                    charge_account_id=int(chg["charge_account_id"]),
+                    description=chg.get("description", ""),
+                    amount=float(chg["amount"]),
+                    scope=chg.get("scope", "general"),
+                    distribution=chg.get("distribution", "pro_rata_value"),
+                    manual_allocations=_manual_allocations(chg),
+                    treatment=treatment,
+                    st_taxable=st,
+                    wht_taxable=billed and bool(chg.get("wht_taxable", False)),
+                    extra_taxable=bool(chg.get("extra_taxable", False)),
+                    taxable=st,
+                    tax_base=chg.get("tax_base", "after_discount"),
                 ))
-                # Costing engine computes true historic COGS (weighted avg /
-                # FIFO across all purchase layers) at issue time.
-                _unit, line_cogs = record_out(
-                    item.product_id, "SI", inv.id, inv.voucher_number,
-                    qty=item.quantity,
-                    notes=f"Sale {inv.invoice_number}",
-                    created_by=current_user.id)
-                total_cogs += line_cogs
-
-    # §4.4: approving bills the source order lines — invoiced quantities rise
-    # and each order moves Open -> Partially invoiced -> Fully invoiced.
-    if action == "approve":
-        from shared.order_linkage import apply_writeback
-        apply_writeback("sales", InvInvoiceItem.query.filter_by(invoice_id=inv.id).all())
-
-    # Save additional charges
-    AdditionalCharge.query.filter_by(doc_type="SI", doc_id=inv.id).delete()
-    for chg in data.get("charges", []):
-        if float(chg.get("amount", 0)) > 0 and chg.get("charge_account_id"):
-            treatment = chg.get("treatment", "bill")
-            if treatment not in ("bill", "absorb", "expense"):
-                treatment = "bill"
-            # Only a billed charge can sit in a tax base — the other two are
-            # never invoiced to the customer, so they cannot be taxed to them.
-            billed = treatment == "bill"
-            st = billed and bool(chg.get("st_taxable", chg.get("taxable", True)))
-            db.session.add(AdditionalCharge(
-                doc_type="SI", doc_id=inv.id,
-                charge_account_id=int(chg["charge_account_id"]),
-                description=chg.get("description", ""),
-                amount=float(chg["amount"]),
-                scope=chg.get("scope", "general"),
-                distribution=chg.get("distribution", "pro_rata_value"),
-                manual_allocations=_manual_allocations(chg),
-                treatment=treatment,
-                st_taxable=st,
-                wht_taxable=billed and bool(chg.get("wht_taxable", False)),
-                extra_taxable=bool(chg.get("extra_taxable", False)),
-                # Legacy mirrors so pre-v3 readers still see something sane.
-                taxable=st,
-                tax_base=chg.get("tax_base", "after_discount"),
-            ))
-    db.session.flush()
-
-    # Re-derive the money from what was just persisted. The browser computes the
-    # same figures for display, but a posted journal must not depend on a
-    # client-supplied number — recompute, store, and post from the server value.
-    totals = _sales_totals(inv)
-    inv.total_charges = totals["billed"]
-    inv.total_tax = totals["sales_tax"]
-    inv.total_further_tax = totals["further_tax"]
-    inv.total_withholding_tax = totals["wht"]
-    inv.total_amount = totals["net_receivable"]
-
-    if action == "approve":
-        # Receivable posts to the customer's own subledger account (or an
-        # explicit override), so the customer's ledger carries the balance.
-        ar_acc = party_account("customer", inv.customer_id,
-                               inv.customer.name if inv.customer else None,
-                               inv.party_account_id)
-        rev_acc = posting_account("revenue")
-        cogs_acc = posting_account("cogs")
-        inv_acc = posting_account("inventory")
-        out_tax_acc = posting_account("sales_tax_payable")
-
-        # v3 §12. Revenue is stated at the full goods value; the discount is a
-        # contra-revenue debit rather than a netted-down credit, so both the
-        # gross sale and what was given away stay visible. Each billed charge
-        # is credited to the ledger account chosen for it instead of being
-        # buried in revenue, and each tax sits in its own liability.
-        #
-        #   Dr Receivable        net receivable (what the customer owes)
-        #   Dr WHT Receivable    tax the customer withholds and remits for us
-        #   Dr Discounts Allowed discount given
-        #        Cr Revenue                 subtotal + absorbed charges
-        #        Cr <charge account>        each billed charge
-        #        Cr Output Sales Tax        sales tax
-        #        Cr Further Tax Payable     further tax
-        t = totals
-        lines = [
-            {"account_id": ar_acc.id, "debit": t["net_receivable"], "credit": 0,
-             "description": f"AR - {inv.invoice_number}"},
-        ]
-        # §12.2 — revenue credits the account mapped to each line's product
-        # category. With nothing mapped this is one bucket against rev_acc, i.e.
-        # the single credit it has always been.
-        for account_id, amount in _revenue_splits(inv, t["effective_subtotal"]):
-            lines.append(
-                {"account_id": account_id or rev_acc.id, "debit": 0, "credit": amount,
-                 "description": f"Revenue - {inv.invoice_number}"},
-            )
-        if t["discount"] > 0:
-            disc_acc = ChartOfAccount.query.filter_by(code="4-02-02-01-0001").first() \
-                or posting_account("sales_returns")
-            lines.append(
-                {"account_id": disc_acc.id, "debit": t["discount"], "credit": 0,
-                 "description": f"Discount allowed - {inv.invoice_number}"},
-            )
-        for row in t["pools"]["billed_rows"]:
-            lines.append(
-                {"account_id": row.charge_account_id, "debit": 0,
-                 "credit": round(float(row.amount), 2),
-                 "description": f"{row.description or 'Charge'} - {inv.invoice_number}"},
-            )
-        if t["sales_tax"] > 0 and out_tax_acc:
-            # §12.2 — one credit per tax rate, so the sales-tax return is not
-            # left unpicking a single pooled balance.
-            for account_id, amount in _output_tax_splits(inv, t["sales_tax"]):
+        db.session.flush()
+    
+        totals = _sales_totals(inv)
+        inv.total_charges = totals["billed"]
+        inv.total_tax = totals["sales_tax"]
+        inv.total_further_tax = totals["further_tax"]
+        inv.total_withholding_tax = totals["wht"]
+        inv.total_amount = totals["net_receivable"]
+    
+        if action == "approve":
+            ar_acc = party_account("customer", inv.customer_id,
+                                   inv.customer.name if inv.customer else None,
+                                   inv.party_account_id)
+            rev_acc = posting_account("revenue")
+            cogs_acc = posting_account("cogs")
+            inv_acc = posting_account("inventory")
+            out_tax_acc = posting_account("sales_tax_payable")
+            t = totals
+            lines = [
+                {"account_id": ar_acc.id, "debit": t["net_receivable"], "credit": 0,
+                 "description": f"AR - {inv.invoice_number}"},
+            ]
+            for account_id, amount in _revenue_splits(inv, t["effective_subtotal"]):
                 lines.append(
-                    {"account_id": account_id or out_tax_acc.id, "debit": 0,
-                     "credit": amount,
-                     "description": f"Output Tax - {inv.invoice_number}"},
+                    {"account_id": account_id or rev_acc.id, "debit": 0, "credit": amount,
+                     "description": f"Revenue - {inv.invoice_number}"},
                 )
-        if t["further_tax"] > 0:
-            # Further tax is its own liability — netting it into Output Sales
-            # Tax would misstate both on the sales-tax return.
-            ft_acc = posting_account("further_tax_payable")
-            lines.append(
-                {"account_id": ft_acc.id, "debit": 0, "credit": t["further_tax"],
-                 "description": f"Further Tax - {inv.invoice_number}"},
+            if t["discount"] > 0:
+                disc_acc = ChartOfAccount.query.filter_by(code="4-02-02-01-0001").first() \
+                    or posting_account("sales_returns")
+                lines.append(
+                    {"account_id": disc_acc.id, "debit": t["discount"], "credit": 0,
+                     "description": f"Discount allowed - {inv.invoice_number}"},
+                )
+            for row in t["pools"]["billed_rows"]:
+                lines.append(
+                    {"account_id": row.charge_account_id, "debit": 0,
+                     "credit": round(float(row.amount), 2),
+                     "description": f"{row.description or 'Charge'} - {inv.invoice_number}"},
+                )
+            if t["sales_tax"] > 0 and out_tax_acc:
+                for account_id, amount in _output_tax_splits(inv, t["sales_tax"]):
+                    lines.append(
+                        {"account_id": account_id or out_tax_acc.id, "debit": 0,
+                         "credit": amount,
+                         "description": f"Output Tax - {inv.invoice_number}"},
+                    )
+            if t["further_tax"] > 0:
+                ft_acc = posting_account("further_tax_payable")
+                lines.append(
+                    {"account_id": ft_acc.id, "debit": 0, "credit": t["further_tax"],
+                     "description": f"Further Tax - {inv.invoice_number}"},
+                )
+            if t["wht"] > 0:
+                wht_recv_acct = ChartOfAccount.query.filter_by(code="1-01-05-02-0001").first()
+                if wht_recv_acct is None:
+                    from shared.ledger_utils import get_or_create_account
+                    wht_recv_acct = get_or_create_account(
+                        "1-01-05-02-0001", "WHT Receivable", "asset")
+                lines.append(
+                    {"account_id": wht_recv_acct.id, "debit": t["wht"], "credit": 0,
+                     "description": f"WHT Receivable - {inv.invoice_number}"},
+                )
+            for row in t["pools"]["expense_rows"]:
+                amt = round(float(row.amount), 2)
+                accrued_acc = posting_account("accrued")
+                lines.append(
+                    {"account_id": row.charge_account_id, "debit": amt, "credit": 0,
+                     "description": f"{row.description or 'Charge'} (absorbed cost) - {inv.invoice_number}"},
+                )
+                lines.append(
+                    {"account_id": accrued_acc.id, "debit": 0, "credit": amt,
+                     "description": f"{row.description or 'Charge'} accrued - {inv.invoice_number}"},
+                )
+            if total_cogs > 0 and cogs_acc and inv_acc:
+                lines.append(
+                    {"account_id": cogs_acc.id, "debit": float(total_cogs), "credit": 0,
+                     "description": f"COGS - {inv.invoice_number}"},
+                )
+                lines.append(
+                    {"account_id": inv_acc.id, "debit": 0, "credit": float(total_cogs),
+                     "description": f"Inventory - {inv.invoice_number}"},
+                )
+            post_journal_entry(
+                voucher_type="SI",
+                voucher_id=inv.id,
+                voucher_number=inv.voucher_number,
+                description=f"Sales Invoice {inv.invoice_number} - {inv.customer.name if inv.customer else ''}",
+                lines=lines,
+                entry_date=datetime.utcnow(),
+                created_by=current_user.id,
             )
-        if t["wht"] > 0:
-            # Withholding on a sale is tax the customer pays over on our behalf:
-            # an asset we reclaim, not a liability we owe.
-            wht_recv_acct = ChartOfAccount.query.filter_by(code="1-01-05-02-0001").first()
-            if wht_recv_acct is None:
-                from shared.ledger_utils import get_or_create_account
-                wht_recv_acct = get_or_create_account(
-                    "1-01-05-02-0001", "WHT Receivable", "asset")
-            lines.append(
-                {"account_id": wht_recv_acct.id, "debit": t["wht"], "credit": 0,
-                 "description": f"WHT Receivable - {inv.invoice_number}"},
-            )
-        # Charges we bear ourselves are never billed, so they cannot ride in the
-        # receivable — they are their own expense/accrual pair.
-        for row in t["pools"]["expense_rows"]:
-            amt = round(float(row.amount), 2)
-            accrued_acc = posting_account("accrued")
-            lines.append(
-                {"account_id": row.charge_account_id, "debit": amt, "credit": 0,
-                 "description": f"{row.description or 'Charge'} (absorbed cost) - {inv.invoice_number}"},
-            )
-            lines.append(
-                {"account_id": accrued_acc.id, "debit": 0, "credit": amt,
-                 "description": f"{row.description or 'Charge'} accrued - {inv.invoice_number}"},
-            )
-        # total_cogs accumulated above from the costing engine (historic cost
-        # of each item at issue time — not the static product cost_price).
-        if total_cogs > 0 and cogs_acc and inv_acc:
-            lines.append(
-                {"account_id": cogs_acc.id, "debit": float(total_cogs), "credit": 0,
-                 "description": f"COGS - {inv.invoice_number}"},
-            )
-            lines.append(
-                {"account_id": inv_acc.id, "debit": 0, "credit": float(total_cogs),
-                 "description": f"Inventory - {inv.invoice_number}"},
-            )
-        post_journal_entry(
-            voucher_type="SI",
-            voucher_id=inv.id,
-            voucher_number=inv.voucher_number,
-            description=f"Sales Invoice {inv.invoice_number} - {inv.customer.name if inv.customer else ''}",
-            lines=lines,
-            entry_date=datetime.utcnow(),
-            created_by=current_user.id,
-        )
-
-    db.session.commit()
-    if action == "approve":
-        msg = "approved and locked"
-    elif inv_id:
-        msg = "changes saved"
-    else:
-        msg = "saved"
-    return jsonify({"ok": True, "id": inv.id, "voucher_status": inv.voucher_status,
-                    "payment_status": inv.payment_status,
-                    "number": inv.invoice_number, "voucher": inv.voucher_number,
-                    "message": f"Invoice {msg}"})
+    
+        db.session.commit()
+        if action == "approve":
+            msg = "approved and locked"
+        elif inv_id:
+            msg = "changes saved"
+        else:
+            msg = "saved"
+        return jsonify({"ok": True, "id": inv.id, "voucher_status": inv.voucher_status,
+                        "payment_status": inv.payment_status,
+                        "number": inv.invoice_number, "voucher": inv.voucher_number,
+                        "message": f"Invoice {msg}"})
+    except Exception as e:
+        _tb.print_exc()
+        return jsonify({"ok": False, "error": f"Server error: {e}"}), 500
 
 
 @inv_inv_bp.route("/unapprove/<int:id>", methods=["POST"])

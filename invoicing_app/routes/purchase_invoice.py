@@ -406,7 +406,9 @@ def save_invoice():
         if inv.status == "approved":
             return jsonify({"ok": False, "error": "Cannot modify approved invoice"}), 400
     else:
-        number = data.get("invoice_number") or next_voucher()
+        number = data.get("invoice_number")
+        if not number or number == "(auto)":
+            number = next_voucher()
         inv = InvPurchaseInvoice(
             voucher_number=number,
             invoice_number=number,

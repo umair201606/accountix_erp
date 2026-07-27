@@ -11,7 +11,7 @@ from shared.ledger_utils import post_journal_entry, reverse_journal_entry
 from shared.permissions import VOUCHER_SECTION, deny_page
 
 acct_bp = Blueprint("accounting", __name__, url_prefix="/accounting",
-                     template_folder="../finance_app/templates")
+                     template_folder="../../finance_app/templates")
 
 VOUCHER_LABELS = {
     "CPV": "Cash Payment Voucher",
