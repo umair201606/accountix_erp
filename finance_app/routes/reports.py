@@ -890,8 +890,15 @@ def socie():
     rows = []
 
     from shared.coa import ROLE_CODES
-    re_code = ROLE_CODES.get("retained_earnings")
-    re_acct = ChartOfAccount.query.filter_by(code=re_code).first() if re_code else None
+    re_close_code = ROLE_CODES.get("retained_earnings")
+    re_open_code  = "3-02-01-01-0001"
+    div_code      = ROLE_CODES.get("dividends")
+    oci_code      = ROLE_CODES.get("other_comprehensive_income")
+    re_close_acct = ChartOfAccount.query.filter_by(code=re_close_code).first() if re_close_code else None
+    re_open_acct  = ChartOfAccount.query.filter_by(code=re_open_code).first() if re_open_code else None
+    div_acct      = ChartOfAccount.query.filter_by(code=div_code).first() if div_code else None
+    oci_acct      = ChartOfAccount.query.filter_by(code=oci_code).first() if oci_code else None
+    special_ids = {a.id for a in [re_close_acct, re_open_acct, div_acct, oci_acct] if a}
 
     for aid in sorted(accts):
         acct = accts[aid]
@@ -900,27 +907,33 @@ def socie():
         op = opening_balances.get(aid, Decimal("0"))
         cl = closing_balances.get(aid, Decimal("0"))
         mv = cl - op
-        if re_acct and aid == re_acct.id:
-            # Break Retained Earnings into sub-items so users see what drives
-            # the change: opening balance, net profit, dividends, closing.
-            re_opening = float(op)
+        if re_close_acct and aid == re_close_acct.id:
+            re_opening = float(opening_balances.get(re_open_acct.id, Decimal("0")) if re_open_acct else 0)
+            re_div_amount = float(closing_balances.get(div_acct.id, Decimal("0")) if div_acct else 0)
+            re_oci_amount = float(closing_balances.get(oci_acct.id, Decimal("0")) if oci_acct else 0)
             re_ni = float(ni)
-            re_dividends = 0.0  # placeholder — dividends not yet implemented
-            re_closing = float(op + mv + ni)
-            re_movement = re_ni + re_dividends
+            re_movement = re_ni - re_div_amount + re_oci_amount
+            re_closing = re_opening + re_movement
             rows.append({"name": "Retained Earnings", "kind": "re_head",
-                         "opening": re_opening, "movement": None, "closing": None})
+                         "opening": None, "movement": None, "closing": None})
+            rows.append({"name": "  Retained Earnings — Opening", "kind": "re_detail",
+                         "opening": re_opening, "movement": None, "closing": re_opening})
             if re_ni:
                 rows.append({"name": "  Net Profit / (Loss)", "kind": "re_detail",
-                             "opening": None, "movement": re_ni, "closing": None})
-            if re_dividends:
+                             "opening": None, "movement": re_ni, "closing": re_ni})
+            if re_div_amount:
                 rows.append({"name": "  Dividends", "kind": "re_detail",
-                             "opening": None, "movement": re_dividends, "closing": None})
+                             "opening": None, "movement": -re_div_amount, "closing": -re_div_amount})
+            if re_oci_amount:
+                rows.append({"name": "  Other Comprehensive Income", "kind": "re_detail",
+                             "opening": None, "movement": re_oci_amount, "closing": re_oci_amount})
             rows.append({"name": "  Total Retained Earnings", "kind": "re_total",
                          "opening": re_opening, "movement": re_movement,
                          "closing": re_closing})
-            opening_total += op
+            opening_total += Decimal(str(re_opening))
             movement_total += Decimal(str(re_movement))
+        elif aid in special_ids:
+            continue
         else:
             opening_total += op
             movement_total += mv
@@ -928,8 +941,8 @@ def socie():
                          "opening": float(op), "movement": float(mv),
                          "closing": float(op + mv)})
 
-    # Fallback: no Retained Earnings account → show Net Income as separate row.
-    if not re_acct:
+    # Fallback: no Retained Earnings closing account → show Net Income as separate row.
+    if not re_close_acct:
         rows.append({"name": "Net Income / (Loss)", "kind": "component",
                      "opening": 0, "movement": float(ni), "closing": float(ni)})
         movement_total += ni

@@ -25,7 +25,10 @@ POSTING_ACCOUNTS = {
     "cogs":              ("Cost of Goods Sold", "expense", ["5000", "511"]),
     "inventory_variance": ("Inventory Cost Variance", "expense", ["5900"]),
     "sales_returns":     ("Sales Returns — General", "revenue", ["4100"]),
-    "retained_earnings":  ("Retained Earnings", "equity", []),
+    "retained_earnings":          ("Retained Earnings — Closing", "equity", []),
+    "dividends":                  ("Dividends", "equity", []),
+    "other_comprehensive_income": ("Other Comprehensive Income", "equity", []),
+    "suspense_equity":            ("Suspense Equity", "equity", []),
     "accumulated_depreciation": ("Accumulated Depreciation — General", "asset", []),
     "depreciation_expense": ("Depreciation Expense", "expense", ["5700"]),
 }

@@ -145,7 +145,7 @@ a:hover{text-decoration:underline;}
 table{width:100%;border-collapse:collapse;font-size:13px;background:#fff;}
 th{background:var(--ledger-dim);padding:10px 14px;text-align:left;font-weight:600;color:var(--ink);font-size:11px;white-space:nowrap;border-bottom:1px solid var(--line);letter-spacing:0.03em;}
 td{padding:10px 14px;border-top:1px solid var(--line);}
-tr:hover td{background:var(--amber-dim);}
+
 
 /* ── Forms ── */
 .form-group{margin-bottom:14px;}
