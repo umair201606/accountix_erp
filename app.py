@@ -403,6 +403,10 @@ def _migrate_schema(db):
         ("invoice_settings", "per_line_discount_enabled", "BOOLEAN DEFAULT 1"),
         ("invoice_settings", "per_line_tax_enabled", "BOOLEAN DEFAULT 1"),
         ("company_info", "number_format", "VARCHAR(10) DEFAULT 'en'"),
+        # Fixed Assets Management module columns
+        ("fixed_assets", "fixed_asset_account_id", "INTEGER"),
+        ("fixed_assets", "accum_dep_account_id", "INTEGER"),
+        ("fixed_assets", "dep_expense_account_id", "INTEGER"),
     ]
 
     inspector = inspect(engine)
@@ -668,7 +672,7 @@ def _seed_all_data(app):
         from fixed_assets_app.models.asset import AssetCategory as FAssetCat
         FAssetCat.seed()
 
-        for prefix in ["PI", "PR", "CONS", "SCRAP", "ADJ", "ST", "CPV", "CRV", "BPV", "BRV", "JV", "PRL"]:
+        for prefix in ["PI", "PR", "CONS", "SCRAP", "ADJ", "ST", "CPV", "CRV", "BPV", "BRV", "JV", "PRL", "FA-TRF", "INV-FA"]:
             if not VoucherNumber.query.filter_by(prefix=prefix).first():
                 db.session.add(VoucherNumber(prefix=prefix, next_number=1))
 
@@ -695,6 +699,10 @@ def _seed_all_data(app):
             for u in User.query.all():
                 if u.is_admin():
                     u.has_fbr_access = True
+
+        if not User.query.filter_by(has_fixed_assets_access=True).first():
+            for u in User.query.all():
+                u.has_fixed_assets_access = bool(u.is_admin() or u.is_manager())
 
         seed_users = [
             # Built-in system administrator — always present, hidden from the HR

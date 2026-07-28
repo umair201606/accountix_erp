@@ -1,0 +1,97 @@
+{% extends "layouts/base_inv.html" %}
+{% block title %}{{ 'Edit' if transfer else 'New' }} Transfer to FA{% endblock %}
+{% block page_title %}{{ 'Edit' if transfer else 'New' }} Transfer to Fixed Assets{% endblock %}
+{% block content %}
+<div class="card" style="max-width:720px;">
+  <div class="card-body">
+    <p class="text-muted">Select an inventory product to capitalise as a fixed asset. A per-asset level-5 subledger will be created under Fixed Assets.</p>
+    <form method="POST">
+      <select name="status" class="form-control" style="display:none;">
+        <option value="unapproved">Unapproved</option>
+        <option value="approved">Approved</option>
+      </select>
+      <div class="form-group">
+        <label class="form-label">Select Product</label>
+        <select name="product_id" class="form-control" id="product-select" {{ 'disabled' if transfer else '' }}>
+          <option value="">— Select Product —</option>
+          {% for p in products %}
+          <option value="{{ p.id }}" {{ 'selected' if transfer and transfer.source_product_id == p.id }}
+            data-cost="{{ p.cost_price or p.unit_price or 0 }}" data-name="{{ p.name }}">
+            {{ p.sku }} — {{ p.name }} (Stock: {{ p.current_stock }})
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+      <hr>
+      <div class="form-group">
+        <label class="form-label">Asset Name *</label>
+        <input type="text" name="name" class="form-control" id="asset-name" value="{{ asset.name if asset else '' }}" {{ 'readonly' if transfer else '' }}>
+      </div>
+      <div class="form-row" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+        <div class="form-group">
+          <label class="form-label">Category *</label>
+          <select name="category_id" class="form-control" required>
+            <option value="">Select category</option>
+            {% for c in categories %}
+            <option value="{{ c.id }}" {{ 'selected' if asset and asset.category_id == c.id }}>{{ c.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Purchase Date *</label>
+          <input type="date" name="purchase_date" class="form-control" value="{{ asset.purchase_date if asset else '' }}" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Cost *</label>
+          <input type="number" step="0.01" name="purchase_cost" class="form-control" id="purchase-cost" value="{{ asset.purchase_cost if asset else '0' }}" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Useful Life (years) *</label>
+          <input type="number" name="useful_life" class="form-control" value="{{ asset.useful_life if asset else '5' }}" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Depreciation Method</label>
+          <select name="depreciation_method" class="form-control">
+            <option value="straight_line" {{ 'selected' if asset and asset.depreciation_method == 'straight_line' }}>Straight Line</option>
+            <option value="declining_balance" {{ 'selected' if asset and asset.depreciation_method == 'declining_balance' }}>Declining Balance</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Salvage Value</label>
+          <input type="number" step="0.01" name="salvage_value" class="form-control" value="{{ asset.salvage_value if asset else '0' }}">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Location</label>
+          <input type="text" name="location" class="form-control" value="{{ asset.location if asset else '' }}">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Serial Number</label>
+          <input type="text" name="serial_number" class="form-control" value="{{ asset.serial_number if asset else '' }}">
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Description</label>
+        <textarea name="description" class="form-control" rows="2">{{ transfer.description if transfer else '' }}</textarea>
+      </div>
+      <div class="form-actions">
+        {% if not transfer or transfer.status != 'approved' %}
+        <button type="submit" class="btn btn-primary" onclick="this.form.status.value='unapproved'">{{ 'Update' if transfer else 'Save as Unapproved' }}</button>
+        <button type="submit" class="btn btn-success" onclick="this.form.status.value='approved'">{{ 'Save & Approve' if not transfer else 'Approve' }}</button>
+        {% endif %}
+        <a href="{{ url_for('inv_transfers.list_transfers') }}" class="btn btn-outline">Cancel</a>
+      </div>
+    </form>
+  </div>
+</div>
+{% if not transfer %}
+<script>
+  document.getElementById('product-select').addEventListener('change', function() {
+    var opt = this.options[this.selectedIndex];
+    if (opt && opt.value) {
+      document.getElementById('asset-name').value = opt.getAttribute('data-name');
+      document.getElementById('purchase-cost').value = parseFloat(opt.getAttribute('data-cost') || 0).toFixed(2);
+    }
+  });
+</script>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,50 @@
+{% extends "fixed_assets/layouts/base.html" %}
+{% block title %}Post Depreciation{% endblock %}
+{% block page_title %}Post Monthly Depreciation{% endblock %}
+{% block content %}
+{% if due %}
+<form method="POST" action="{{ url_for('fa_dep.post_depreciation') }}">
+  <input type="hidden" name="entry_date" value="{{ as_of }}">
+  <div class="card">
+    <div class="card-body">
+      <p>Depreciation due as of <strong>{{ as_of }}</strong>. Select assets to post.</p>
+      <table class="table">
+        <thead><tr><th><input type="checkbox" id="select-all" checked></th><th>Asset</th><th>Code</th><th>Purchase Cost</th><th>Accum. Dep</th><th>Book Value</th><th>Months Due</th><th>Amount</th></tr></thead>
+        <tbody>
+          {% for d in due %}
+          <tr>
+            <td><input type="checkbox" name="asset_ids[]" value="{{ d.asset.id }}" checked></td>
+            <td><a href="{{ url_for('fa_assets.view_asset', asset_id=d.asset.id) }}">{{ d.asset.name }}</a></td>
+            <td>{{ d.asset.asset_code }}</td>
+            <td>{{ "{:,.0f}".format(d.asset.purchase_cost) }}</td>
+            <td>{{ "{:,.0f}".format(d.asset.accumulated_depreciation) }}</td>
+            <td>{{ "{:,.0f}".format(d.asset.current_book_value) }}</td>
+            <td>{{ d.months }}</td>
+            <td><strong>{{ "{:,.0f}".format(d.amount) }}</strong></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div class="card-footer">
+      <button type="submit" class="btn btn-success">Post Selected Depreciation</button>
+      <a href="{{ url_for('fa_auth.dashboard') }}" class="btn btn-outline">Cancel</a>
+    </div>
+  </div>
+</form>
+<script>
+  document.getElementById('select-all').addEventListener('change', function() {
+    document.querySelectorAll('input[name="asset_ids[]"]').forEach(function(cb) {
+      cb.checked = this.checked;
+    }, this);
+  });
+</script>
+{% else %}
+<div class="card">
+  <div class="card-body">
+    <p class="text-muted">No depreciation is due as of {{ as_of }}. All active assets are up to date.</p>
+    <a href="{{ url_for('fa_auth.dashboard') }}" class="btn btn-outline">Back to Dashboard</a>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

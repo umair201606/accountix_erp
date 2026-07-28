@@ -4,6 +4,7 @@
 {% block actions %}
 <a href="{{ url_for('fa_assets.edit_asset', asset_id=asset.id) }}" class="btn btn-primary">Edit</a>
 {% if asset.status == 'active' %}
+<a href="{{ url_for('fa_transfers.create_transfer', asset_id=asset.id) }}" class="btn btn-secondary">Transfer to Inventory</a>
 <button class="btn btn-danger" onclick="if(confirm('Dispose this asset?'))document.getElementById('dispose-form').submit()">Dispose</button>
 {% endif %}
 {% endblock %}

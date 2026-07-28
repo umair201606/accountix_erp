@@ -174,6 +174,8 @@ NAV = {
                  "active": {"exact": ["inv_vouchers.adjustment_list", "inv_vouchers.adjustment_form"]}},
                 {"endpoint": "inv_vouchers.stock_take_list", "icon": "&#9632;", "label": "Stock Taking",
                  "active": {"exact": ["inv_vouchers.stock_take_list", "inv_vouchers.stock_take_form"]}},
+                {"endpoint": "inv_transfers.list_transfers", "icon": "&#9632;", "label": "Transfer to FA",
+                 "active": {"prefix": "inv_transfers."}},
             ]),
             ("Reports", "&#128202;", [
                 {"endpoint": "inv_reports.stock_ledger_report", "icon": "&#9632;", "label": "Stock Ledger"},
@@ -252,6 +254,10 @@ NAV = {
             ("Assets", "&#128230;", [
                 {"endpoint": "fa_assets.list_assets", "icon": "&#9632;", "label": "All Assets",
                  "active": {"prefix": "fa_assets."}},
+                {"endpoint": "fa_transfers.list_transfers", "icon": "&#9632;", "label": "Transfer to Stock",
+                 "active": {"prefix": "fa_transfers."}},
+                {"endpoint": "fa_dep.index", "icon": "&#9632;", "label": "Depreciation",
+                 "active": {"prefix": "fa_dep."}},
                 {"endpoint": "fa_categories.list_categories", "icon": "&#9632;", "label": "Categories",
                  "active": {"prefix": "fa_categories."}},
             ]),

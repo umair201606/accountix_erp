@@ -12,7 +12,9 @@ fa_reports_bp = Blueprint("fa_reports", __name__, url_prefix="/fixed-assets/repo
 def index():
     if not current_user.module_access("fixed_assets"):
         return render_template("access_denied.html")
-    assets = FixedAsset.query.filter_by(is_active=True).order_by(AssetCategory.name, FixedAsset.name).all()
+    assets = FixedAsset.query.filter_by(is_active=True)\
+        .join(AssetCategory, AssetCategory.id == FixedAsset.category_id)\
+        .order_by(AssetCategory.name, FixedAsset.name).all()
     total_cost = sum(a.purchase_cost for a in assets)
     total_dep = sum(a.accumulated_depreciation for a in assets)
     category_summary = {}

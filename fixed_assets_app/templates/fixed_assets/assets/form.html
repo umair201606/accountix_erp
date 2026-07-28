@@ -65,6 +65,38 @@
           <input type="text" name="serial_number" class="form-control" value="{{ asset.serial_number if asset else '' }}">
         </div>
       </div>
+      {% if accounts %}
+      <hr><h4>Chart of Accounts Mapping</h4>
+      <div class="form-row" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;">
+        <div class="form-group">
+          <label class="form-label">Fixed Asset Account</label>
+          <select name="fixed_asset_account_id" class="form-control">
+            <option value="">Default (Fixed Assets — General)</option>
+            {% for a in accounts %}
+            <option value="{{ a.id }}" {{ 'selected' if asset and asset.fixed_asset_account_id == a.id }}>{{ a.code }} {{ a.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Accum. Depreciation Account</label>
+          <select name="accum_dep_account_id" class="form-control">
+            <option value="">Default (Accumulated Depreciation — General)</option>
+            {% for a in accounts %}
+            <option value="{{ a.id }}" {{ 'selected' if asset and asset.accum_dep_account_id == a.id }}>{{ a.code }} {{ a.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Depreciation Expense Account</label>
+          <select name="dep_expense_account_id" class="form-control">
+            <option value="">Default (Depreciation Expense)</option>
+            {% for a in accounts %}
+            <option value="{{ a.id }}" {{ 'selected' if asset and asset.dep_expense_account_id == a.id }}>{{ a.code }} {{ a.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+      {% endif %}
       {% if asset %}
       <div class="form-group">
         <label class="form-label">Status</label>

@@ -25,6 +25,9 @@ POSTING_ACCOUNTS = {
     "cogs":              ("Cost of Goods Sold", "expense", ["5000", "511"]),
     "inventory_variance": ("Inventory Cost Variance", "expense", ["5900"]),
     "sales_returns":     ("Sales Returns — General", "revenue", ["4100"]),
+    "retained_earnings":  ("Retained Earnings", "equity", []),
+    "accumulated_depreciation": ("Accumulated Depreciation — General", "asset", []),
+    "depreciation_expense": ("Depreciation Expense", "expense", ["5700"]),
 }
 
 
@@ -201,6 +204,18 @@ def create_entity_account(kind, entity_id, name):
     elif acct.name != name:
         acct.name = name
     return acct
+
+
+def create_fixed_asset_accounts(asset, asset_name):
+    """Create (or fetch) the level-5 subledger accounts for a fixed asset.
+
+    Returns (fixed_asset_acct, accum_dep_acct) — the asset's own posting
+    accounts under the Fixed Assets and Accumulated Depreciation level-4 heads.
+    """
+    fa_acct = create_entity_account("fixed_asset", asset.id, asset_name)
+    accum_acct = create_entity_account("accum_dep", asset.id,
+                                       f"Accum. Dep. — {asset_name}")
+    return fa_acct, accum_acct
 
 
 def party_account(kind, entity_id, name, override_account_id=None):

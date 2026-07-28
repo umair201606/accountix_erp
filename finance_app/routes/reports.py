@@ -876,21 +876,44 @@ def socie():
                                filter_mode="", from_str="", to_str="",
                                now=datetime.utcnow())
 
+    cutoff = from_date - timedelta(days=1)
     ni = _net_income(to_date)
-    eq_balances = _all_account_balances(to_date, ["equity"])
+
+    opening_balances = {b.account_id: b.cr - b.dr
+                        for b in _all_account_balances(cutoff, ["equity"])}
+    closing_balances = {b.account_id: b.cr - b.dr
+                        for b in _all_account_balances(to_date, ["equity"])}
+    accts = {a.id: a for a in ChartOfAccount.query.filter_by(type="equity").all()}
 
     opening_total = Decimal("0")
     movement_total = Decimal("0")
     rows = []
 
-    for b in eq_balances:
-        bal = b.cr - b.dr
-        rows.append({"name": b.name, "opening": float(bal), "movement": 0, "closing": float(bal)})
-        opening_total += bal
-        closing_total = opening_total
-    rows.append({"name": "Net Income / (Loss)", "opening": 0,
-                 "movement": float(ni), "closing": float(ni)})
-    movement_total += Decimal(str(ni))
+    from shared.coa import ROLE_CODES
+    re_code = ROLE_CODES.get("retained_earnings")
+    re_acct = ChartOfAccount.query.filter_by(code=re_code).first() if re_code else None
+
+    for aid in sorted(accts):
+        acct = accts[aid]
+        if not acct.is_postable:
+            continue
+        op = opening_balances.get(aid, Decimal("0"))
+        cl = closing_balances.get(aid, Decimal("0"))
+        mv = cl - op
+        if re_acct and aid == re_acct.id:
+            mv += ni
+        opening_total += op
+        movement_total += mv
+        rows.append({"name": acct.name, "opening": float(op),
+                     "movement": float(mv), "closing": float(op + mv)})
+
+    # If no Retained Earnings account exists, show Net Income as a separate row
+    # so it remains visible in total equity.
+    if not re_acct:
+        rows.append({"name": "Net Income / (Loss)", "opening": 0,
+                     "movement": float(ni), "closing": float(ni)})
+        movement_total += ni
+
     closing_total = opening_total + movement_total
 
     fmt = request.args.get("format")

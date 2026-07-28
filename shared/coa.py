@@ -205,6 +205,9 @@ ROLE_CODES = {
     "cogs":              "5-01-01-01-0001",
     "inventory_variance": "5-01-02-01-0004",
     "sales_returns":     "4-02-01-01-0001",
+    "retained_earnings": "3-02-01-01-0001",
+    "accumulated_depreciation": "1-02-02-01-0001",
+    "depreciation_expense": "5-02-04-01-0001",
 }
 
 # Entity subledger kinds -> level-4 parent code. Entity accounts are level-5
@@ -215,6 +218,8 @@ ENTITY_PARENT_CODES = {
     "product":  "1-01-04-01",   # Trading Goods Stock
     "employee": "2-01-02-01",   # Employee Payables
     "loan":     "1-01-03-01",   # Employee Loans & Advances
+    "fixed_asset": "1-02-01-01", # Property, Plant & Equipment — Owned Assets
+    "accum_dep":  "1-02-02-01", # Accumulated Depreciation
 }
 ENTITY_ID_OFFSET = 100
 
