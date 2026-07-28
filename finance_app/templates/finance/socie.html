@@ -23,11 +23,11 @@
       <thead><tr><th>Component</th><th class="num">Opening Balance</th><th class="num">Movement</th><th class="num">Closing Balance</th></tr></thead>
       <tbody>
         {% for r in rows %}
-        <tr>
-          <td>{{ r.name }}</td>
-          <td class="num">{{ r.opening|amount_format }}</td>
-          <td class="num {% if r.movement < 0 %}text-red-600{% elif r.movement > 0 %}text-green-600{% endif %}">{{ r.movement|amount_format }}</td>
-          <td class="num">{{ r.closing|amount_format }}</td>
+        <tr class="{% if r.kind == 're_total' or r.kind == 'component' %}font-semibold{% endif %}">
+          <td style="{% if r.kind == 're_detail' %}padding-left:28px;{% elif r.kind == 're_total' %}padding-left:14px;{% endif %}">{% if r.kind == 're_detail' %}<span class="text-slate-500">{{ r.name }}</span>{% elif r.kind == 're_total' %}<span class="text-slate-600">{{ r.name }}</span>{% else %}{{ r.name }}{% endif %}</td>
+          <td class="num">{{ r.opening|amount_format if r.opening is not none else '—' }}</td>
+          <td class="num{% if r.movement is not none and r.movement < 0 %} text-red-600{% elif r.movement is not none and r.movement > 0 %} text-green-600{% endif %}">{{ r.movement|amount_format if r.movement is not none else '—' }}</td>
+          <td class="num">{{ r.closing|amount_format if r.closing is not none else '—' }}</td>
         </tr>
         {% endfor %}
       </tbody>

@@ -901,17 +901,37 @@ def socie():
         cl = closing_balances.get(aid, Decimal("0"))
         mv = cl - op
         if re_acct and aid == re_acct.id:
-            mv += ni
-        opening_total += op
-        movement_total += mv
-        rows.append({"name": acct.name, "opening": float(op),
-                     "movement": float(mv), "closing": float(op + mv)})
+            # Break Retained Earnings into sub-items so users see what drives
+            # the change: opening balance, net profit, dividends, closing.
+            re_opening = float(op)
+            re_ni = float(ni)
+            re_dividends = 0.0  # placeholder — dividends not yet implemented
+            re_closing = float(op + mv + ni)
+            re_movement = re_ni + re_dividends
+            rows.append({"name": "Retained Earnings", "kind": "re_head",
+                         "opening": re_opening, "movement": None, "closing": None})
+            if re_ni:
+                rows.append({"name": "  Net Profit / (Loss)", "kind": "re_detail",
+                             "opening": None, "movement": re_ni, "closing": None})
+            if re_dividends:
+                rows.append({"name": "  Dividends", "kind": "re_detail",
+                             "opening": None, "movement": re_dividends, "closing": None})
+            rows.append({"name": "  Total Retained Earnings", "kind": "re_total",
+                         "opening": re_opening, "movement": re_movement,
+                         "closing": re_closing})
+            opening_total += op
+            movement_total += Decimal(str(re_movement))
+        else:
+            opening_total += op
+            movement_total += mv
+            rows.append({"name": acct.name, "kind": "component",
+                         "opening": float(op), "movement": float(mv),
+                         "closing": float(op + mv)})
 
-    # If no Retained Earnings account exists, show Net Income as a separate row
-    # so it remains visible in total equity.
+    # Fallback: no Retained Earnings account → show Net Income as separate row.
     if not re_acct:
-        rows.append({"name": "Net Income / (Loss)", "opening": 0,
-                     "movement": float(ni), "closing": float(ni)})
+        rows.append({"name": "Net Income / (Loss)", "kind": "component",
+                     "opening": 0, "movement": float(ni), "closing": float(ni)})
         movement_total += ni
 
     closing_total = opening_total + movement_total
@@ -927,8 +947,11 @@ def socie():
 
     if fmt == "pdf":
         headers = ["Component", "Opening", "Movement", "Closing"]
-        data = [[r["name"], f"{r['opening']:,.2f}", f"{r['movement']:,.2f}",
-                 f"{r['closing']:,.2f}"] for r in rows]
+        data = [[r["name"],
+                 f"{r['opening']:,.2f}" if r['opening'] is not None else "",
+                 f"{r['movement']:,.2f}" if r['movement'] is not None else "",
+                 f"{r['closing']:,.2f}" if r['closing'] is not None else ""]
+                for r in rows]
         data.append(["TOTAL", f"{float(opening_total):,.2f}", f"{float(movement_total):,.2f}",
                      f"{float(closing_total):,.2f}"])
         pdf_out = _build_pdf_landscape(f"SOCIE ({from_date} to {to_date})", headers, data, [60, 30, 30, 30])
