@@ -29,7 +29,7 @@
             <span class="badge {% if p.current_stock <= p.reorder_level and p.reorder_level > 0 %}badge-danger{% else %}badge-success{% endif %}">{{ p.current_stock }}</span>
           </td>
           <td>{{ p.reorder_level }}</td>
-          <td>{{ "%.2f"|format(p.current_stock * p.cost_price) }}</td>
+          <td>{{ p.current_stock * p.cost_price|amount_format(0) }}</td>
           <td>
             {% if p.current_stock <= p.reorder_level and p.reorder_level > 0 %}
             <span class="badge badge-danger">Low Stock</span>

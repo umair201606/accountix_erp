@@ -64,6 +64,12 @@ MODULE_META = {
         "badge_bg": "#f1f5f9", "badge_fg": "#475569",
         "home": "settings.index",
     },
+    "fixed_assets": {
+        "label": "Solarkon Fixed Assets", "badge": "FA", "letter": "F",
+        "brand": "linear-gradient(135deg,#b91c1c,#dc2626)",
+        "badge_bg": "#fef2f2", "badge_fg": "#b91c1c",
+        "home": "fa_auth.dashboard",
+    },
 }
 
 
@@ -238,6 +244,23 @@ NAV = {
         ],
     },
     "settings": {"flat": [], "groups": []},
+    "fixed_assets": {
+        "flat": [
+            {"endpoint": "fa_auth.dashboard", "icon": "&#9679;", "label": "Dashboard"},
+        ],
+        "groups": [
+            ("Assets", "&#128230;", [
+                {"endpoint": "fa_assets.list_assets", "icon": "&#9632;", "label": "All Assets",
+                 "active": {"prefix": "fa_assets."}},
+                {"endpoint": "fa_categories.list_categories", "icon": "&#9632;", "label": "Categories",
+                 "active": {"prefix": "fa_categories."}},
+            ]),
+            ("Reports", "&#128202;", [
+                {"endpoint": "fa_reports.index", "icon": "&#9632;", "label": "Asset Reports",
+                 "active": {"prefix": "fa_reports."}},
+            ]),
+        ],
+    },
 }
 
 

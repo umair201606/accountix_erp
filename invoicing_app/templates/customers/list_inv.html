@@ -29,7 +29,7 @@
           <td>{{ c.phone or '-' }}</td>
           <td>{{ c.email or '-' }}</td>
           <td>{{ c.city or '-' }}</td>
-          <td>{{ "%.2f"|format(c.credit_limit) }}</td>
+          <td>{{ c.credit_limit|amount_format(0) }}</td>
           <td>{{ c.sales_orders.count() }}</td>
           <td><span class="badge {% if c.is_active %}badge-success{% else %}badge-secondary{% endif %}">{{ 'Active' if c.is_active else 'Inactive' }}</span></td>
           <td class="actions">

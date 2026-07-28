@@ -33,12 +33,12 @@
           <td>{{ inv.customer.name }}</td>
           <td>{{ inv.created_at.strftime('%Y-%m-%d') }}</td>
           <td>{{ inv.due_date.strftime('%Y-%m-%d') if inv.due_date else '-' }}</td>
-          <td>{{ "%.2f"|format(inv.subtotal or 0) }}</td>
-          <td>{{ "%.2f"|format(inv.total_tax or 0) }}</td>
-          <td>{{ "%.2f"|format(inv.total_further_tax or 0) }}</td>
-          <td>{{ "%.2f"|format(inv.total_withholding_tax or 0) }}</td>
-          <td><strong>{{ "%.2f"|format(inv.total_amount or 0) }}</strong></td>
-          <td>{{ "%.2f"|format(inv.paid_amount or 0) }}</td>
+          <td>{{ inv.subtotal or 0|amount_format(0) }}</td>
+          <td>{{ inv.total_tax or 0|amount_format(0) }}</td>
+          <td>{{ inv.total_further_tax or 0|amount_format(0) }}</td>
+          <td>{{ inv.total_withholding_tax or 0|amount_format(0) }}</td>
+          <td><strong>{{ inv.total_amount or 0|amount_format(0) }}</strong></td>
+          <td>{{ inv.paid_amount or 0|amount_format(0) }}</td>
           <td>
             {% set vs = inv.voucher_status or 'unapproved' %}
             {% set ps = inv.payment_status or 'unpaid' %}

@@ -24,9 +24,9 @@
                 <tr>
                     <td>{{ c.user.full_name }}</td>
                     <td>{{ c.month }}/{{ c.year }}</td>
-                    <td>Rs. {{ c.employee_amount|round|int }}</td>
-                    <td>Rs. {{ c.employer_amount|round|int }}</td>
-                    <td><strong>Rs. {{ c.total_amount|round|int }}</strong></td>
+                    <td>Rs. {{ c.employee_amount|amount_format(0) }}</td>
+                    <td>Rs. {{ c.employer_amount|amount_format(0) }}</td>
+                    <td><strong>Rs. {{ c.total_amount|amount_format(0) }}</strong></td>
                 </tr>
                 {% else %}<tr><td colspan="5" class="text-center" style="color:var(--muted);">No contributions yet</td></tr>{% endfor %}
             </tbody>
@@ -43,7 +43,7 @@
                 {% for w in withdrawals if w.status == 'pending' %}
                 <tr>
                     <td>{{ w.user.full_name }}</td>
-                    <td>Rs. {{ w.amount|round|int }}</td>
+                    <td>Rs. {{ w.amount|amount_format(0) }}</td>
                     <td>{{ w.reason[:40] }}</td>
                     <td>
                         <form method="POST" action="{{ url_for('pf.approve_withdrawal', wid=w.id) }}" style="display:inline;">
@@ -66,9 +66,9 @@
                 {% for l in loans if l.status == 'pending' %}
                 <tr>
                     <td>{{ l.user.full_name }}</td>
-                    <td>Rs. {{ l.amount|round|int }}</td>
+                    <td>Rs. {{ l.amount|amount_format(0) }}</td>
                     <td>{{ l.installment_months }}</td>
-                    <td>Rs. {{ l.monthly_installment|round|int }}</td>
+                    <td>Rs. {{ l.monthly_installment|amount_format(0) }}</td>
                     <td>{{ l.purpose[:30] }}</td>
                     <td>
                         <form method="POST" action="{{ url_for('pf.approve_loan', lid=l.id) }}" style="display:inline;">

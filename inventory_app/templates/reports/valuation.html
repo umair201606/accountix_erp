@@ -13,15 +13,15 @@
           <td>{{ r.sku }}</td>
           <td>{{ r.name }}</td>
           <td>{{ r.qty }} {{ r.unit }}</td>
-          <td>{{ "%.4f"|format(r.avg_cost) }}</td>
-          <td>{{ "%.2f"|format(r.value) }}</td>
+          <td>{{ r.avg_cost|amount_format(0) }}</td>
+          <td>{{ r.value|amount_format(0) }}</td>
         </tr>
         {% endfor %}
       </tbody>
       <tfoot>
         <tr style="font-weight:600;background:#f9fafb;">
           <td colspan="4" style="text-align:right;">Total Value:</td>
-          <td>{{ "%.2f"|format(total_val) }}</td>
+          <td>{{ total_val|amount_format(0) }}</td>
         </tr>
       </tfoot>
     </table>

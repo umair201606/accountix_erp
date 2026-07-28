@@ -32,11 +32,11 @@
           {% if row.kind == 'header' %}
         <tr class="sec-head"><td colspan="3">{{ row.label }}</td></tr>
           {% elif row.kind == 'account' %}
-        <tr><td class="mono">{{ row.code }}</td><td class="indent">{{ row.name }}</td><td class="num">{{ "{:,.2f}".format(row.amount) }}</td></tr>
+        <tr><td class="mono">{{ row.code }}</td><td class="indent">{{ row.name }}</td><td class="num">{{ row.amount|amount_format }}</td></tr>
           {% elif row.kind == 'total' %}
-        <tr class="sec-total"><td></td><td>{{ row.label }}</td><td class="num">{{ "{:,.2f}".format(row.amount) }}</td></tr>
+        <tr class="sec-total"><td></td><td>{{ row.label }}</td><td class="num">{{ row.amount|amount_format }}</td></tr>
           {% elif row.kind == 'subtotal' %}
-        <tr class="profit-line {% if row.amount < 0 %}neg{% endif %}"><td></td><td>{{ row.label }}</td><td class="num">{{ "{:,.2f}".format(row.amount) }}</td></tr>
+        <tr class="profit-line {% if row.amount < 0 %}neg{% endif %}"><td></td><td>{{ row.label }}</td><td class="num">{{ row.amount|amount_format }}</td></tr>
           {% endif %}
         {% else %}
         <tr><td colspan="3" class="text-slate-400 text-center" style="padding:24px;">No profit &amp; loss activity in this period</td></tr>
@@ -45,7 +45,7 @@
       <tfoot>
         <tr class="grand-total">
           <td colspan="2">NET PROFIT / (LOSS)</td>
-          <td class="num {% if net_profit >= 0 %}text-green-400{% else %}text-red-400{% endif %}">{{ "{:,.2f}".format(net_profit) }}</td>
+          <td class="num {% if net_profit >= 0 %}text-green-400{% else %}text-red-400{% endif %}">{{ net_profit|amount_format }}</td>
         </tr>
       </tfoot>
     </table>

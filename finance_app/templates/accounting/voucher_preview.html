@@ -77,12 +77,12 @@ tfoot td{font-weight:700;background:#f8f9ff;border-top:2px solid #1a1a2e;padding
         <td style="font-family:monospace">{{ line.account.code }}</td>
         <td>{{ line.account.name }}</td>
         <td>{{ line.description }}</td>
-        <td class="nu">{{ "{:,.2f}".format(line.debit) if line.debit > 0 else '' }}</td>
-        <td class="nu">{{ "{:,.2f}".format(line.credit) if line.credit > 0 else '' }}</td>
+        <td class="nu">{{ line.debit|amount_format if line.debit > 0 else '' }}</td>
+        <td class="nu">{{ line.credit|amount_format if line.credit > 0 else '' }}</td>
       </tr>
       {% endfor %}
     </tbody>
-    <tfoot><tr><td colspan="4" style="text-align:right;">Total:</td><td class="nu">{{ "{:,.2f}".format(total_debit) }}</td><td class="nu">{{ "{:,.2f}".format(total_credit) }}</td></tr></tfoot>
+    <tfoot><tr><td colspan="4" style="text-align:right;">Total:</td><td class="nu">{{ total_debit|amount_format }}</td><td class="nu">{{ total_credit|amount_format }}</td></tr></tfoot>
   </table>
   {% if voucher.notes %}
   <div class="notes"><strong>Notes:</strong> {{ voucher.notes }}</div>

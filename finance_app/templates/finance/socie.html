@@ -25,18 +25,18 @@
         {% for r in rows %}
         <tr>
           <td>{{ r.name }}</td>
-          <td class="num">{{ "{:,.2f}".format(r.opening) }}</td>
-          <td class="num {% if r.movement < 0 %}text-red-600{% elif r.movement > 0 %}text-green-600{% endif %}">{{ "{:,.2f}".format(r.movement) }}</td>
-          <td class="num">{{ "{:,.2f}".format(r.closing) }}</td>
+          <td class="num">{{ r.opening|amount_format }}</td>
+          <td class="num {% if r.movement < 0 %}text-red-600{% elif r.movement > 0 %}text-green-600{% endif %}">{{ r.movement|amount_format }}</td>
+          <td class="num">{{ r.closing|amount_format }}</td>
         </tr>
         {% endfor %}
       </tbody>
       <tfoot>
         <tr style="font-weight:700;font-size:15px;background:#1e293b;color:#fff;">
           <td>TOTAL EQUITY</td>
-          <td class="num">{{ "{:,.2f}".format(opening_total) }}</td>
-          <td class="num">{{ "{:,.2f}".format(movement_total) }}</td>
-          <td class="num">{{ "{:,.2f}".format(closing_total) }}</td>
+          <td class="num">{{ opening_total|amount_format }}</td>
+          <td class="num">{{ movement_total|amount_format }}</td>
+          <td class="num">{{ closing_total|amount_format }}</td>
         </tr>
       </tfoot>
     </table>

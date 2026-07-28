@@ -241,7 +241,7 @@ textarea.inp{resize:vertical;font-family:inherit}
 {% block extra_scripts %}
 <script>
 var invoiceData = null, itemsData = [], editable = {{ 'false' if is_approved else 'true' }};
-function fmt(v){var n=parseFloat(v)||0;return n.toLocaleString('en-PK',{minimumFractionDigits:2,maximumFractionDigits:2})}
+function fmt(v){return window.formatAmount(v,2)}
 function cv(s){return parseFloat((s||'').replace(/Rs\.\s*/,'').replace(/,/g,''))||0}
 
 function toast(m,t){var c=document.getElementById('toastContainer'),d=document.createElement('div');d.className='toast toast-'+t;d.innerHTML=m+'<button style="background:none;border:none;color:inherit;font-size:16px;cursor:pointer;margin-left:auto;padding:0;line-height:1;" onclick="this.parentElement.remove()">&times;</button>';c.appendChild(d);setTimeout(function(){d.style.opacity='0';d.style.transition='opacity .3s';setTimeout(function(){d.remove()},300)},4000)}

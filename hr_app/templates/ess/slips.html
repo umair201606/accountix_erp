@@ -12,11 +12,11 @@
                 {% for s in slips %}
                 <tr>
                     <td>{{ s.payroll_run.month }}/{{ s.payroll_run.year }}</td>
-                    <td>Rs. {{ s.basic_salary|round|int }}</td>
-                    <td>Rs. {{ s.allowances|round|int }}</td>
-                    <td>Rs. {{ s.total_deductions|round|int }}</td>
-                    <td>Rs. {{ s.gross_pay|round|int }}</td>
-                    <td><strong>Rs. {{ s.net_pay|round|int }}</strong></td>
+                    <td>Rs. {{ s.basic_salary|amount_format(0) }}</td>
+                    <td>Rs. {{ s.allowances|amount_format(0) }}</td>
+                    <td>Rs. {{ s.total_deductions|amount_format(0) }}</td>
+                    <td>Rs. {{ s.gross_pay|amount_format(0) }}</td>
+                    <td><strong>Rs. {{ s.net_pay|amount_format(0) }}</strong></td>
                     <td>
                         <a href="{{ url_for('compensation.view_slip', sid=s.id) }}" class="btn btn-sm btn-outline">View</a>
                         <a href="{{ url_for('compensation.download_slip_pdf', sid=s.id) }}" class="btn btn-sm btn-primary">PDF</a>

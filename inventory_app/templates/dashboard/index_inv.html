@@ -22,7 +22,7 @@
     <div class="stat-card">
       <div class="stat-icon" style="background: #fef3c7; color: #d97706;">$</div>
       <div class="stat-body">
-        <div class="stat-value">{{ "%.0f"|format(total_stock_value) }}</div>
+        <div class="stat-value">{{ total_stock_value|amount_format(0) }}</div>
         <div class="stat-label">Stock Value</div>
       </div>
     </div>
@@ -69,7 +69,7 @@
               <td>{{ p.sku }}</td>
               <td>{{ p.name }}</td>
               <td><span class="badge {% if p.current_stock <= p.reorder_level %}badge-danger{% else %}badge-success{% endif %}">{{ p.current_stock }}</span></td>
-              <td>{{ "%.2f"|format(p.unit_price) }}</td>
+              <td>{{ p.unit_price|amount_format(0) }}</td>
             </tr>
             {% else %}
             <tr><td colspan="4" class="empty">No products yet</td></tr>

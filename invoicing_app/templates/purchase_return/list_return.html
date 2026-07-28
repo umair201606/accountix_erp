@@ -27,8 +27,8 @@
           <td>{{ ret.original_invoice.invoice_number if ret.original_invoice else '-' }}</td>
           <td>{{ ret.supplier.name if ret.supplier else '-' }}</td>
           <td>{{ ret.created_at.strftime('%Y-%m-%d') if ret.created_at else '' }}</td>
-          <td>{{ "%.2f"|format(ret.gross_return_value) }}</td>
-          <td>{{ "%.2f"|format(ret.net_return_amount) }}</td>
+          <td>{{ ret.gross_return_value|amount_format(0) }}</td>
+          <td>{{ ret.net_return_amount|amount_format(0) }}</td>
           <td>
             <span class="badge badge-{{ ret.status }}">
               {% if ret.status == 'new' %}New

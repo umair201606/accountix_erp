@@ -31,10 +31,10 @@
             <tbody>
                 {% for s in slabs %}
                 <tr>
-                    <td>Rs. {{ s.min_income|round|int }}</td>
-                    <td>Rs. {{ s.max_income|round|int }}</td>
+                    <td>Rs. {{ s.min_income|amount_format(0) }}</td>
+                    <td>Rs. {{ s.max_income|amount_format(0) }}</td>
                     <td>{{ s.rate_pct }}%</td>
-                    <td>Rs. {{ s.fixed_amount|round|int }}</td>
+                    <td>Rs. {{ s.fixed_amount|amount_format(0) }}</td>
                     <td><span class="badge badge-{{ 'success' if s.is_active else 'default' }}">{{ 'Active' if s.is_active else 'Inactive' }}</span></td>
                     <td>
                         <form method="POST" style="display:inline;">

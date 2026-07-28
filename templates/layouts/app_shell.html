@@ -212,6 +212,40 @@
   {% endif %}
   <script src="{{ url_for('static', filename='js/app.js') }}"></script>
   <script>
+    window.__numberFormat = '{{ company.number_format if company else "en" }}';
+    window.__currencySymbol = '{{ company.currency_symbol if company else "Rs." }}';
+    window.formatAmount = function(v, dp) {
+      if (dp === undefined) dp = 2;
+      var n = parseFloat(v) || 0;
+      var neg = n < 0;
+      n = Math.abs(n);
+      var rounded = Math.round(n * Math.pow(10, dp)) / Math.pow(10, dp);
+      var parts = rounded.toFixed(dp).split('.');
+      var intPart = parts[0];
+      var decPart = parts.length > 1 ? '.' + parts[1] : '';
+      if (window.__numberFormat === 'hi') {
+        var lastThree = intPart.slice(-3);
+        var rest = intPart.slice(0, -3);
+        var groups = [];
+        while (rest.length > 0) {
+          groups.unshift(rest.slice(-2));
+          rest = rest.slice(0, -2);
+        }
+        intPart = groups.length ? groups.join(',') + ',' + lastThree : lastThree;
+      } else {
+        intPart = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+      }
+      return (neg ? '-' : '') + intPart + decPart;
+    };
+  </script>
+  <script>
+    document.addEventListener('keydown', function(e) {
+      if (e.target.type === 'number' && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+        e.preventDefault();
+      }
+    });
+  </script>
+  <script>
     // Module switcher dropdown (shell-local; everything else is in app.js).
     (function () {
       var btn = document.getElementById('mod-switch-btn');

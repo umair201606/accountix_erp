@@ -87,9 +87,9 @@
                     {% for l in loan_requests[:5] %}
                     <tr>
                         <td>{{ l.request_type|title }}</td>
-                        <td>Rs. {{ l.amount|round|int }}</td>
+                        <td>Rs. {{ l.amount|amount_format(0) }}</td>
                         <td><span class="badge badge-{{ 'success' if l.status == 'approved' else 'warning' if l.status == 'pending' else 'danger' }}">{{ l.status }}</span></td>
-                        <td>Rs. {{ (l.remaining_amount or 0)|round|int }}</td>
+                        <td>Rs. {{ (l.remaining_amount or 0)|amount_format(0) }}</td>
                     </tr>
                     {% else %}<tr><td colspan="4" class="text-center" style="color:var(--muted);">No loan requests</td></tr>{% endfor %}
                 </tbody>
@@ -109,7 +109,7 @@
                     {% for s in slips[:6] %}
                     <tr>
                         <td>{{ s.payroll_run.month }}/{{ s.payroll_run.year }}</td>
-                        <td><strong>Rs. {{ s.net_pay|round|int }}</strong></td>
+                        <td><strong>Rs. {{ s.net_pay|amount_format(0) }}</strong></td>
                         <td><a href="{{ url_for('compensation.download_slip_pdf', sid=s.id) }}" class="btn btn-sm btn-primary">PDF</a></td>
                     </tr>
                     {% else %}<tr><td colspan="3" class="text-center" style="color:var(--muted);">No slips</td></tr>{% endfor %}

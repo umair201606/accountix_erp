@@ -8,7 +8,7 @@
     <div class="card-header">Payroll Profile</div>
     {% if profile %}
     <table>
-        <tr><td style="font-weight:600;width:180px;">Basic Salary</td><td>Rs. {{ profile.basic_salary|round|int }}</td></tr>
+        <tr><td style="font-weight:600;width:180px;">Basic Salary</td><td>Rs. {{ profile.basic_salary|amount_format(0) }}</td></tr>
         <tr><td style="font-weight:600;">Effective From</td><td>{{ profile.effective_from }}</td></tr>
     </table>
     {% else %}
@@ -24,11 +24,11 @@
                 {% for s in slips %}
                 <tr>
                     <td>{{ s.payroll_run.month }}/{{ s.payroll_run.year }}</td>
-                    <td>Rs. {{ s.basic_salary|round|int }}</td>
-                    <td>Rs. {{ s.allowances|round|int }}</td>
-                    <td>Rs. {{ s.total_deductions|round|int }}</td>
-                    <td>Rs. {{ s.gross_pay|round|int }}</td>
-                    <td><strong>Rs. {{ s.net_pay|round|int }}</strong></td>
+                    <td>Rs. {{ s.basic_salary|amount_format(0) }}</td>
+                    <td>Rs. {{ s.allowances|amount_format(0) }}</td>
+                    <td>Rs. {{ s.total_deductions|amount_format(0) }}</td>
+                    <td>Rs. {{ s.gross_pay|amount_format(0) }}</td>
+                    <td><strong>Rs. {{ s.net_pay|amount_format(0) }}</strong></td>
                     <td><a href="{{ url_for('compensation.download_slip_pdf', sid=s.id) }}" class="btn btn-sm btn-primary">PDF</a></td>
                 </tr>
                 {% else %}<tr><td colspan="7" class="text-center" style="color:var(--muted);">No slips yet</td></tr>{% endfor %}

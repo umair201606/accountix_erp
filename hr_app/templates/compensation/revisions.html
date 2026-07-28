@@ -12,8 +12,8 @@
                 {% for r in revisions %}
                 <tr>
                     <td>{{ r.user.full_name }}</td>
-                    <td>Rs. {{ r.previous_basic|round|int if r.previous_basic else '-' }}</td>
-                    <td>Rs. {{ r.new_basic|round|int }}</td>
+                    <td>Rs. {{ r.previous_basic|amount_format(0) if r.previous_basic else '-' }}</td>
+                    <td>Rs. {{ r.new_basic|amount_format(0) }}</td>
                     <td>{{ r.reason[:40] if r.reason else '-' }}</td>
                     <td>{{ r.effective_from }}</td>
                     <td>{{ r.approver.full_name if r.approver else '-' }}</td>

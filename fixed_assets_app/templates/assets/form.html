@@ -1,0 +1,88 @@
+{% extends "fixed_assets/layouts/base.html" %}
+{% block title %}{{ 'Edit' if asset else 'New' }} Asset{% endblock %}
+{% block page_title %}{{ 'Edit' if asset else 'New' }} Asset{% endblock %}
+{% block content %}
+<div class="card" style="max-width:720px;">
+  <div class="card-body">
+    <form method="POST">
+      <div class="form-group">
+        <label class="form-label">Asset Name *</label>
+        <input type="text" name="name" class="form-control" value="{{ asset.name if asset else '' }}" required>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Description</label>
+        <textarea name="description" class="form-control" rows="3">{{ asset.description if asset else '' }}</textarea>
+      </div>
+      <div class="form-row" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+        <div class="form-group">
+          <label class="form-label">Category *</label>
+          <select name="category_id" class="form-control" required>
+            <option value="">Select category</option>
+            {% for c in categories %}
+            <option value="{{ c.id }}" {{ 'selected' if asset and asset.category_id == c.id }}>{{ c.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Purchase Date *</label>
+          <input type="date" name="purchase_date" class="form-control" value="{{ asset.purchase_date if asset else '' }}" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Purchase Cost *</label>
+          <input type="number" step="0.01" name="purchase_cost" class="form-control" value="{{ asset.purchase_cost if asset else '0' }}" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Useful Life (years) *</label>
+          <input type="number" name="useful_life" class="form-control" value="{{ asset.useful_life if asset else '5' }}" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Depreciation Method</label>
+          <select name="depreciation_method" class="form-control">
+            <option value="straight_line" {{ 'selected' if not asset or asset.depreciation_method == 'straight_line' }}>Straight Line</option>
+            <option value="declining_balance" {{ 'selected' if asset and asset.depreciation_method == 'declining_balance' }}>Declining Balance</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Salvage Value</label>
+          <input type="number" step="0.01" name="salvage_value" class="form-control" value="{{ asset.salvage_value if asset else '0' }}">
+        </div>
+      </div>
+      <div class="form-row" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+        <div class="form-group">
+          <label class="form-label">Location</label>
+          <input type="text" name="location" class="form-control" value="{{ asset.location if asset else '' }}">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Assigned To</label>
+          <input type="text" name="assigned_to" class="form-control" value="{{ asset.assigned_to if asset else '' }}">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Vendor</label>
+          <input type="text" name="vendor" class="form-control" value="{{ asset.vendor if asset else '' }}">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Serial Number</label>
+          <input type="text" name="serial_number" class="form-control" value="{{ asset.serial_number if asset else '' }}">
+        </div>
+      </div>
+      {% if asset %}
+      <div class="form-group">
+        <label class="form-label">Status</label>
+        <select name="status" class="form-control">
+          <option value="active" {{ 'selected' if asset.status == 'active' }}>Active</option>
+          <option value="disposed" {{ 'selected' if asset.status == 'disposed' }}>Disposed</option>
+        </select>
+      </div>
+      {% endif %}
+      <div class="form-group">
+        <label class="form-label">Notes</label>
+        <textarea name="notes" class="form-control" rows="2">{{ asset.notes if asset else '' }}</textarea>
+      </div>
+      <div class="form-actions">
+        <button type="submit" class="btn btn-primary">{{ 'Update' if asset else 'Create' }} Asset</button>
+        <a href="{{ url_for('fa_assets.list_assets') }}" class="btn btn-secondary">Cancel</a>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

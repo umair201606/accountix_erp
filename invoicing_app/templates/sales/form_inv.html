@@ -1058,7 +1058,7 @@ function recalc(){
   document.getElementById('summaryNetTotal').textContent=fmt(netTotal);
 }
 
-function fmt(v){var n=parseFloat(v)||0;return n.toLocaleString('en-PK',{minimumFractionDigits:2,maximumFractionDigits:2})}
+function fmt(v){return window.formatAmount(v,2)}
 
 // Load existing items
 if(existingOrderItems&&existingOrderItems.length){

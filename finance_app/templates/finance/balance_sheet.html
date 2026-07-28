@@ -30,32 +30,32 @@
       <tbody>
         <tr class="sec-head"><td colspan="3"><i class="fas fa-building"></i> ASSETS</td></tr>
         {% for a in assets %}
-        <tr><td class="mono">{{ a.code }}</td><td class="indent">{{ a.name }}</td><td class="num">{{ "{:,.2f}".format(a.amount) }}</td></tr>
+        <tr><td class="mono">{{ a.code }}</td><td class="indent">{{ a.name }}</td><td class="num">{{ a.amount|amount_format }}</td></tr>
         {% else %}
         <tr><td colspan="3" class="text-slate-400 text-center">No asset accounts</td></tr>
         {% endfor %}
-        <tr class="sec-total"><td></td><td>Total Assets</td><td class="num">{{ "{:,.2f}".format(total_assets) }}</td></tr>
+        <tr class="sec-total"><td></td><td>Total Assets</td><td class="num">{{ total_assets|amount_format }}</td></tr>
 
         <tr class="sec-head"><td colspan="3"><i class="fas fa-credit-card"></i> LIABILITIES</td></tr>
         {% for l in liabilities %}
-        <tr><td class="mono">{{ l.code }}</td><td class="indent">{{ l.name }}</td><td class="num">{{ "{:,.2f}".format(l.amount) }}</td></tr>
+        <tr><td class="mono">{{ l.code }}</td><td class="indent">{{ l.name }}</td><td class="num">{{ l.amount|amount_format }}</td></tr>
         {% else %}
         <tr><td colspan="3" class="text-slate-400 text-center">No liability accounts</td></tr>
         {% endfor %}
-        <tr class="sec-total"><td></td><td>Total Liabilities</td><td class="num">{{ "{:,.2f}".format(total_liabilities) }}</td></tr>
+        <tr class="sec-total"><td></td><td>Total Liabilities</td><td class="num">{{ total_liabilities|amount_format }}</td></tr>
 
         <tr class="sec-head"><td colspan="3"><i class="fas fa-users"></i> EQUITY</td></tr>
         {% for e in equity %}
-        <tr><td class="mono">{{ e.code }}</td><td class="indent">{{ e.name }}</td><td class="num">{{ "{:,.2f}".format(e.amount) }}</td></tr>
+        <tr><td class="mono">{{ e.code }}</td><td class="indent">{{ e.name }}</td><td class="num">{{ e.amount|amount_format }}</td></tr>
         {% else %}
         <tr><td colspan="3" class="text-slate-400 text-center">No equity accounts</td></tr>
         {% endfor %}
-        <tr class="sec-total"><td></td><td>Total Equity</td><td class="num">{{ "{:,.2f}".format(total_equity) }}</td></tr>
+        <tr class="sec-total"><td></td><td>Total Equity</td><td class="num">{{ total_equity|amount_format }}</td></tr>
       </tbody>
       <tfoot>
         <tr class="grand-total">
           <td colspan="2">LIABILITIES + EQUITY</td>
-          <td class="num">{{ "{:,.2f}".format(total_liabilities + total_equity) }}</td>
+          <td class="num">{{ (total_liabilities + total_equity)|amount_format }}</td>
         </tr>
       </tfoot>
     </table>
@@ -63,9 +63,9 @@
   <p class="mt-2 text-sm {% if total_assets == total_liabilities + total_equity %}text-green-600{% else %}text-red-600{% endif %}">
     <i class="fas {% if total_assets == total_liabilities + total_equity %}fa-check-circle{% else %}fa-exclamation-triangle{% endif %}"></i>
     {% if total_assets == total_liabilities + total_equity %}
-    Balance Sheet is <strong>IN BALANCE</strong> ({{ "{:,.2f}".format(total_assets) }} = {{ "{:,.2f}".format(total_liabilities + total_equity) }})
+    Balance Sheet is <strong>IN BALANCE</strong> ({{ total_assets|amount_format }} = {{ (total_liabilities + total_equity)|amount_format }})
     {% else %}
-    Difference: {{ "{:,.2f}".format(total_assets - (total_liabilities + total_equity)) }}
+    Difference: {{ (total_assets - (total_liabilities + total_equity))|amount_format }}
     {% endif %}
   </p>
 </div>

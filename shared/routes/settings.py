@@ -217,6 +217,7 @@ def save_company():
     c.currency = request.form.get("currency", "PKR")
     c.currency_symbol = request.form.get("currency_symbol", "Rs.")
     c.date_format = request.form.get("date_format", "Y-m-d")
+    c.number_format = request.form.get("number_format", "en")
     c.timezone = request.form.get("timezone", "Asia/Karachi")
     db.session.commit()
     flash("Company profile updated.", "success")
@@ -254,6 +255,29 @@ def save_fiscal_year_rule():
     rule.start_day = start_day
     rule.generate_periods()
     flash(f"Fiscal year rule updated to {start_day} {MONTHS[start_month - 1]}. Periods regenerated.", "success")
+    return back
+
+
+@settings_bp.route("/periods/generate", methods=["POST"])
+@login_required
+def generate_periods():
+    denied = _require("periods")
+    if denied:
+        return denied
+    back = redirect(url_for("settings.index", tab="periods"))
+    try:
+        from_year = int(request.form["from_year"])
+        to_year = int(request.form["to_year"])
+    except (KeyError, ValueError):
+        flash("From year and to year are required.", "error")
+        return back
+    if from_year > to_year:
+        flash("From year must not be after to year.", "error")
+        return back
+
+    rule = FiscalYearRule.get()
+    rule.generate_periods(from_year, to_year)
+    flash(f"Periods generated from {from_year} to {to_year}.", "success")
     return back
 
 

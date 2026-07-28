@@ -14,8 +14,8 @@
           <td>{{ r.sku }}</td>
           <td>{{ r.name }}</td>
           <td>{{ r.qty }} {{ r.unit }}</td>
-          <td>{{ "%.4f"|format(r.cost) }}</td>
-          <td>{{ "%.2f"|format(r.value) }}</td>
+          <td>{{ r.cost|amount_format(0) }}</td>
+          <td>{{ r.value|amount_format(0) }}</td>
           <td><a href="{{ url_for('inv_vouchers.product_ledger', product_id=r.id) }}" class="btn btn-sm btn-outline">View Ledger</a></td>
         </tr>
         {% endfor %}

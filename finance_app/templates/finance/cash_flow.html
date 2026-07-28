@@ -30,37 +30,37 @@
       <tbody>
         <tr class="sec-head"><td colspan="2"><i class="fas fa-cogs"></i> OPERATING ACTIVITIES</td></tr>
         {% for name, val in op_items %}
-        <tr><td class="indent">{{ name }}</td><td class="num {% if val < 0 %}text-red-600{% endif %}">{{ "{:,.2f}".format(val) }}</td></tr>
+        <tr><td class="indent">{{ name }}</td><td class="num {% if val < 0 %}text-red-600{% endif %}">{{ val|amount_format }}</td></tr>
         {% endfor %}
-        <tr class="sec-total"><td>Net Cash from Operating Activities</td><td class="num">{{ "{:,.2f}".format(net_operating) }}</td></tr>
+        <tr class="sec-total"><td>Net Cash from Operating Activities</td><td class="num">{{ net_operating|amount_format }}</td></tr>
 
         <tr class="sec-head"><td colspan="2"><i class="fas fa-chart-bar"></i> INVESTING ACTIVITIES</td></tr>
         {% for name, val in inv_items %}
-        <tr><td class="indent">{{ name }}</td><td class="num {% if val < 0 %}text-red-600{% endif %}">{{ "{:,.2f}".format(val) }}</td></tr>
+        <tr><td class="indent">{{ name }}</td><td class="num {% if val < 0 %}text-red-600{% endif %}">{{ val|amount_format }}</td></tr>
         {% else %}
         <tr><td class="indent text-slate-400">No investing activity</td><td class="num">0.00</td></tr>
         {% endfor %}
-        <tr class="sec-total"><td>Net Cash from Investing Activities</td><td class="num">{{ "{:,.2f}".format(net_investing) }}</td></tr>
+        <tr class="sec-total"><td>Net Cash from Investing Activities</td><td class="num">{{ net_investing|amount_format }}</td></tr>
 
         <tr class="sec-head"><td colspan="2"><i class="fas fa-hand-holding-usd"></i> FINANCING ACTIVITIES</td></tr>
         {% for name, val in fin_items %}
-        <tr><td class="indent">{{ name }}</td><td class="num {% if val < 0 %}text-red-600{% endif %}">{{ "{:,.2f}".format(val) }}</td></tr>
+        <tr><td class="indent">{{ name }}</td><td class="num {% if val < 0 %}text-red-600{% endif %}">{{ val|amount_format }}</td></tr>
         {% else %}
         <tr><td class="indent text-slate-400">No financing activity</td><td class="num">0.00</td></tr>
         {% endfor %}
-        <tr class="sec-total"><td>Net Cash from Financing Activities</td><td class="num">{{ "{:,.2f}".format(net_financing) }}</td></tr>
+        <tr class="sec-total"><td>Net Cash from Financing Activities</td><td class="num">{{ net_financing|amount_format }}</td></tr>
       </tbody>
       <tfoot>
         <tr class="grand-total">
           <td>NET CHANGE IN CASH &amp; EQUIVALENTS</td>
-          <td class="num {% if net_change >= 0 %}text-green-400{% else %}text-red-400{% endif %}">{{ "{:,.2f}".format(net_change) }}</td>
+          <td class="num {% if net_change >= 0 %}text-green-400{% else %}text-red-400{% endif %}">{{ net_change|amount_format }}</td>
         </tr>
-        <tr class="recon-line"><td>Opening Cash &amp; Equivalents</td><td class="num">{{ "{:,.2f}".format(opening_cash) }}</td></tr>
-        <tr class="recon-line"><td>Closing Cash &amp; Equivalents</td><td class="num">{{ "{:,.2f}".format(closing_cash) }}</td></tr>
+        <tr class="recon-line"><td>Opening Cash &amp; Equivalents</td><td class="num">{{ opening_cash|amount_format }}</td></tr>
+        <tr class="recon-line"><td>Closing Cash &amp; Equivalents</td><td class="num">{{ closing_cash|amount_format }}</td></tr>
         {% set recon_diff = (opening_cash + net_change - closing_cash) %}
         <tr class="recon-line {% if recon_diff|abs > 0.01 %}recon-bad{% endif %}">
           <td>{% if recon_diff|abs > 0.01 %}<i class="fas fa-triangle-exclamation"></i> Unreconciled difference (check account activity tags){% else %}<i class="fas fa-check"></i> Reconciled with cash-account movement{% endif %}</td>
-          <td class="num">{{ "{:,.2f}".format(recon_diff) }}</td>
+          <td class="num">{{ recon_diff|amount_format }}</td>
         </tr>
       </tfoot>
     </table>

@@ -29,10 +29,10 @@
                 {% for l in loans %}
                 <tr>
                     <td>{{ l.request_type|title }}</td>
-                    <td>Rs. {{ l.amount|round|int }}</td>
+                    <td>Rs. {{ l.amount|amount_format(0) }}</td>
                     <td>{{ l.installment_months }}</td>
-                    <td>Rs. {{ l.monthly_installment|round|int }}</td>
-                    <td>Rs. {{ l.remaining_amount|round|int }}</td>
+                    <td>Rs. {{ l.monthly_installment|amount_format(0) }}</td>
+                    <td>Rs. {{ l.remaining_amount|amount_format(0) }}</td>
                     <td><span class="badge badge-{{ 'success' if l.status == 'approved' else 'warning' if l.status == 'pending' else 'danger' }}">{{ l.status }}</span></td>
                     <td>{{ l.created_at.strftime('%d-%b-%Y') }}</td>
                 </tr>

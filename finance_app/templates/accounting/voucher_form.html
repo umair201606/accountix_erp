@@ -55,7 +55,8 @@
 .vtb .rn{width:30px;text-align:center;color:#94a3b8;font-size:11px;font-weight:600}
 .vtb .code-cell{width:78px}
 .vtb .code-cell .ri{font-family:ui-monospace,monospace;font-size:12px;color:#64748b}
-.vtb .amt-col{width:130px}
+.vtb .amt-col{width:150px}
+.amt-display{display:inline-block;padding:7px 8px;font-size:13px;font-weight:600;text-align:right;font-variant-numeric:tabular-nums;color:#1e293b;min-height:34px;line-height:20px}
 .row-acts{display:flex;gap:3px;justify-content:center;align-items:center}
 .row-acts button{width:23px;height:23px;border-radius:50%;border:1px solid #e2e8f0;background:#fff;color:#64748b;font-size:14px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;transition:all .12s}
 .row-acts button:hover{border-color:#0f5257;color:#0f5257}
@@ -146,7 +147,7 @@
         <div>
           <label class="vlbl">Date &amp; Time</label>
           <input type="datetime-local" name="voucher_date" class="vinp" id="voucherDate"
-                 value="{{ v.voucher_date.strftime('%Y-%m-%dT%H:%M') if v else '' }}"
+                 value="{{ v.voucher_date.strftime('%Y-%m-%dT%H:%M') if v else now.strftime('%Y-%m-%dT%H:%M') }}"
                  {{ 'disabled' if not form_active else '' }}>
         </div>
         <div id="cbAccountWrap" {{ 'style=display:none' if not is_cb else '' }}>
@@ -258,7 +259,8 @@
   </div>
 </div>
 </div>
-
+{% endblock %}
+{% block extra_scripts %}
 <script>
 // ================= state =================
 var IS_CB = {{ 'true' if is_cb else 'false' }};
@@ -279,7 +281,7 @@ var EXISTING = [
 
 function qs(s,c){return (c||document).querySelector(s)}
 function qsa(s,c){return Array.prototype.slice.call((c||document).querySelectorAll(s))}
-function fmt(n){return (parseFloat(n)||0).toLocaleString('en-PK',{minimumFractionDigits:2,maximumFractionDigits:2})}
+function fmt(n){return window.formatAmount(n,2)}
 function esc(s){return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
 
 // ================= account autocomplete =================
@@ -331,10 +333,19 @@ function rowHtml(d){
   var amtCells;
   if(IS_CB){
     var amt=(d.debit||0)+(d.credit||0);
-    amtCells='<td class="num amt-col"><input type="number" step="0.01" min="0" name="'+AMT_NAME+'" class="ri num amt-input" value="'+(amt||'')+'" placeholder="0.00" '+dis+'></td>';
+    if(EDITABLE){
+      amtCells='<td class="num amt-col"><input type="number" step="0.01" min="0" name="'+AMT_NAME+'" class="ri num amt-input" value="'+(amt||'')+'" placeholder="0.00" '+dis+'></td>';
+    }else{
+      amtCells='<td class="num amt-col"><span class="amt-display">'+fmt(amt)+'</span><input type="hidden" class="amt-input" name="'+AMT_NAME+'" value="'+amt+'"></td>';
+    }
   }else{
-    amtCells='<td class="num amt-col"><input type="number" step="0.01" min="0" name="debit[]" class="ri num amt-input dr-input" value="'+(d.debit||'')+'" placeholder="0.00" '+dis+'></td>'
-            +'<td class="num amt-col"><input type="number" step="0.01" min="0" name="credit[]" class="ri num amt-input cr-input" value="'+(d.credit||'')+'" placeholder="0.00" '+dis+'></td>';
+    if(EDITABLE){
+      amtCells='<td class="num amt-col"><input type="number" step="0.01" min="0" name="debit[]" class="ri num amt-input dr-input" value="'+(d.debit||'')+'" placeholder="0.00" '+dis+'></td>'
+              +'<td class="num amt-col"><input type="number" step="0.01" min="0" name="credit[]" class="ri num amt-input cr-input" value="'+(d.credit||'')+'" placeholder="0.00" '+dis+'></td>';
+    }else{
+      amtCells='<td class="num amt-col"><span class="amt-display">'+fmt(d.debit||0)+'</span><input type="hidden" class="dr-input" name="debit[]" value="'+(d.debit||0)+'"></td>'
+              +'<td class="num amt-col"><span class="amt-display">'+fmt(d.credit||0)+'</span><input type="hidden" class="cr-input" name="credit[]" value="'+(d.credit||0)+'"></td>';
+    }
   }
   return '<td class="rn"></td>'
     +'<td class="code-cell"><input type="text" class="ri code-display" value="'+(d.code||'')+'" readonly tabindex="-1"></td>'

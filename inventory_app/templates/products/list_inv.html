@@ -40,7 +40,7 @@
             </span>
           </td>
           <td>{{ p.reorder_level }}</td>
-          <td>{{ "%.2f"|format(p.unit_price) }}</td>
+          <td>{{ p.unit_price|amount_format(0) }}</td>
           <td><span class="badge {% if p.is_active %}badge-success{% else %}badge-secondary{% endif %}">{{ 'Active' if p.is_active else 'Inactive' }}</span></td>
           <td class="actions">
             <a href="{{ url_for('inv_products.edit_product', id=p.id) }}" class="btn btn-sm btn-outline">Edit</a>

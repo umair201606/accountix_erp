@@ -1,0 +1,66 @@
+{% extends "fixed_assets/layouts/base.html" %}
+{% block title %}Asset Reports{% endblock %}
+{% block page_title %}Asset Reports{% endblock %}
+{% block content %}
+<div class="dashboard-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin-bottom:24px;">
+  <div class="stat-card"><div class="stat-value">{{ "{:,.0f}".format(total_cost) }}</div><div class="stat-label">Total Cost</div></div>
+  <div class="stat-card"><div class="stat-value">{{ "{:,.0f}".format(total_dep) }}</div><div class="stat-label">Total Depreciation</div></div>
+  <div class="stat-card"><div class="stat-value">{{ "{:,.0f}".format(net_book_value) }}</div><div class="stat-label">Net Book Value</div></div>
+</div>
+
+<div class="card" style="margin-bottom:16px;">
+  <div class="card-header"><h3>Summary by Category</h3></div>
+  <div class="card-body">
+    <table class="table">
+      <thead><tr><th>Category</th><th>Count</th><th>Total Cost</th><th>Total Depreciation</th><th>Net Book Value</th></tr></thead>
+      <tbody>
+        {% for cat, data in category_summary.items() %}
+        <tr>
+          <td>{{ cat }}</td>
+          <td>{{ data.count }}</td>
+          <td>{{ "{:,.0f}".format(data.cost) }}</td>
+          <td>{{ "{:,.0f}".format(data.depreciation) }}</td>
+          <td>{{ "{:,.0f}".format(data.cost - data.depreciation) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card" style="margin-bottom:16px;">
+  <div class="card-header"><h3>Summary by Status</h3></div>
+  <div class="card-body">
+    <table class="table">
+      <thead><tr><th>Status</th><th>Count</th><th>Total Cost</th></tr></thead>
+      <tbody>
+        {% for s, data in status_summary.items() %}
+        <tr><td>{{ s|title }}</td><td>{{ data.count }}</td><td>{{ "{:,.0f}".format(data.cost) }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header"><h3>All Assets</h3></div>
+  <div class="card-body">
+    <table class="table">
+      <thead><tr><th>Code</th><th>Name</th><th>Category</th><th>Purchase Cost</th><th>Acc. Depreciation</th><th>Book Value</th><th>Status</th></tr></thead>
+      <tbody>
+        {% for a in assets %}
+        <tr>
+          <td>{{ a.asset_code }}</td>
+          <td><a href="{{ url_for('fa_assets.view_asset', asset_id=a.id) }}">{{ a.name }}</a></td>
+          <td>{{ a.category_obj.name if a.category_obj else '' }}</td>
+          <td>{{ "{:,.0f}".format(a.purchase_cost) }}</td>
+          <td>{{ "{:,.0f}".format(a.accumulated_depreciation) }}</td>
+          <td>{{ "{:,.0f}".format(a.current_book_value) }}</td>
+          <td><span class="badge {{ 'badge-success' if a.status == 'active' else 'badge-secondary' }}">{{ a.status }}</span></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

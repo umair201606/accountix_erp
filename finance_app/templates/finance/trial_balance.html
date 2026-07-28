@@ -44,12 +44,12 @@
           <td class="mono">{{ r.code }}</td>
           <td>{{ r.name }}</td>
           <td>{% if r.type %}<span class="badge {% if r.type == 'Asset' %}badge-blue{% elif r.type == 'Liability' %}badge-purple{% elif r.type == 'Equity' %}badge-green{% elif r.type == 'Revenue' %}badge-green{% else %}badge-blue{% endif %}">{{ r.type }}</span>{% endif %}</td>
-          <td class="num">{{ "{:,.2f}".format(r.dr_opening) if r.dr_opening else "—" }}</td>
-          <td class="num">{{ "{:,.2f}".format(r.cr_opening) if r.cr_opening else "—" }}</td>
-          <td class="num">{{ "{:,.2f}".format(r.dr_movement) if r.dr_movement else "—" }}</td>
-          <td class="num">{{ "{:,.2f}".format(r.cr_movement) if r.cr_movement else "—" }}</td>
-          <td class="num">{{ "{:,.2f}".format(r.dr_closing) if r.dr_closing else "—" }}</td>
-          <td class="num">{{ "{:,.2f}".format(r.cr_closing) if r.cr_closing else "—" }}</td>
+          <td class="num">{{ r.dr_opening|amount_format if r.dr_opening else "—" }}</td>
+          <td class="num">{{ r.cr_opening|amount_format if r.cr_opening else "—" }}</td>
+          <td class="num">{{ r.dr_movement|amount_format if r.dr_movement else "—" }}</td>
+          <td class="num">{{ r.cr_movement|amount_format if r.cr_movement else "—" }}</td>
+          <td class="num">{{ r.dr_closing|amount_format if r.dr_closing else "—" }}</td>
+          <td class="num">{{ r.cr_closing|amount_format if r.cr_closing else "—" }}</td>
         </tr>
         {% endfor %}
       </tbody>
@@ -58,19 +58,19 @@
           <td></td>
           <td>TOTAL</td>
           <td></td>
-          <td class="num">{{ "{:,.2f}".format(total_dr_opening) }}</td>
-          <td class="num">{{ "{:,.2f}".format(total_cr_opening) }}</td>
-          <td class="num">{{ "{:,.2f}".format(total_dr_movement) }}</td>
-          <td class="num">{{ "{:,.2f}".format(total_cr_movement) }}</td>
-          <td class="num">{{ "{:,.2f}".format(total_dr_closing) }}</td>
-          <td class="num">{{ "{:,.2f}".format(total_cr_closing) }}</td>
+          <td class="num">{{ total_dr_opening|amount_format }}</td>
+          <td class="num">{{ total_cr_opening|amount_format }}</td>
+          <td class="num">{{ total_dr_movement|amount_format }}</td>
+          <td class="num">{{ total_cr_movement|amount_format }}</td>
+          <td class="num">{{ total_dr_closing|amount_format }}</td>
+          <td class="num">{{ total_cr_closing|amount_format }}</td>
         </tr>
       </tfoot>
     </table>
   </div>
   <p class="mt-2 text-sm {% if total_dr_closing == total_cr_closing %}text-green-600{% else %}text-red-600{% endif %}">
     <i class="fas {% if total_dr_closing == total_cr_closing %}fa-check-circle{% else %}fa-exclamation-triangle{% endif %}"></i>
-    {% if total_dr_closing == total_cr_closing %}Trial Balance is <strong>IN BALANCE</strong>{% else %}Difference: {{ "{:,.2f}".format(total_dr_closing - total_cr_closing) }}{% endif %}
+    {% if total_dr_closing == total_cr_closing %}Trial Balance is <strong>IN BALANCE</strong>{% else %}Difference: {{ (total_dr_closing - total_cr_closing)|amount_format }}{% endif %}
   </p>
   {% else %}
   <p class="text-slate-500 text-center py-8">No journal entries posted yet.</p>

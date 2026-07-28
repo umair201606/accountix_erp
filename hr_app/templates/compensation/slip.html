@@ -22,13 +22,13 @@
             <h4 style="color:var(--ledger);margin-bottom:8px;">Earnings</h4>
             <table>
                 <tr style="background:var(--ledger-dim);"><th style="padding:6px;">Component</th><th style="padding:6px;text-align:right;">Amount</th></tr>
-                <tr><td>Basic Salary</td><td style="text-align:right;">Rs. {{ slip.basic_salary|round|int }}</td></tr>
+                <tr><td>Basic Salary</td><td style="text-align:right;">Rs. {{ slip.basic_salary|amount_format(0) }}</td></tr>
                 {% if comps.allowances %}
                 {% for name, val in comps.allowances.items() %}
-                <tr><td>{{ name }}</td><td style="text-align:right;">Rs. {{ val|round|int }}</td></tr>
+                <tr><td>{{ name }}</td><td style="text-align:right;">Rs. {{ val|amount_format(0) }}</td></tr>
                 {% endfor %}
                 {% endif %}
-                <tr style="font-weight:700;background:var(--green-dim);"><td>Gross Pay</td><td style="text-align:right;">Rs. {{ slip.gross_pay|round|int }}</td></tr>
+                <tr style="font-weight:700;background:var(--green-dim);"><td>Gross Pay</td><td style="text-align:right;">Rs. {{ slip.gross_pay|amount_format(0) }}</td></tr>
             </table>
         </div>
         <div>
@@ -37,16 +37,16 @@
                 <tr style="background:var(--ledger-dim);"><th style="padding:6px;">Component</th><th style="padding:6px;text-align:right;">Amount</th></tr>
                 {% if comps.deductions %}
                 {% for name, val in comps.deductions.items() %}
-                <tr><td>{{ name }}</td><td style="text-align:right;">Rs. {{ val|round|int }}</td></tr>
+                <tr><td>{{ name }}</td><td style="text-align:right;">Rs. {{ val|amount_format(0) }}</td></tr>
                 {% endfor %}
                 {% endif %}
-                <tr style="font-weight:700;background:var(--red-dim);"><td>Total Deductions</td><td style="text-align:right;">Rs. {{ slip.total_deductions|round|int }}</td></tr>
+                <tr style="font-weight:700;background:var(--red-dim);"><td>Total Deductions</td><td style="text-align:right;">Rs. {{ slip.total_deductions|amount_format(0) }}</td></tr>
             </table>
         </div>
     </div>
     <div style="margin-top:16px;padding:12px;background:var(--green-dim);border-radius:4px;text-align:center;border:1px solid var(--green);">
         <span style="font-size:14px;color:var(--ink);">Net Payable: </span>
-        <span style="font-size:22px;font-weight:700;color:var(--green);">Rs. {{ slip.net_pay|round|int }}</span>
+        <span style="font-size:22px;font-weight:700;color:var(--green);">Rs. {{ slip.net_pay|amount_format(0) }}</span>
     </div>
 </div>
 {% endblock %}

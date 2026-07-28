@@ -29,7 +29,7 @@
                     {% for p in profiles %}
                     <tr>
                         <td>{{ p.user.full_name }}</td>
-                        <td>Rs. {{ p.basic_salary|round|int }}</td>
+                        <td>Rs. {{ p.basic_salary|amount_format(0) }}</td>
                         <td>{{ p.effective_from }}</td>
                         <td>{{ p.components.count() }}</td>
                         <td><a href="{{ url_for('compensation.edit_profile', uid=p.user_id) }}" class="btn btn-sm btn-outline">Edit</a></td>
@@ -53,8 +53,8 @@
                         <td>{{ r.month }}/{{ r.year }}</td>
                         <td>{{ r.run_date.strftime('%d-%b-%Y') }}</td>
                         <td>{{ r.employee_count }}</td>
-                        <td>Rs. {{ r.total_gross|round|int }}</td>
-                        <td>Rs. {{ r.total_net|round|int }}</td>
+                        <td>Rs. {{ r.total_gross|amount_format(0) }}</td>
+                        <td>Rs. {{ r.total_net|amount_format(0) }}</td>
                         <td><span class="badge badge-{{ 'success' if r.status == 'completed' else 'warning' }}">{{ r.status }}</span></td>
                         <td><a href="{{ url_for('compensation.export_bank_ledger', rid=r.id) }}" class="btn btn-sm btn-outline">Ledger</a></td>
                     </tr>
@@ -77,10 +77,10 @@
                 <tbody>
                     {% for s in slabs %}
                     <tr>
-                        <td>Rs. {{ s.min_income|round|int }}</td>
-                        <td>Rs. {{ s.max_income|round|int }}</td>
+                        <td>Rs. {{ s.min_income|amount_format(0) }}</td>
+                        <td>Rs. {{ s.max_income|amount_format(0) }}</td>
                         <td>{{ s.rate_pct }}%</td>
-                        <td>Rs. {{ s.fixed_amount|round|int }}</td>
+                        <td>Rs. {{ s.fixed_amount|amount_format(0) }}</td>
                     </tr>
                     {% else %}<tr><td colspan="4" class="text-center" style="color:var(--muted);">No slabs configured</td></tr>{% endfor %}
                 </tbody>
@@ -93,7 +93,7 @@
     <div class="card-header">My Payroll Profile</div>
     {% if profile %}
     <table>
-        <tr><td style="font-weight:600;">Basic Salary</td><td>Rs. {{ profile.basic_salary|round|int }}</td></tr>
+        <tr><td style="font-weight:600;">Basic Salary</td><td>Rs. {{ profile.basic_salary|amount_format(0) }}</td></tr>
         <tr><td style="font-weight:600;">Effective From</td><td>{{ profile.effective_from }}</td></tr>
     </table>
     {% else %}
@@ -110,9 +110,9 @@
                 {% for s in slips %}
                 <tr>
                     <td>{{ s.payroll_run.month }}/{{ s.payroll_run.year }}</td>
-                    <td>Rs. {{ s.gross_pay|round|int }}</td>
-                    <td>Rs. {{ s.total_deductions|round|int }}</td>
-                    <td><strong>Rs. {{ s.net_pay|round|int }}</strong></td>
+                    <td>Rs. {{ s.gross_pay|amount_format(0) }}</td>
+                    <td>Rs. {{ s.total_deductions|amount_format(0) }}</td>
+                    <td><strong>Rs. {{ s.net_pay|amount_format(0) }}</strong></td>
                     <td>
                         <a href="{{ url_for('compensation.view_slip', sid=s.id) }}" class="btn btn-sm btn-outline">View</a>
                         <a href="{{ url_for('compensation.download_slip_pdf', sid=s.id) }}" class="btn btn-sm btn-primary">PDF</a>

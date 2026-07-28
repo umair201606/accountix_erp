@@ -90,7 +90,7 @@
                     <tr>
                         <td>{{ l.user.full_name }}</td>
                         <td>{{ l.request_type }}</td>
-                        <td>Rs. {{ l.amount|round|int }}</td>
+                        <td>Rs. {{ l.amount|amount_format(0) }}</td>
                         <td>{{ l.installment_months }}</td>
                         <td>{{ l.purpose[:40] }}</td>
                         <td>

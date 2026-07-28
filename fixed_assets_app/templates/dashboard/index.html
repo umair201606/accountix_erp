@@ -1,0 +1,55 @@
+{% extends "fixed_assets/layouts/base.html" %}
+{% block title %}Fixed Assets Dashboard{% endblock %}
+{% block page_title %}Fixed Assets Dashboard{% endblock %}
+{% block content %}
+<div class="dashboard-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin-bottom:24px;">
+  <div class="stat-card">
+    <div class="stat-value">{{ total_assets }}</div>
+    <div class="stat-label">Total Assets</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-value">{{ "{:,.0f}".format(total_cost) }}</div>
+    <div class="stat-label">Total Cost</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-value">{{ "{:,.0f}".format(total_depreciation) }}</div>
+    <div class="stat-label">Accumulated Depreciation</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-value">{{ "{:,.0f}".format(net_book_value) }}</div>
+    <div class="stat-label">Net Book Value</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-value">{{ active_count }}</div>
+    <div class="stat-label">Active</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-value">{{ categories }}</div>
+    <div class="stat-label">Categories</div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header"><h3>Recent Assets</h3></div>
+  <div class="card-body">
+    {% if recent_assets %}
+    <table class="table">
+      <thead><tr><th>Code</th><th>Name</th><th>Category</th><th>Cost</th><th>Status</th></tr></thead>
+      <tbody>
+        {% for a in recent_assets %}
+        <tr>
+          <td>{{ a.asset_code }}</td>
+          <td><a href="{{ url_for('fa_assets.view_asset', asset_id=a.id) }}">{{ a.name }}</a></td>
+          <td>{{ a.category_obj.name if a.category_obj else '' }}</td>
+          <td>{{ "{:,.0f}".format(a.purchase_cost) }}</td>
+          <td><span class="badge {{ 'badge-success' if a.status == 'active' else 'badge-secondary' }}">{{ a.status }}</span></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="text-muted">No assets yet. <a href="{{ url_for('fa_assets.create_asset') }}">Create your first asset</a>.</p>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

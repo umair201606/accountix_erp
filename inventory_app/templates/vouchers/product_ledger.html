@@ -56,10 +56,10 @@
           </td>
           <td><span class="badge {% if e.transaction_type=='IN' %}badge-success{% else %}badge-danger{% endif %}">{{ e.transaction_type }}</span></td>
           <td>{{ e.quantity }}</td>
-          <td>{{ "%.4f"|format(e.unit_cost) }}</td>
-          <td>{{ "%.2f"|format(e.running_qty) }}</td>
-          <td>{{ "%.2f"|format(e.running_cost) }}</td>
-          <td>{{ "%.4f"|format(e.running_avg) }}</td>
+          <td>{{ e.unit_cost|amount_format(0) }}</td>
+          <td>{{ e.running_qty|amount_format(0) }}</td>
+          <td>{{ e.running_cost|amount_format(0) }}</td>
+          <td>{{ e.running_avg|amount_format(0) }}</td>
           <td>{{ e.notes or '' }}</td>
         </tr>
         {% endfor %}

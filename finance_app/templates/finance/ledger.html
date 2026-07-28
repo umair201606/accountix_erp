@@ -119,7 +119,7 @@ summary{cursor:pointer}
     <summary>
       <span><strong>{{ sec.account.code }}</strong> — {{ sec.account.name }} <span class="text-slate-400 text-xs">({{ sec.account.type }})</span></span>
       <span style="font-size:13px;font-weight:600;color:{{ '#16a34a' if sec.subtotal >= 0 else '#dc2626' }};">
-        {{ "{:,.2f}".format(sec.closing) }} {{ sec.closing_side }}
+        {{ sec.closing|amount_format }} {{ sec.closing_side }}
       </span>
     </summary>
     <div style="overflow-x:auto;">
@@ -139,16 +139,16 @@ summary{cursor:pointer}
             <td colspan="3">Opening Balance</td>
             <td class="num">—</td>
             <td class="num">—</td>
-            <td class="num">{{ "{:,.2f}".format(sec.opening) }} {{ sec.opening_side }}</td>
+            <td class="num">{{ sec.opening|amount_format }} {{ sec.opening_side }}</td>
           </tr>
           {% for r in sec.rows %}
           <tr>
             <td>{{ r.date }}</td>
             <td><span class="font-mono text-xs">{{ r.voucher }}</span></td>
             <td>{{ r.description }}</td>
-            <td class="num">{{ "{:,.2f}".format(r.debit) if r.debit else "—" }}</td>
-            <td class="num">{{ "{:,.2f}".format(r.credit) if r.credit else "—" }}</td>
-            <td class="num font-semibold">{{ "{:,.2f}".format(r.balance) }}</td>
+            <td class="num">{{ r.debit|amount_format if r.debit else "—" }}</td>
+            <td class="num">{{ r.credit|amount_format if r.credit else "—" }}</td>
+            <td class="num font-semibold">{{ r.balance|amount_format }}</td>
           </tr>
           {% else %}
           <tr><td colspan="6" class="text-slate-500 text-center" style="padding:14px;">No transactions in this period.</td></tr>
@@ -157,13 +157,13 @@ summary{cursor:pointer}
         <tfoot>
           <tr class="subtotal-row">
             <td colspan="3" style="text-align:right;">Movement during period</td>
-            <td class="num">{{ "{:,.2f}".format(sec.total_debit) }}</td>
-            <td class="num">{{ "{:,.2f}".format(sec.total_credit) }}</td>
+            <td class="num">{{ sec.total_debit|amount_format }}</td>
+            <td class="num">{{ sec.total_credit|amount_format }}</td>
             <td></td>
           </tr>
           <tr class="closing-row" style="font-weight:700;background:#f1f5f9;">
             <td colspan="5" style="text-align:right;">Closing Balance</td>
-            <td class="num">{{ "{:,.2f}".format(sec.closing) }} {{ sec.closing_side }}</td>
+            <td class="num">{{ sec.closing|amount_format }} {{ sec.closing_side }}</td>
           </tr>
         </tfoot>
       </table>

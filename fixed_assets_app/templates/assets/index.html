@@ -1,0 +1,41 @@
+{% extends "fixed_assets/layouts/base.html" %}
+{% block title %}Fixed Assets{% endblock %}
+{% block page_title %}Fixed Assets{% endblock %}
+{% block actions %}
+<a href="{{ url_for('fa_assets.create_asset') }}" class="btn btn-primary">+ New Asset</a>
+{% endblock %}
+{% block content %}
+<div class="card" style="margin-bottom:16px;">
+  <div class="card-body">
+    <form method="GET" class="form-inline" style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;">
+      <div><label class="form-label">Search</label><input type="text" name="q" class="form-control" value="{{ q }}" placeholder="Name or code..."></div>
+      <div><label class="form-label">Status</label><select name="status" class="form-control"><option value="">All</option><option value="active" {{ 'selected' if status_filter == 'active' }}>Active</option><option value="disposed" {{ 'selected' if status_filter == 'disposed' }}>Disposed</option></select></div>
+      <div><label class="form-label">Category</label><select name="category_id" class="form-control"><option value="">All</option>{% for c in categories %}<option value="{{ c.id }}" {{ 'selected' if category_filter == c.id|string }}>{{ c.name }}</option>{% endfor %}</select></div>
+      <div><button type="submit" class="btn btn-primary">Filter</button> <a href="{{ url_for('fa_assets.list_assets') }}" class="btn btn-secondary">Clear</a></div>
+    </form>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-body">
+    <table class="table">
+      <thead><tr><th>Code</th><th>Name</th><th>Category</th><th>Purchase Date</th><th>Cost</th><th>Book Value</th><th>Status</th></tr></thead>
+      <tbody>
+        {% for a in assets %}
+        <tr>
+          <td>{{ a.asset_code }}</td>
+          <td><a href="{{ url_for('fa_assets.view_asset', asset_id=a.id) }}">{{ a.name }}</a></td>
+          <td>{{ a.category_obj.name if a.category_obj else '' }}</td>
+          <td>{{ a.purchase_date }}</td>
+          <td>{{ "{:,.0f}".format(a.purchase_cost) }}</td>
+          <td>{{ "{:,.0f}".format(a.current_book_value) }}</td>
+          <td><span class="badge {{ 'badge-success' if a.status == 'active' else 'badge-secondary' }}">{{ a.status }}</span></td>
+        </tr>
+        {% else %}
+        <tr><td colspan="7" class="text-muted">No assets found.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

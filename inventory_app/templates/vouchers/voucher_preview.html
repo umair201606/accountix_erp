@@ -76,13 +76,13 @@
         <td>{{ it.product }}</td>
         {% if it.system_qty is defined %}<td>{{ it.system_qty }}</td><td>{{ it.physical_qty }}</td><td>{{ it.diff }}</td>{% endif %}
         <td>{{ it.qty }}</td>
-        <td>{{ "%.4f"|format(it.unit_cost) }}</td>
-        <td>{{ "%.2f"|format(it.total) }}</td>
+        <td>{{ it.unit_cost|amount_format(0) }}</td>
+        <td>{{ it.total|amount_format(0) }}</td>
       </tr>
       {% endfor %}
     </tbody>
     <tfoot><tr><td colspan="{% if items and items[0].system_qty is defined %}6{% else %}4{% endif %}" style="text-align:right;">Total:</td>
-      <td>{{ "%.2f"|format(items|sum(attribute='total')) }}</td>
+      <td>{{ items|sum(attribute='total')|amount_format }}</td>
     </tr></tfoot>
   </table>
 

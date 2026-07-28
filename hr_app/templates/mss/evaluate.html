@@ -18,7 +18,7 @@
         <form method="POST">
             <div class="form-group">
                 <label>Current Basic Salary</label>
-                <input type="text" class="form-control" value="{{ employee.payroll_profile.basic_salary if employee.payroll_profile else 'Not set' }}" disabled>
+                <input type="text" class="form-control" value="{{ employee.payroll_profile.basic_salary|amount_format(0) if employee.payroll_profile else 'Not set' }}" disabled>
             </div>
             <div class="form-group">
                 <label>New Basic Salary</label>

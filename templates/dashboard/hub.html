@@ -43,6 +43,13 @@
     <p class="mod-desc">DI submissions, validation, configuration &amp; compliance</p>
   </a>
   {% endif %}
+  {% if has_fixed_assets %}
+  <a href="{{ url_for('fa_auth.dashboard') }}" class="mod-card" style="--hover:#b91c1c">
+    <div class="mod-ico">&#128188;</div>
+    <h3 class="mod-title">Fixed Assets Management</h3>
+    <p class="mod-desc">Assets, Categories, Depreciation, Reports</p>
+  </a>
+  {% endif %}
   <a href="{{ url_for('settings.index') }}" class="mod-card" style="--hover:#1f2937">
     <div class="mod-ico">&#9881;</div>
     <h3 class="mod-title">Settings</h3>

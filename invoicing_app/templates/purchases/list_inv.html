@@ -26,7 +26,7 @@
           <td>{{ o.supplier.name }}</td>
           <td>{{ o.order_date }}</td>
           <td>{{ o.expected_date or '-' }}</td>
-          <td>{{ "%.2f"|format(o.total_amount) }}</td>
+          <td>{{ o.total_amount|amount_format(0) }}</td>
           <td><span class="badge badge-{{ o.status }}">{{ o.status|title }}</span></td>
           <td class="actions" style="display:flex;gap:4px;">
             <a href="{{ url_for('inv_purchases.purchase_form', id=o.id) }}" class="btn btn-sm btn-outline">View / Edit</a>

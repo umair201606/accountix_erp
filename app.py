@@ -32,6 +32,7 @@ def _create_app():
             os.path.join(os.path.dirname(__file__), "invoicing_app", "templates"),
             os.path.join(os.path.dirname(__file__), "finance_app", "templates"),
             os.path.join(os.path.dirname(__file__), "fbr_app", "templates"),
+            os.path.join(os.path.dirname(__file__), "fixed_assets_app", "templates"),
         ]),
     ])
     app.jinja_loader = my_loader
@@ -59,6 +60,9 @@ def _create_app():
 
     from fbr_app.app import register_fbr_blueprints
     register_fbr_blueprints(app)
+
+    from fixed_assets_app.app import register_fixed_assets_blueprints
+    register_fixed_assets_blueprints(app)
 
     @app.context_processor
     def inject_now():
@@ -105,6 +109,53 @@ def _create_app():
             return accessible_modules(current_user)
 
         return {"nav_meta": nav_meta, "nav_for": nav_for, "nav_modules": nav_modules}
+
+    # ── Number formatting helpers ──────────────────────────────────────────
+
+    def _format_amount(value, decimal_places=2):
+        """Format a number per company.number_format (en = western, hi = Indian)."""
+        if value is None:
+            value = 0
+        try:
+            from shared.models.company_settings import CompanyInfo
+            fmt = CompanyInfo.get().number_format or "en"
+        except Exception:
+            fmt = "en"
+
+        if decimal_places < 0:
+            decimal_places = 0
+
+        if fmt == "hi":
+            return _format_indian(value, decimal_places)
+        return f"{value:,.{decimal_places}f}"
+
+    def _format_indian(value, decimal_places):
+        """Indian numbering: 12,34,567.89 (first 3 digits, then groups of 2)."""
+        negative = value < 0
+        value = abs(value)
+        rounded = round(value, decimal_places)
+        int_part = int(rounded)
+        dec_part = int(round((rounded - int_part) * 10 ** decimal_places))
+
+        int_str = str(int_part)
+        if len(int_str) <= 3:
+            formatted_int = int_str
+        else:
+            last_three = int_str[-3:]
+            rest = int_str[:-3]
+            groups = []
+            while len(rest) > 0:
+                groups.append(rest[-2:])
+                rest = rest[:-2]
+            groups.reverse()
+            formatted_int = ",".join(groups) + "," + last_three
+
+        sign = "-" if negative else ""
+        if decimal_places > 0:
+            return f"{sign}{formatted_int}.{str(dec_part).zfill(decimal_places)}"
+        return f"{sign}{formatted_int}"
+
+    app.add_template_filter(_format_amount, name="amount_format")
 
     @app.route("/")
     def index():
@@ -220,6 +271,7 @@ def _migrate_schema(db):
         ("users", "has_finance_access", bool_false),
         ("users", "has_accounting_access", bool_false),
         ("users", "has_fbr_access", bool_false),
+        ("users", "has_fixed_assets_access", bool_false),
         ("users", "login_id", "VARCHAR(120)"),
         ("consumption_vouchers", "charge_account_id", "INTEGER"),
         ("scrap_vouchers", "charge_account_id", "INTEGER"),
@@ -350,6 +402,7 @@ def _migrate_schema(db):
         ("invoice_settings", "create_from_orders_enabled", "BOOLEAN DEFAULT 1"),
         ("invoice_settings", "per_line_discount_enabled", "BOOLEAN DEFAULT 1"),
         ("invoice_settings", "per_line_tax_enabled", "BOOLEAN DEFAULT 1"),
+        ("company_info", "number_format", "VARCHAR(10) DEFAULT 'en'"),
     ]
 
     inspector = inspect(engine)
@@ -612,6 +665,9 @@ def _seed_all_data(app):
                     db.session.add(Permission(role_id=role.id, resource=resource,
                                               can_read=bool(cr), can_write=bool(cw), can_delete=bool(cd)))
 
+        from fixed_assets_app.models.asset import AssetCategory as FAssetCat
+        FAssetCat.seed()
+
         for prefix in ["PI", "PR", "CONS", "SCRAP", "ADJ", "ST", "CPV", "CRV", "BPV", "BRV", "JV", "PRL"]:
             if not VoucherNumber.query.filter_by(prefix=prefix).first():
                 db.session.add(VoucherNumber(prefix=prefix, next_number=1))
@@ -754,10 +810,19 @@ def _seed_all_data(app):
         InventorySettings.get()
 
         from shared.models.company_settings import CompanyInfo, AccountingPeriod, FiscalYearRule, ReportSettings
+        from datetime import timedelta
         CompanyInfo.get()
         rule = FiscalYearRule.get()
-        if not AccountingPeriod.query.first():
+        existing = AccountingPeriod.query.first()
+        if not existing:
             rule.generate_periods()
+        else:
+            has_monthly = any(
+                (p.end_date - p.start_date).days < 330
+                for p in AccountingPeriod.query.all()
+            )
+            if has_monthly:
+                rule.generate_periods()
         ReportSettings.get()
 
         # Backfill level-4 subledger accounts for entities created before the

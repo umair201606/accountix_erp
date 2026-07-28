@@ -1,0 +1,29 @@
+{% extends "fixed_assets/layouts/base.html" %}
+{% block title %}Asset Categories{% endblock %}
+{% block page_title %}Asset Categories{% endblock %}
+{% block actions %}
+<a href="{{ url_for('fa_categories.create_category') }}" class="btn btn-primary">+ New Category</a>
+{% endblock %}
+{% block content %}
+<div class="card">
+  <div class="card-body">
+    <table class="table">
+      <thead><tr><th>Name</th><th>Description</th><th>Default Life</th><th>Default Method</th><th>Status</th><th></th></tr></thead>
+      <tbody>
+        {% for c in categories %}
+        <tr>
+          <td>{{ c.name }}</td>
+          <td>{{ c.description or '' }}</td>
+          <td>{{ c.default_useful_life }} yrs</td>
+          <td>{{ c.default_depreciation_method|replace('_', ' ')|title }}</td>
+          <td><span class="badge {{ 'badge-success' if c.is_active else 'badge-secondary' }}">{{ 'Active' if c.is_active else 'Inactive' }}</span></td>
+          <td><a href="{{ url_for('fa_categories.edit_category', category_id=c.id) }}" class="btn btn-sm btn-secondary">Edit</a></td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6" class="text-muted">No categories defined.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

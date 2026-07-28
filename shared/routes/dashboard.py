@@ -14,11 +14,13 @@ def hub():
     has_finance = current_user.module_access("finance")
     has_accounting = current_user.module_access("accounting")
     has_fbr = current_user.module_access("fbr")
-    if not (has_hr or has_inv or has_invoicing or has_finance or has_accounting or has_fbr):
+    has_fixed_assets = current_user.module_access("fixed_assets")
+    if not (has_hr or has_inv or has_invoicing or has_finance or has_accounting or has_fbr or has_fixed_assets):
         return render_template("dashboard/access_denied.html")
     return render_template("dashboard/hub.html",
                            has_hr=has_hr, has_inv=has_inv,
                            has_invoicing=has_invoicing,
                            has_finance=has_finance, has_accounting=has_accounting,
                            has_fbr=has_fbr,
+                           has_fixed_assets=has_fixed_assets,
                            has_settings=is_admin)

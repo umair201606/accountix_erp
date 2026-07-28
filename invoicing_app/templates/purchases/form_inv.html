@@ -562,7 +562,7 @@ function toast(m,t){var c=document.getElementById('toastContainer'),d=document.c
   // white text on white, i.e. an invisible blank box.
   var K={error:'e',success:'s',info:'i',warning:'w'};d.className='toast toast-'+(K[t]||t||'i');d.innerHTML=m+'<button style="background:none;border:none;color:inherit;font-size:16px;cursor:pointer;margin-left:auto;padding:0;line-height:1;" onclick="this.parentElement.remove()">&times;</button>';c.appendChild(d);setTimeout(function(){d.style.opacity='0';d.style.transition='opacity .3s';setTimeout(function(){d.remove()},300)},4000)}
 function esc(s){return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
-function fmt(v){var n=parseFloat(v)||0;return n.toLocaleString('en-PK',{minimumFractionDigits:2,maximumFractionDigits:2})}
+function fmt(v){return window.formatAmount(v,2)}
 function cv(s){return parseFloat((s||'').toString().replace(/Rs\.\s*/,'').replace(/,/g,'').replace('-',''))||0}
 function showConfirm(t,m,cb){document.getElementById('confirmTitle').textContent=t;document.getElementById('confirmMsg').textContent=m;document.getElementById('confirmModal').classList.add('show');confirmCallback=cb}
 function closeConfirm(){document.getElementById('confirmModal').classList.remove('show');confirmCallback=null}

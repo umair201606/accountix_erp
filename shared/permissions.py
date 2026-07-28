@@ -55,6 +55,12 @@ MODULES = [
         ("fbr_dashboard", "Dashboard"),
         ("fbr_settings", "Settings"),
     ]),
+    ("fixed_assets", "Fixed Assets Management", "has_fixed_assets_access", [
+        ("fixed_assets_dashboard", "Dashboard"),
+        ("fixed_assets_assets", "Assets"),
+        ("fixed_assets_categories", "Categories"),
+        ("fixed_assets_reports", "Reports"),
+    ]),
 ]
 
 # Accounting voucher type -> section key (used to enforce per-voucher rights)

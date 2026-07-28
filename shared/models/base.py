@@ -84,6 +84,7 @@ class User(UserMixin, db.Model):
     has_finance_access = db.Column(db.Boolean, default=False)
     has_accounting_access = db.Column(db.Boolean, default=False)
     has_fbr_access = db.Column(db.Boolean, default=False)
+    has_fixed_assets_access = db.Column(db.Boolean, default=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -132,6 +133,7 @@ class User(UserMixin, db.Model):
             "finance": self.has_finance_access,
             "accounting": self.has_accounting_access,
             "fbr": self.has_fbr_access,
+            "fixed_assets": self.has_fixed_assets_access,
         }
         return bool(flags.get(module_key))
 

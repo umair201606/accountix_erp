@@ -264,7 +264,7 @@ def _approve_voucher(v):
 
 
 def _resolve_voucher_period():
-    from .reports import _parse_date
+    from .reports import _parse_date, _default_period
 
     filter_mode = request.args.get("filter_mode", "period")
     period_id = request.args.get("period_id", type=int)
@@ -287,14 +287,14 @@ def _resolve_voucher_period():
             to_date = datetime.combine(period.end_date, datetime.max.time())
 
     if not from_date and not to_date:
-        active = AccountingPeriod.query.filter_by(is_active=True).first()
+        active = _default_period()
         if active:
             from_date = datetime.combine(active.start_date, datetime.min.time())
             to_date = datetime.combine(active.end_date, datetime.max.time())
             if not selected_period_id:
                 selected_period_id = active.id
-    elif not selected_period_id and filter_mode == "period":
-        active = AccountingPeriod.query.filter_by(is_active=True).first()
+    elif filter_mode == "period" and not selected_period_id:
+        active = _default_period()
         if active:
             selected_period_id = active.id
 

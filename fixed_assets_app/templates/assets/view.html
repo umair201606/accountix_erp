@@ -1,0 +1,70 @@
+{% extends "fixed_assets/layouts/base.html" %}
+{% block title %}{{ asset.name }}{% endblock %}
+{% block page_title %}{{ asset.asset_code }} - {{ asset.name }}{% endblock %}
+{% block actions %}
+<a href="{{ url_for('fa_assets.edit_asset', asset_id=asset.id) }}" class="btn btn-primary">Edit</a>
+{% if asset.status == 'active' %}
+<button class="btn btn-danger" onclick="if(confirm('Dispose this asset?'))document.getElementById('dispose-form').submit()">Dispose</button>
+{% endif %}
+{% endblock %}
+{% block content %}
+<div class="card" style="margin-bottom:16px;">
+  <div class="card-body">
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;">
+      <div><strong>Category:</strong><br>{{ asset.category_obj.name if asset.category_obj else 'N/A' }}</div>
+      <div><strong>Purchase Date:</strong><br>{{ asset.purchase_date }}</div>
+      <div><strong>Purchase Cost:</strong><br>{{ "{:,.0f}".format(asset.purchase_cost) }}</div>
+      <div><strong>Useful Life:</strong><br>{{ asset.useful_life }} years</div>
+      <div><strong>Depreciation Method:</strong><br>{{ asset.depreciation_method|replace('_', ' ')|title }}</div>
+      <div><strong>Salvage Value:</strong><br>{{ "{:,.0f}".format(asset.salvage_value) }}</div>
+      <div><strong>Accumulated Depreciation:</strong><br>{{ "{:,.0f}".format(asset.accumulated_depreciation) }}</div>
+      <div><strong>Current Book Value:</strong><br>{{ "{:,.0f}".format(asset.current_book_value) }}</div>
+      <div><strong>Status:</strong><br><span class="badge {{ 'badge-success' if asset.status == 'active' else 'badge-secondary' }}">{{ asset.status }}</span></div>
+      <div><strong>Location:</strong><br>{{ asset.location or 'N/A' }}</div>
+      <div><strong>Assigned To:</strong><br>{{ asset.assigned_to or 'N/A' }}</div>
+      <div><strong>Vendor:</strong><br>{{ asset.vendor or 'N/A' }}</div>
+      <div><strong>Serial Number:</strong><br>{{ asset.serial_number or 'N/A' }}</div>
+    </div>
+    {% if asset.description %}
+    <hr><p><strong>Description:</strong><br>{{ asset.description }}</p>
+    {% endif %}
+    {% if asset.notes %}
+    <hr><p><strong>Notes:</strong><br>{{ asset.notes }}</p>
+    {% endif %}
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header"><h3>Depreciation Schedule</h3></div>
+  <div class="card-body">
+    {% if depreciation_entries %}
+    <table class="table">
+      <thead><tr><th>Date</th><th>Amount</th><th>Accumulated</th><th>Net Book Value</th><th>Notes</th></tr></thead>
+      <tbody>
+        {% for e in depreciation_entries %}
+        <tr>
+          <td>{{ e.entry_date }}</td>
+          <td>{{ "{:,.0f}".format(e.amount) }}</td>
+          <td>{{ "{:,.0f}".format(e.accumulated_after) }}</td>
+          <td>{{ "{:,.0f}".format(e.net_book_value_after) }}</td>
+          <td>{{ e.notes }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="text-muted">No depreciation entries recorded.</p>
+    {% endif %}
+    <hr>
+    <h4>Record Depreciation</h4>
+    <form method="POST" action="{{ url_for('fa_assets.record_depreciation', asset_id=asset.id) }}" style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;">
+      <div><label class="form-label">Date</label><input type="date" name="entry_date" class="form-control" required></div>
+      <div><label class="form-label">Amount</label><input type="number" step="0.01" name="amount" class="form-control" placeholder="0.00" required></div>
+      <div><label class="form-label">Notes</label><input type="text" name="notes" class="form-control" placeholder="Optional"></div>
+      <div><button type="submit" class="btn btn-primary">Record</button></div>
+    </form>
+  </div>
+</div>
+
+<form id="dispose-form" method="POST" action="{{ url_for('fa_assets.dispose_asset', asset_id=asset.id) }}" style="display:none;"></form>
+{% endblock %}

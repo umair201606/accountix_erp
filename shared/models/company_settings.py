@@ -21,6 +21,7 @@ class CompanyInfo(db.Model):
     currency = db.Column(db.String(10), default="PKR")
     currency_symbol = db.Column(db.String(10), default="Rs.")
     date_format = db.Column(db.String(20), default="Y-m-d")
+    number_format = db.Column(db.String(10), default="en")
     timezone = db.Column(db.String(50), default="Asia/Karachi")
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -134,16 +135,22 @@ class FiscalYearRule(db.Model):
             db.session.commit()
         return r
 
-    def generate_periods(self):
-        """Delete all existing periods and regenerate yearly periods from this rule."""
+    def generate_periods(self, from_year=None, to_year=None):
+        """Delete all existing periods and regenerate yearly periods from this rule.
 
+        If from_year/to_year are None, auto-detect from existing journal entries.
+        """
         from shared.models.ledger import JournalEntry
 
         AccountingPeriod.query.delete()
         today = date.today()
-        earliest = db.session.query(db.func.min(JournalEntry.entry_date)).scalar()
-        min_year = earliest.year if earliest else today.year - 5
-        max_year = today.year + 2
+
+        if from_year is not None and to_year is not None:
+            min_year, max_year = from_year, to_year
+        else:
+            earliest = db.session.query(db.func.min(JournalEntry.entry_date)).scalar()
+            min_year = earliest.year if earliest else today.year - 5
+            max_year = today.year + 2
 
         for y in range(min_year, max_year + 1):
             start_date = date(y, self.start_month, self.start_day)
