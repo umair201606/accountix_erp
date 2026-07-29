@@ -249,7 +249,10 @@ def _pl_rows(from_date, to_date):
     return rows, float(running)
 
 
-def _build_excel_wb(title, headers, rows, col_widths=None):
+def _build_excel_wb(title, headers, rows, col_widths=None,
+                    bold_rows=None, number_format=None):
+    """bold_rows: 0-based indices into ``rows`` to emphasise (subtotal/balance
+    lines). number_format: openpyxl format applied to every numeric cell."""
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = title[:31]
@@ -267,12 +270,17 @@ def _build_excel_wb(title, headers, rows, col_widths=None):
         c.alignment = CENTER
         c.border = THIN
 
+    bold_rows = set(bold_rows or ())
     for ri, row in enumerate(rows, hdr_row + 1):
+        emphasised = (ri - hdr_row - 1) in bold_rows
         for ci, val in enumerate(row, 1):
             c = ws.cell(row=ri, column=ci, value=val)
-            c.font = DATA_FONT
+            c.font = BOLD_FONT if emphasised else DATA_FONT
             c.border = THIN
-            c.alignment = RIGHT if isinstance(val, (int, float, Decimal)) else LEFT_ALIGN
+            numeric = isinstance(val, (int, float, Decimal))
+            c.alignment = RIGHT if numeric else LEFT_ALIGN
+            if numeric and number_format:
+                c.number_format = number_format
 
     if col_widths:
         for ci, w in enumerate(col_widths, 1):
@@ -284,7 +292,8 @@ def _build_excel_wb(title, headers, rows, col_widths=None):
     return out
 
 
-def _build_pdf_landscape(title, headers, rows, col_widths=None):
+def _build_pdf_landscape(title, headers, rows, col_widths=None, bold_rows=None,
+                         subtitle=None):
     buf = BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=landscape(A4),
                             rightMargin=10*mm, leftMargin=10*mm,
@@ -293,6 +302,8 @@ def _build_pdf_landscape(title, headers, rows, col_widths=None):
     elements = []
 
     elements.append(Paragraph(title, styles["Title"]))
+    if subtitle:
+        elements.append(Paragraph(subtitle, styles["Normal"]))
     elements.append(Spacer(1, 6*mm))
     elements.append(Paragraph(f"Generated: {datetime.now():%Y-%m-%d %H:%M}",
                               styles["Normal"]))
@@ -320,6 +331,10 @@ def _build_pdf_landscape(title, headers, rows, col_widths=None):
         ("TOPPADDING", (0, 0), (-1, -1), 4),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
     ]
+    for ri in (bold_rows or ()):
+        r = ri + 1  # header occupies row 0
+        style += [("FONTNAME", (0, r), (-1, r), "Helvetica-Bold"),
+                  ("BACKGROUND", (0, r), (-1, r), colors.HexColor("#E8EEF5"))]
     t.setStyle(TableStyle(style))
     elements.append(t)
     doc.build(elements)
@@ -1071,201 +1086,279 @@ def balance_sheet():
 # 6. SOCIE
 # ═══════════════════════════════════════════════
 
+SOCIE_EPS = Decimal("0.005")
+
+
+def _socie_paren(v):
+    """Accounting presentation for exports: negatives in parentheses, gaps as a dash."""
+    if v is None:
+        return "—"
+    return f"({abs(v):,.2f})" if v < 0 else f"{v:,.2f}"
+
+
+def _socie_matrix(period_specs):
+    """Build an IFRS-style roll-forward Statement of Changes in Equity.
+
+    ``period_specs`` is a chronological list of ``(start, end)`` tuples. The
+    result is a component-per-column matrix that reads top-to-bottom as one
+    continuous movement: each period's closing balance row *is* the next
+    period's opening, so the reader can follow equity across years without
+    re-reading a fresh block per period.
+
+    Column values are anchored to the balance sheet: a column's balance at a
+    date is that account's ledger balance (cr − dr) at the date, and the
+    Retained Earnings column additionally absorbs cumulative net income plus
+    the dividend account (a debit balance, so it subtracts itself). Total
+    equity per the closing row therefore always equals balance-sheet equity on
+    that date. Every movement row is a *period* movement (difference of two
+    cutoff balances), never a cumulative figure, and any part of the change a
+    named row does not explain is surfaced as an explicit "Other movements"
+    line rather than silently dropped — the statement always foots.
+
+    Returns ``(columns, rows)``; ``columns`` are ``{"key", "label"}`` dicts
+    ending with the Total column, ``rows`` are render dicts with
+    ``kind`` (opening / closing / movement / subtotal / section),
+    ``label``, ``indent`` and ``values`` ({column key: float or None}).
+    """
+    from shared.coa import ROLE_CODES
+
+    if not period_specs:
+        return [], []
+
+    accounts = (ChartOfAccount.query.filter_by(type="equity")
+                .order_by(ChartOfAccount.code).all())
+    by_code = {a.code: a for a in accounts}
+    sc_code = "3-01-01-01-0001"
+    re_close = by_code.get(ROLE_CODES.get("retained_earnings"))
+    re_open = by_code.get("3-02-01-01-0001")
+    div_acct = by_code.get(ROLE_CODES.get("dividends"))
+    oci_acct = by_code.get(ROLE_CODES.get("other_comprehensive_income"))
+    # Retained-earnings family folds into the single RE column; OCI keeps its
+    # own reserve column the way a published statement presents it.
+    re_family = {a.id for a in (re_open, re_close, div_acct) if a}
+
+    _cache = {}
+
+    def _at(d):
+        """(equity balances by account id, cumulative net income) as of d."""
+        if d not in _cache:
+            _cache[d] = ({b.account_id: b.cr - b.dr
+                          for b in _all_account_balances(d, ["equity"])},
+                         _net_income(d))
+        return _cache[d]
+
+    # Dates the statement measures: every period boundary.
+    cut_dates = []
+    for ps, pe in period_specs:
+        cut_dates += [ps - timedelta(days=1), pe]
+
+    # Component columns: postable equity accounts outside the RE family that
+    # actually move or hold a balance somewhere in the reported span. Share
+    # capital is always shown — a SOCIE without it reads as incomplete.
+    comp_accounts = []
+    for a in accounts:
+        if not a.is_postable or a.id in re_family:
+            continue
+        used = any(abs(_at(d)[0].get(a.id, Decimal("0"))) > SOCIE_EPS for d in cut_dates)
+        if used or a.code == sc_code:
+            comp_accounts.append(a)
+
+    columns = [{"key": f"a{a.id}", "label": a.name} for a in comp_accounts]
+    columns.append({"key": "re", "label": "Retained Earnings"})
+    columns.append({"key": "total", "label": "Total Equity"})
+    oci_key = f"a{oci_acct.id}" if (oci_acct and any(
+        c["key"] == f"a{oci_acct.id}" for c in columns)) else None
+
+    def _balances(d):
+        bals, ni = _at(d)
+        vals = {f"a{a.id}": float(bals.get(a.id, Decimal("0"))) for a in comp_accounts}
+        re_val = ni
+        for a in (re_open, re_close, div_acct):
+            if a:
+                re_val += bals.get(a.id, Decimal("0"))
+        vals["re"] = float(re_val)
+        vals["total"] = float(sum(Decimal(str(v)) for v in vals.values()))
+        return vals
+
+    def _mv(acct, d0, d1):
+        if not acct:
+            return Decimal("0")
+        return _at(d1)[0].get(acct.id, Decimal("0")) - _at(d0)[0].get(acct.id, Decimal("0"))
+
+    def _row(kind, label, values, indent=0):
+        # The Total column is always recomputed from the component columns so a
+        # row can never disagree with the figures printed beside it.
+        full = {c["key"]: values.get(c["key"]) for c in columns if c["key"] != "total"}
+        full["total"] = sum(v for v in full.values() if v is not None)
+        return {"kind": kind, "label": label, "indent": indent, "values": full}
+
+    rows = []
+    prev_end = None
+    prev_close = None
+
+    for ps, pe in period_specs:
+        cutoff = ps - timedelta(days=1)
+        opening = _balances(cutoff)
+        closing = _balances(pe)
+        span_years = (pe - ps).days >= 350
+        term = "year" if span_years else "period"
+        ended = f"the {term} ended {pe.strftime('%d %B %Y')}"
+
+        # Opening row only where continuity breaks: the first period, a gap
+        # between periods, or a restatement that moved the prior closing.
+        adjoining = prev_end is not None and prev_end + timedelta(days=1) == ps
+        same_balances = prev_close is not None and all(
+            abs((prev_close.get(k) or 0) - (opening.get(k) or 0)) < 0.005 for k in opening)
+        if not (adjoining and same_balances):
+            label = f"Balance as at {ps.strftime('%d %B %Y')}"
+            if adjoining and not same_balances:
+                label += " (as restated)"
+            rows.append(_row("opening", label, opening))
+
+        explained = defaultdict(Decimal)
+
+        # ── Total comprehensive income ────────────────────────────────
+        profit = _at(pe)[1] - _at(cutoff)[1]
+        oci_mv = _mv(oci_acct, cutoff, pe) if oci_key else Decimal("0")
+        tci_rows = []
+        if abs(profit) > SOCIE_EPS:
+            word = "Profit" if profit >= 0 else "Loss"
+            tci_rows.append(_row("movement", f"{word} for {ended}",
+                                 {"re": float(profit)}, indent=1))
+            explained["re"] += profit
+        if abs(oci_mv) > SOCIE_EPS:
+            tci_rows.append(_row("movement", f"Other comprehensive income for {ended}",
+                                 {oci_key: float(oci_mv)}, indent=1))
+            explained[oci_key] += oci_mv
+        if tci_rows:
+            rows.append({"kind": "section", "label": "Total comprehensive income",
+                         "indent": 0, "values": {}})
+            rows += tci_rows
+            if len(tci_rows) > 1:
+                rows.append(_row("subtotal", f"Total comprehensive income for {ended}",
+                                 {"re": float(profit), oci_key: float(oci_mv)}, indent=1))
+
+        # ── Transactions with owners ──────────────────────────────────
+        owner_rows = []
+        for a in comp_accounts:
+            if oci_key and a.id == oci_acct.id:
+                continue
+            mv = _mv(a, cutoff, pe)
+            if abs(mv) <= SOCIE_EPS:
+                continue
+            if a.code.startswith("3-01"):
+                label = ("Shares issued during the " + term) if mv > 0 else \
+                        ("Capital reduction during the " + term)
+            else:
+                label = (f"Transfer to {a.name}") if mv > 0 else (f"Transfer from {a.name}")
+            owner_rows.append(_row("movement", label, {f"a{a.id}": float(mv)}, indent=1))
+            explained[f"a{a.id}"] += mv
+        div_mv = _mv(div_acct, cutoff, pe)
+        if abs(div_mv) > SOCIE_EPS:
+            owner_rows.append(_row("movement", "Dividends declared", {"re": float(div_mv)},
+                                   indent=1))
+            explained["re"] += div_mv
+        if owner_rows:
+            rows.append({"kind": "section", "label": "Transactions with owners",
+                         "indent": 0, "values": {}})
+            rows += owner_rows
+            if len(owner_rows) > 1:
+                sub = defaultdict(float)
+                for r in owner_rows:
+                    for k, v in r["values"].items():
+                        if k != "total" and v is not None:
+                            sub[k] += v
+                rows.append(_row("subtotal", "Total transactions with owners", dict(sub),
+                                 indent=1))
+
+        # ── Reconciling remainder ─────────────────────────────────────
+        # Direct postings to retained earnings, or to a reserve outside the
+        # rows above (prior-period adjustments, opening/closing RE transfers).
+        residual = {}
+        for c in columns:
+            k = c["key"]
+            if k == "total":
+                continue
+            delta = Decimal(str(closing[k])) - Decimal(str(opening[k])) - explained[k]
+            if abs(delta) > SOCIE_EPS:
+                residual[k] = float(delta)
+        if residual:
+            rows.append({"kind": "section", "label": "Other movements",
+                         "indent": 0, "values": {}})
+            rows.append(_row("movement", "Prior-period adjustments and transfers",
+                             residual, indent=1))
+
+        rows.append(_row("closing", f"Balance as at {pe.strftime('%d %B %Y')}", closing))
+        prev_end, prev_close = pe, closing
+
+    if rows:
+        rows[-1]["kind"] = "grand"
+    return columns, rows
+
+
+def _socie_period_specs(from_date, to_date, comp_periods):
+    """Current window plus the comparatives, de-duplicated and chronological."""
+    specs = [(from_date, to_date)] + [(p.start_date, p.end_date) for p in comp_periods]
+    seen, out = set(), []
+    for ps, pe in specs:
+        if not ps or not pe or (ps, pe) in seen:
+            continue
+        seen.add((ps, pe))
+        out.append((ps, pe))
+    out.sort(key=lambda s: (s[0], s[1]))
+    return out
+
+
 @finance_bp.route("/socie")
 @login_required
 def socie():
     from_date, to_date, periods, selected_period_id, filter_mode, from_str, to_str, comp_mode, comp_periods, comp_period_ids_str = _resolve_period()
 
+    base = dict(periods=periods, selected_period_id=selected_period_id,
+                comp_mode=comp_mode, comp_periods=comp_periods,
+                comp_period_ids_str=comp_period_ids_str, now=datetime.utcnow())
+
     if from_date is None:
-        return render_template("finance/socie.html", rows=[], opening_total=0,
-                               movement_total=0, closing_total=0,
+        return render_template("finance/socie.html", socie_columns=[], socie_rows=[],
                                from_date=None, to_date=None,
-                               periods=periods, selected_period_id=selected_period_id,
-                               filter_mode="", from_str="", to_str="",
-                               comp_mode="", comp_periods=[], comp_period_ids_str="",
-                               comp_socie_blocks=[],
-                               now=datetime.utcnow())
+                               filter_mode="", from_str="", to_str="", **base)
 
-    cutoff = from_date - timedelta(days=1)
-    ni = _net_income(to_date)
-
-    opening_balances = {b.account_id: b.cr - b.dr
-                        for b in _all_account_balances(cutoff, ["equity"])}
-    closing_balances = {b.account_id: b.cr - b.dr
-                        for b in _all_account_balances(to_date, ["equity"])}
-    accts = {a.id: a for a in ChartOfAccount.query.filter_by(type="equity").all()}
-
-    opening_total = Decimal("0")
-    movement_total = Decimal("0")
-    rows = []
-
-    from shared.coa import ROLE_CODES
-    re_close_code = ROLE_CODES.get("retained_earnings")
-    re_open_code  = "3-02-01-01-0001"
-    div_code      = ROLE_CODES.get("dividends")
-    oci_code      = ROLE_CODES.get("other_comprehensive_income")
-    re_close_acct = ChartOfAccount.query.filter_by(code=re_close_code).first() if re_close_code else None
-    re_open_acct  = ChartOfAccount.query.filter_by(code=re_open_code).first() if re_open_code else None
-    div_acct      = ChartOfAccount.query.filter_by(code=div_code).first() if div_code else None
-    oci_acct      = ChartOfAccount.query.filter_by(code=oci_code).first() if oci_code else None
-    special_ids = {a.id for a in [re_close_acct, re_open_acct, div_acct, oci_acct] if a}
-
-    for aid in sorted(accts):
-        acct = accts[aid]
-        if not acct.is_postable:
-            continue
-        op = opening_balances.get(aid, Decimal("0"))
-        cl = closing_balances.get(aid, Decimal("0"))
-        mv = cl - op
-        if re_close_acct and aid == re_close_acct.id:
-            re_opening = float(opening_balances.get(re_open_acct.id, Decimal("0")) if re_open_acct else 0)
-            re_div_amount = float(closing_balances.get(div_acct.id, Decimal("0")) if div_acct else 0)
-            re_oci_amount = float(closing_balances.get(oci_acct.id, Decimal("0")) if oci_acct else 0)
-            re_ni = float(ni)
-            re_movement = re_ni - re_div_amount + re_oci_amount
-            re_closing = re_opening + re_movement
-            rows.append({"name": "Retained Earnings", "kind": "re_head",
-                         "opening": None, "movement": None, "closing": None})
-            rows.append({"name": "  Retained Earnings — Opening", "kind": "re_detail",
-                         "opening": re_opening, "movement": None, "closing": re_opening})
-            if re_ni:
-                rows.append({"name": "  Net Profit / (Loss)", "kind": "re_detail",
-                             "opening": None, "movement": re_ni, "closing": re_ni})
-            if re_div_amount:
-                rows.append({"name": "  Dividends", "kind": "re_detail",
-                             "opening": None, "movement": -re_div_amount, "closing": -re_div_amount})
-            if re_oci_amount:
-                rows.append({"name": "  Other Comprehensive Income", "kind": "re_detail",
-                             "opening": None, "movement": re_oci_amount, "closing": re_oci_amount})
-            rows.append({"name": "  Total Retained Earnings", "kind": "re_total",
-                         "opening": re_opening, "movement": re_movement,
-                         "closing": re_closing})
-            opening_total += Decimal(str(re_opening))
-            movement_total += Decimal(str(re_movement))
-        elif aid in special_ids:
-            continue
-        else:
-            opening_total += op
-            movement_total += mv
-            rows.append({"name": acct.name, "kind": "component",
-                         "opening": float(op), "movement": float(mv),
-                         "closing": float(op + mv)})
-
-    # Fallback: no Retained Earnings closing account → show Net Income as separate row.
-    if not re_close_acct:
-        rows.append({"name": "Net Income / (Loss)", "kind": "component",
-                     "opening": 0, "movement": float(ni), "closing": float(ni)})
-        movement_total += ni
-
-    closing_total = opening_total + movement_total
-
-    # ── Comparative: build stacked per-period blocks ──────────────────────────
-    comp_socie_blocks = []
-    comp_movement_totals = []
-    if comp_mode and comp_periods:
-        def _period_block(ps, pe, pname):
-            p_cutoff = ps - timedelta(days=1)
-            p_ni = _net_income(pe)
-            p_op = {b.account_id: b.cr - b.dr
-                    for b in _all_account_balances(p_cutoff, ["equity"])}
-            p_cl = {b.account_id: b.cr - b.dr
-                    for b in _all_account_balances(pe, ["equity"])}
-
-            # Share Capital (3-01-01-01-0001)
-            sc_acct = ChartOfAccount.query.filter_by(code="3-01-01-01-0001").first()
-            sc_op = float(p_op.get(sc_acct.id, Decimal("0"))) if sc_acct else 0
-            sc_cl = float(p_cl.get(sc_acct.id, Decimal("0"))) if sc_acct else 0
-
-            # Retained Earnings
-            re_op_val = float(p_op.get(re_open_acct.id, Decimal("0"))) if re_open_acct else 0
-            re_cl_val = float(p_cl.get(re_close_acct.id, Decimal("0"))) if re_close_acct else 0
-            div_val = float(p_cl.get(div_acct.id, Decimal("0"))) if div_acct else 0
-            oci_val = float(p_cl.get(oci_acct.id, Decimal("0"))) if oci_acct else 0
-            re_ni_val = float(p_ni)
-            re_mv = re_ni_val - div_val + oci_val
-            re_cl = re_op_val + re_mv
-
-            sc = {"opening": sc_op, "closing": sc_cl}
-            re = {"opening": re_op_val, "profit": re_ni_val if re_ni_val else 0,
-                   "dividends": -div_val if div_val else 0,
-                   "oci": oci_val if oci_val else 0, "closing": re_cl}
-            tot_op = sc_op + re_op_val
-            tot_cl = sc_cl + re_cl
-            return {
-                "period_name": pname,
-                "period_start": ps, "period_end": pe,
-                "opening_label": f"Balance as on {ps.strftime('%B %d, %Y')}",
-                "closing_label": f"Balance as on {pe.strftime('%B %d, %Y')}",
-                "sc": sc, "re": re,
-                "total": {"opening": tot_op, "closing": tot_cl},
-            }
-
-        comp_socie_blocks.append(
-            _period_block(from_date, to_date,
-                          f"{from_date.strftime('%d %b %Y')} - {to_date.strftime('%d %b %Y')}"))
-        for cp in comp_periods:
-            comp_socie_blocks.append(
-                _period_block(cp.start_date, cp.end_date, cp.period_name))
-
-        # Compute legacy comp_movement_totals for Excel/PDF exports
-        for i, cp in enumerate(comp_periods):
-            blk = comp_socie_blocks[i + 1]
-            blk_mv = (blk["total"]["closing"] - blk["total"]["opening"])
-            comp_movement_totals.append(blk_mv)
+    specs = _socie_period_specs(from_date, to_date,
+                                comp_periods if comp_mode else [])
+    columns, rows = _socie_matrix(specs)
 
     fmt = request.args.get("format")
-    if fmt == "excel":
-        ncols = 4 + len(comp_periods)
-        headers = ["Component", "Opening Balance", "Movement", "Closing Balance"]
-        for cp in comp_periods:
-            headers.append(f"Movement ({cp.period_name})")
-        data = []
+    if fmt in ("excel", "pdf"):
+        headers = [""] + [c["label"] for c in columns]
+        data, bold = [], []
         for r in rows:
-            row_data = [r["name"], r["opening"], r["movement"], r["closing"]]
-            if r.get("comp_movements"):
-                row_data += [v if v is not None else None for v in r["comp_movements"]]
-            else:
-                row_data += [None] * len(comp_periods)
-            data.append(row_data)
-        data.append(["TOTAL", float(opening_total), float(movement_total), float(closing_total)] +
-                     [t if t is not None else None for t in comp_movement_totals])
-        wb_out = _build_excel_wb(f"SOCIE ({from_date} to {to_date})", headers, data, [40, 20, 20, 20] + [18] * len(comp_periods))
-        return send_file(wb_out, as_attachment=True, download_name="socie.xlsx",
-                         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-
-    if fmt == "pdf":
-        headers = ["Component", "Opening", "Movement", "Closing"]
-        for cp in comp_periods:
-            headers.append(f"Mvmt ({cp.period_name})")
-        data = []
-        for r in rows:
-            row_data = [r["name"],
-                        f"{r['opening']:,.2f}" if r['opening'] is not None else "",
-                        f"{r['movement']:,.2f}" if r['movement'] is not None else "",
-                        f"{r['closing']:,.2f}" if r['closing'] is not None else ""]
-            if r.get("comp_movements"):
-                row_data += [f"{v:,.2f}" if v is not None else "" for v in r["comp_movements"]]
-            else:
-                row_data += [""] * len(comp_periods)
-            data.append(row_data)
-        data.append(["TOTAL", f"{float(opening_total):,.2f}", f"{float(movement_total):,.2f}",
-                     f"{float(closing_total):,.2f}"] +
-                     [f"{t:,.2f}" if t is not None else "" for t in comp_movement_totals])
-        pdf_out = _build_pdf_landscape(f"SOCIE ({from_date} to {to_date})", headers, data,
-                                       [60, 30, 30, 30] + [22] * len(comp_periods))
-        return send_file(pdf_out, as_attachment=True, download_name="socie.pdf",
+            if r["kind"] in ("opening", "closing", "grand", "subtotal", "section"):
+                bold.append(len(data))
+            line = ["    " * r.get("indent", 0) + r["label"]]
+            for c in columns:
+                v = r["values"].get(c["key"]) if r["values"] else None
+                line.append(_socie_paren(v) if fmt == "pdf" else v)
+            data.append(line)
+        span = (f"For the period {specs[0][0].strftime('%d %B %Y')} to "
+                f"{specs[-1][1].strftime('%d %B %Y')}")
+        title = "Statement of Changes in Equity"
+        if fmt == "excel":
+            out = _build_excel_wb(f"{title} ({span})", headers, data,
+                                  [46] + [20] * len(columns), bold_rows=bold,
+                                  number_format="#,##0.00;(#,##0.00)")
+            return send_file(out, as_attachment=True, download_name="socie.xlsx",
+                             mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        out = _build_pdf_landscape(title, headers, data, [70] + [30] * len(columns),
+                                   bold_rows=bold, subtitle=span)
+        return send_file(out, as_attachment=True, download_name="socie.pdf",
                          mimetype="application/pdf")
 
-    return render_template("finance/socie.html", rows=rows,
-                           opening_total=float(opening_total),
-                           movement_total=float(movement_total),
-                           closing_total=float(closing_total),
+    return render_template("finance/socie.html",
+                           socie_columns=columns, socie_rows=rows,
+                           period_specs=specs,
                            from_date=from_date, to_date=to_date,
-                           periods=periods, selected_period_id=selected_period_id,
                            filter_mode=filter_mode, from_str=from_str, to_str=to_str,
-                           comp_mode=comp_mode, comp_periods=comp_periods, comp_period_ids_str=comp_period_ids_str,
-                           comp_socie_blocks=comp_socie_blocks,
-                           now=datetime.utcnow())
+                           **base)
 
 
 # ═══════════════════════════════════════════════
