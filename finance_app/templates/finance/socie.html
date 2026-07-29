@@ -2,13 +2,13 @@
 {% block title %}SOCIE{% endblock %}
 {% block heading %}Statement of Changes in Equity{% endblock %}
 {% block actions %}
-<a href="?filter_mode={{ filter_mode }}&period_id={{ selected_period_id }}&from={{ from_str }}&to={{ to_str }}&format=excel" class="btn btn-success btn-sm"><i class="fas fa-file-excel"></i> Excel</a>
-<a href="?filter_mode={{ filter_mode }}&period_id={{ selected_period_id }}&from={{ from_str }}&to={{ to_str }}&format=pdf" class="btn btn-danger btn-sm"><i class="fas fa-file-pdf"></i> PDF</a>
+<a href="?filter_mode={{ filter_mode }}&period_id={{ selected_period_id }}&from={{ from_str }}&to={{ to_str }}&comp_mode={{ comp_mode }}&comp_period_ids={{ comp_period_ids_str }}&format=excel" class="btn btn-success btn-sm"><i class="fas fa-file-excel"></i> Excel</a>
+<a href="?filter_mode={{ filter_mode }}&period_id={{ selected_period_id }}&from={{ from_str }}&to={{ to_str }}&comp_mode={{ comp_mode }}&comp_period_ids={{ comp_period_ids_str }}&format=pdf" class="btn btn-danger btn-sm"><i class="fas fa-file-pdf"></i> PDF</a>
 <button onclick="window.print()" class="btn btn-outline btn-sm"><i class="fas fa-print"></i> Print</button>
 {% endblock %}
 {% block content %}
 <form method="get" class="card mb-6 no-print">
-  {% with filter_mode=filter_mode, selected_period_id=selected_period_id, periods=periods, from_val=from_str, to_val=to_str %}
+  {% with filter_mode=filter_mode, selected_period_id=selected_period_id, periods=periods, from_val=from_str, to_val=to_str, comp_mode=comp_mode %}
   {% include "accounting/_period_filter.html" %}
   {% endwith %}
   <div class="mt-3">
@@ -16,11 +16,94 @@
   </div>
 </form>
 
-<div class="card">
-  <p class="text-sm text-slate-500 mb-4">{% if from_date %}Period: <strong>{{ from_date.strftime('%d %B %Y') }}</strong> to <strong>{{ to_date.strftime('%d %B %Y') }}</strong>{% else %}Select a period and click <strong>View</strong>{% endif %}</p>
+<div class="card report-sheet">
+  <div class="report-head">
+    <div>
+      <div class="report-company">{{ company.company_name if company else '' }}</div>
+      <div class="report-title-lg">Statement of Changes in Equity</div>
+      <div class="report-period">{% if from_date %}For the period {{ from_date.strftime('%d %B, %Y') }} to {{ to_date.strftime('%d %B, %Y') }}{% else %}Select a period and click <strong>View</strong>{% endif %}</div>
+    </div>
+  </div>
+
+  {% if comp_mode and comp_socie_blocks %}
+  {# ── Comparative: stacked period blocks with component columns ── #}
   <div class="overflow-x-auto">
     <table class="report-table">
-      <thead><tr><th>Component</th><th class="num">Opening Balance</th><th class="num">Movement</th><th class="num">Closing Balance</th></tr></thead>
+      <thead>
+        <tr>
+          <th style="min-width:180px;">Component</th>
+          <th class="num" style="width:180px;">Share Capital</th>
+          <th class="num" style="width:180px;">Retained Earnings</th>
+          <th class="num" style="width:180px;">Total</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for blk in comp_socie_blocks %}
+        <tr class="sec-head"><td colspan="4">{{ blk.period_name }}</td></tr>
+        <tr>
+          <td>{{ blk.opening_label }}</td>
+          <td class="num">{{ blk.sc.opening|amount_format }}</td>
+          <td class="num">{{ blk.re.opening|amount_format }}</td>
+          <td class="num">{{ blk.total.opening|amount_format }}</td>
+        </tr>
+        <tr class="subhead-row"><td colspan="4" style="padding-left:14px;">Total Comprehensive Income</td></tr>
+        {% if blk.re.profit %}
+        <tr>
+          <td style="padding-left:28px;">Profit for the period ended {{ blk.period_end.strftime('%B %d, %Y') }}</td>
+          <td class="num">—</td>
+          <td class="num {% if blk.re.profit < 0 %}text-red-600{% endif %}">{{ blk.re.profit|amount_format }}</td>
+          <td class="num {% if blk.re.profit < 0 %}text-red-600{% endif %}">{{ blk.re.profit|amount_format }}</td>
+        </tr>
+        {% endif %}
+        {% if blk.re.oci %}
+        <tr>
+          <td style="padding-left:28px;">Other comprehensive income for the period ended {{ blk.period_end.strftime('%B %d, %Y') }}</td>
+          <td class="num">—</td>
+          <td class="num">{{ blk.re.oci|amount_format }}</td>
+          <td class="num">{{ blk.re.oci|amount_format }}</td>
+        </tr>
+        {% endif %}
+        {% if blk.re.dividends %}
+        <tr>
+          <td style="padding-left:28px;">Dividends</td>
+          <td class="num">—</td>
+          <td class="num {% if blk.re.dividends < 0 %}text-red-600{% endif %}">{{ blk.re.dividends|amount_format }}</td>
+          <td class="num {% if blk.re.dividends < 0 %}text-red-600{% endif %}">{{ blk.re.dividends|amount_format }}</td>
+        </tr>
+        {% endif %}
+        <tr class="subtotal-row">
+          <td style="padding-left:14px;">Total Comprehensive Income</td>
+          <td class="num">—</td>
+          {% set re_total_mv = blk.re.profit + blk.re.oci + blk.re.dividends %}
+          <td class="num {% if re_total_mv < 0 %}text-red-600{% endif %}">{{ re_total_mv|amount_format }}</td>
+          <td class="num {% if re_total_mv < 0 %}text-red-600{% endif %}">{{ re_total_mv|amount_format }}</td>
+        </tr>
+        <tr style="font-weight:700;border-top:2px solid #1e293b;">
+          <td>{{ blk.closing_label }}</td>
+          <td class="num">{{ blk.sc.closing|amount_format }}</td>
+          <td class="num">{{ blk.re.closing|amount_format }}</td>
+          <td class="num">{{ blk.total.closing|amount_format }}</td>
+        </tr>
+        {% if not loop.last %}
+        <tr class="spacer-row"><td colspan="4"></td></tr>
+        {% endif %}
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% else %}
+  {# ── Standard single-period SOCIE ── #}
+  <div class="overflow-x-auto">
+    <table class="report-table">
+      <thead>
+        <tr>
+          <th>Component</th>
+          <th class="num">Opening Balance</th>
+          <th class="num">Movement</th>
+          <th class="num">Closing Balance</th>
+        </tr>
+      </thead>
       <tbody>
         {% for r in rows %}
         <tr class="{% if r.kind == 're_total' or r.kind == 'component' %}font-semibold{% endif %}">
@@ -41,5 +124,6 @@
       </tfoot>
     </table>
   </div>
+  {% endif %}
 </div>
 {% endblock %}

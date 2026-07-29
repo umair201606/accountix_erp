@@ -4,30 +4,51 @@
 .period-toggle label:first-child{border-radius:6px 0 0 6px}
 .period-toggle label:last-child{border-radius:0 6px 6px 0}
 .period-toggle label:not(:last-child){border-right:none}
-.period-toggle label.active{background:#e0f2f1;border-color:#0f5257;color:#0f5257;z-index:1}
+.period-toggle label.active{background:#eff6ff;border-color:#1d4ed8;color:#1d4ed8;z-index:1}
 .period-toggle input[type=radio]{display:none}
 .period-fields{display:none}
 .period-fields.active{display:block}
 .period-fields select,.period-fields input{padding:7px 10px;font-size:13px;border:1px solid #cbd5e1;border-radius:5px;font-family:inherit}
-.period-fields select:focus,.period-fields input:focus{outline:none;border-color:#0f5257;box-shadow:0 0 0 3px rgba(15,82,87,.12)}
+.period-fields select:focus,.period-fields input:focus{outline:none;border-color:#1d4ed8;box-shadow:0 0 0 3px rgba(29,78,216,.12)}
 .period-fields select:disabled,.period-fields input:disabled{background:#f1f5f9;color:#94a3b8}
+.comp-dd-wrap{position:relative;max-width:360px}
+.comp-dd-trigger{display:flex;align-items:center;justify-content:space-between;padding:7px 10px;font-size:13px;border:1px solid #cbd5e1;border-radius:5px;cursor:pointer;color:#64748b;user-select:none;min-height:36px}
+.comp-dd-trigger:hover{border-color:#94a3b8}
+.comp-dd-trigger.open{border-color:#1d4ed8}
+.comp-dd-trigger .label{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.comp-dd-trigger .arrow{border-left:4px solid transparent;border-right:4px solid transparent;border-top:5px solid #94a3b8;margin-left:6px;flex-shrink:0;transition:transform .15s}
+.comp-dd-trigger.open .arrow{transform:rotate(180deg)}
+.comp-dd-panel{display:none;position:absolute;top:100%;left:0;right:0;z-index:50;border:1px solid #cbd5e1;border-radius:5px;margin-top:2px;max-height:220px;overflow-y:auto;background:#fff}
+.comp-dd-panel.open{display:block}
+.comp-dd-opt{display:flex;align-items:center;gap:8px;padding:7px 10px;cursor:pointer;font-size:13px;border-bottom:1px solid #f1f5f9}
+.comp-dd-opt:hover{border-color:#1d4ed8}
+.comp-dd-opt:last-child{border-bottom:none}
+.comp-dd-opt input[type=checkbox]{accent-color:#1d4ed8;margin:0;flex-shrink:0}
+.comp-dd-opt .name{flex:1}
+.comp-dd-opt .dates{font-size:11px;color:#94a3b8}
 </style>
 
 <div class="period-filter-component">
   <input type="hidden" name="filter_mode" id="filterModeInput" value="{{ filter_mode|default('period') }}">
+  <input type="hidden" name="comp_mode" id="compModeInput" value="{{ comp_mode|default('') }}">
+  <input type="hidden" name="comp_period_ids" id="compPeriodIdsInput" value="{{ comp_period_ids_str|default('') }}">
 
   <div class="period-toggle">
     <label class="period-opt {{ 'active' if filter_mode|default('period') == 'period' else '' }}" data-mode="period">
       <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="7" cy="7" r="6" stroke="currentColor" stroke-width="1.5"/><circle cx="7" cy="7" r="3" fill="currentColor" style="display:{{ 'block' if filter_mode|default('period') == 'period' else 'none' }}"/></svg>
-      Select Period
+      Single Period
     </label>
     <label class="period-opt {{ 'active' if filter_mode|default('period') == 'custom' else '' }}" data-mode="custom">
       <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="7" cy="7" r="6" stroke="currentColor" stroke-width="1.5"/><circle cx="7" cy="7" r="3" fill="currentColor" style="display:{{ 'block' if filter_mode|default('period') == 'custom' else 'none' }}"/></svg>
       Custom Range
     </label>
+    <label class="period-opt {{ 'active' if filter_mode|default('period') == 'comparative' else '' }}" data-mode="comparative">
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="7" cy="7" r="6" stroke="currentColor" stroke-width="1.5"/><circle cx="7" cy="7" r="3" fill="currentColor" style="display:{{ 'block' if filter_mode|default('period') == 'comparative' else 'none' }}"/></svg>
+      Comparative
+    </label>
   </div>
 
-  <div class="period-fields {{ 'active' if filter_mode|default('period') == 'period' else '' }}" id="periodSelectFields">
+  <div class="period-fields {{ 'active' if filter_mode|default('period') in ('period','comparative') else '' }}" id="periodSelectFields">
     <select name="period_id" id="periodSelect" class="" style="width:100%;max-width:360px;">
       <option value="">-- Select Period --</option>
       {% for p in periods %}
@@ -50,6 +71,30 @@
       </div>
     </div>
   </div>
+
+  <div class="period-fields {{ 'active' if filter_mode|default('period') == 'comparative' else '' }}" id="comparativeFields">
+    <div style="margin-top:8px;border-top:1px solid #e2e8f0;padding-top:10px;">
+      <label style="display:block;font-size:11px;font-weight:700;color:#64748b;margin-bottom:5px;text-transform:uppercase;letter-spacing:.3px;">Comparative Periods</label>
+      <div class="comp-dd-wrap">
+        <div class="comp-dd-trigger" id="compDDTrigger">
+          <span class="label" id="compDDLabel">Select periods</span>
+          <span class="arrow"></span>
+        </div>
+        <div class="comp-dd-panel" id="compDDPanel">
+          {% for p in periods %}
+          <label class="comp-dd-opt" data-period-id="{{ p.id }}" data-start="{{ p.start_date.isoformat() }}" style="display:none">
+            <input type="checkbox" value="{{ p.id }}">
+            <span class="name">{{ p.period_name }}</span>
+            <span class="dates">{{ p.start_date.strftime('%d/%m/%y') }} - {{ p.end_date.strftime('%d/%m/%y') }}</span>
+          </label>
+          {% endfor %}
+          <div style="padding:6px 8px;border-top:1px solid #e2e8f0">
+            <button type="button" id="compDdOkBtn" style="padding:4px 14px;font-size:12px;font-weight:600;border:none;border-radius:4px;cursor:pointer;background:#1d4ed8;color:#fff;width:100%">OK</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -58,41 +103,159 @@
   if (!container) container = document.querySelector('.period-filter-component');
   if (!container) return;
 
-  var modeInput = container.querySelector('#filterModeInput') || container.querySelector('[name="filter_mode"]');
+  var modeInput = container.querySelector('#filterModeInput');
+  var compModeInput = container.querySelector('#compModeInput');
+  var compPeriodIdsInput = container.querySelector('#compPeriodIdsInput');
   var opts = container.querySelectorAll('.period-opt');
   var periodFields = container.querySelector('#periodSelectFields');
   var customFields = container.querySelector('#customDateFields');
+  var compFields = container.querySelector('#comparativeFields');
   var periodSelect = container.querySelector('#periodSelect');
+  var ddTrigger = container.querySelector('#compDDTrigger');
+  var ddPanel = container.querySelector('#compDDPanel');
+  var ddLabel = container.querySelector('#compDDLabel');
+  var ddOptions = container.querySelectorAll('.comp-dd-opt');
 
+  function activeMode() { return modeInput.value; }
+
+  function updateHiddenInput() {
+    var ids = [];
+    ddOptions.forEach(function(opt) {
+      var cb = opt.querySelector('input[type=checkbox]');
+      if (cb.checked) ids.push(cb.value);
+    });
+    compPeriodIdsInput.value = ids.join(',');
+  }
+
+  function filterCompOptions() {
+    var baseId = parseInt(periodSelect.value);
+    ddOptions.forEach(function(opt) { opt.style.display = ''; });
+    if (!baseId) { ddOptions.forEach(function(opt) { opt.style.display = 'none'; }); return; }
+    var baseOpt = periodSelect.querySelector('option[value="' + baseId + '"]');
+    if (!baseOpt) return;
+    var baseStart = baseOpt.getAttribute('data-start');
+    ddOptions.forEach(function(opt) {
+      var start = opt.getAttribute('data-start');
+      if (!start || start >= baseStart) {
+        opt.style.display = 'none';
+      } else {
+        opt.style.display = '';
+      }
+    });
+  }
+
+  function autoSelectPrevious() {
+    var visible = [];
+    ddOptions.forEach(function(opt) {
+      if (opt.style.display !== 'none') visible.push(opt);
+    });
+    if (visible.length > 0) {
+      var last = visible[visible.length - 1];
+      var cb = last.querySelector('input[type=checkbox]');
+      cb.checked = true;
+    }
+    updateHiddenInput();
+  }
+
+  function initCompMode() {
+    periodFields.classList.add('active');
+    customFields.classList.remove('active');
+    compFields.classList.add('active');
+    periodSelect.disabled = false;
+    var inputs = customFields.querySelectorAll('input');
+    inputs.forEach(function(inp) { inp.disabled = true; });
+    compModeInput.value = '1';
+    filterCompOptions();
+    autoSelectPrevious();
+  }
+
+  // Toggle click handlers
   opts.forEach(function(opt) {
     opt.addEventListener('click', function() {
       var mode = this.dataset.mode;
       opts.forEach(function(o) {
         o.classList.remove('active');
-        o.querySelector('circle:last-child').style.display = 'none';
+        var dot = o.querySelector('circle:last-child');
+        if (dot) dot.style.display = 'none';
       });
       this.classList.add('active');
-      this.querySelector('circle:last-child').style.display = 'block';
+      var dot = this.querySelector('circle:last-child');
+      if (dot) dot.style.display = 'block';
       modeInput.value = mode;
+
+      periodFields.classList.remove('active');
+      customFields.classList.remove('active');
+      compFields.classList.remove('active');
+      periodSelect.disabled = true;
+      var inputs = customFields.querySelectorAll('input');
+      inputs.forEach(function(inp) { inp.disabled = true; });
+      compModeInput.value = '';
 
       if (mode === 'period') {
         periodFields.classList.add('active');
-        customFields.classList.remove('active');
         periodSelect.disabled = false;
-        var inputs = customFields.querySelectorAll('input');
-        inputs.forEach(function(inp) { inp.disabled = true; });
-      } else {
-        periodFields.classList.remove('active');
+      } else if (mode === 'custom') {
         customFields.classList.add('active');
-        periodSelect.disabled = true;
-        var inputs = customFields.querySelectorAll('input');
         inputs.forEach(function(inp) { inp.disabled = false; });
+        periodSelect.disabled = true;
+      } else if (mode === 'comparative') {
+        initCompMode();
       }
     });
   });
 
-  // Init disabled state
-  if (modeInput.value === 'custom') {
+  // Base period change → re-filter comparative options
+  periodSelect.addEventListener('change', function() {
+    if (activeMode() === 'comparative') {
+      filterCompOptions();
+    }
+  });
+
+  // Dropdown trigger click
+  ddTrigger.addEventListener('click', function() {
+    if (activeMode() !== 'comparative') return;
+    var isOpen = ddPanel.classList.contains('open');
+    ddPanel.classList.toggle('open');
+    ddTrigger.classList.toggle('open');
+  });
+
+  // Checkbox change
+  ddOptions.forEach(function(opt) {
+    var cb = opt.querySelector('input[type=checkbox]');
+    cb.addEventListener('change', function() {
+      updateHiddenInput();
+    });
+    opt.addEventListener('click', function(e) {
+      if (e.target.tagName !== 'INPUT') {
+        cb.checked = !cb.checked;
+        updateHiddenInput();
+      }
+    });
+  });
+
+  // OK button
+  var ddOkBtn = container.querySelector('#compDdOkBtn');
+  if (ddOkBtn) {
+    ddOkBtn.addEventListener('click', function(e) {
+      e.preventDefault();
+      updateHiddenInput();
+      ddPanel.classList.remove('open');
+      ddTrigger.classList.remove('open');
+    });
+  }
+
+  // Close dropdown on outside click
+  document.addEventListener('click', function(e) {
+    if (!ddTrigger.contains(e.target) && !ddPanel.contains(e.target)) {
+      ddPanel.classList.remove('open');
+      ddTrigger.classList.remove('open');
+    }
+  });
+
+  // Init
+  if (activeMode() === 'comparative') {
+    initCompMode();
+  } else if (activeMode() === 'custom') {
     var inputs = customFields.querySelectorAll('input');
     inputs.forEach(function(inp) { inp.disabled = false; });
     if (periodSelect) periodSelect.disabled = true;
@@ -100,6 +263,27 @@
     var inputs = customFields.querySelectorAll('input');
     inputs.forEach(function(inp) { inp.disabled = true; });
     if (periodSelect) periodSelect.disabled = false;
+  }
+
+  // Store start dates on period select options
+  {% for p in periods %}
+  var opt = periodSelect.querySelector('option[value="{{ p.id }}"]');
+  if (opt) opt.setAttribute('data-start', '{{ p.start_date.isoformat() }}');
+  {% endfor %}
+
+  // On page load in comparative mode, restore selections
+  if (activeMode() === 'comparative') {
+    filterCompOptions();
+    if (compPeriodIdsInput.value) {
+      var savedIds = compPeriodIdsInput.value.split(',');
+      ddOptions.forEach(function(opt) {
+        var cb = opt.querySelector('input[type=checkbox]');
+        if (savedIds.indexOf(cb.value) !== -1) {
+          cb.checked = true;
+        }
+      });
+    }
+    updateHiddenInput();
   }
 })();
 </script>

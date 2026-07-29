@@ -2,13 +2,14 @@
 {% block title %}Cash Flow Statement{% endblock %}
 {% block heading %}Cash Flow Statement{% endblock %}
 {% block actions %}
-<a href="?filter_mode={{ filter_mode }}&period_id={{ selected_period_id }}&from={{ from_str }}&to={{ to_str }}&format=excel" class="btn btn-success btn-sm"><i class="fas fa-file-excel"></i> Excel</a>
-<a href="?filter_mode={{ filter_mode }}&period_id={{ selected_period_id }}&from={{ from_str }}&to={{ to_str }}&format=pdf" class="btn btn-danger btn-sm"><i class="fas fa-file-pdf"></i> PDF</a>
+<a href="?filter_mode={{ filter_mode }}&period_id={{ selected_period_id }}&from={{ from_str }}&to={{ to_str }}&comp_mode={{ comp_mode }}&comp_period_ids={{ comp_period_ids_str }}&format=excel" class="btn btn-success btn-sm"><i class="fas fa-file-excel"></i> Excel</a>
+<a href="?filter_mode={{ filter_mode }}&period_id={{ selected_period_id }}&from={{ from_str }}&to={{ to_str }}&comp_mode={{ comp_mode }}&comp_period_ids={{ comp_period_ids_str }}&format=pdf" class="btn btn-danger btn-sm"><i class="fas fa-file-pdf"></i> PDF</a>
+<a href="{{ url_for('settings.index', tab='cash_flow') }}" class="btn btn-outline btn-sm"><i class="fas fa-cog"></i> Settings</a>
 <button onclick="window.print()" class="btn btn-outline btn-sm"><i class="fas fa-print"></i> Print</button>
 {% endblock %}
 {% block content %}
 <form method="get" class="card mb-6 no-print">
-  {% with filter_mode=filter_mode, selected_period_id=selected_period_id, periods=periods, from_val=from_str, to_val=to_str %}
+  {% with filter_mode=filter_mode, selected_period_id=selected_period_id, periods=periods, from_val=from_str, to_val=to_str, comp_mode=comp_mode %}
   {% include "accounting/_period_filter.html" %}
   {% endwith %}
   <div class="mt-3">
@@ -20,47 +21,62 @@
   <div class="report-head">
     <div>
       <div class="report-company">{{ company.company_name if company else '' }}</div>
-      <div class="report-title-lg">Cash Flow Statement <span class="report-sub">(Indirect Method)</span></div>
-      <div class="report-period">{% if from_date %}For the period {{ from_date.strftime('%d %B %Y') }} to {{ to_date.strftime('%d %B %Y') }}{% else %}Select a period and click <strong>View</strong>{% endif %}</div>
+      <div class="report-title-lg">Cash Flow Statement <span class="report-sub">({{ method|title }} Method)</span></div>
+      <div class="report-period">{% if from_date %}For the period {{ from_date.strftime('%d %B, %Y') }} to {{ to_date.strftime('%d %B, %Y') }}{% else %}Select a period and click <strong>View</strong>{% endif %}</div>
     </div>
   </div>
   <div class="overflow-x-auto">
     <table class="report-table statement">
-      <thead><tr><th>Item</th><th class="num" style="width:160px;">Amount</th></tr></thead>
+      <thead>
+        <tr>
+          <th>Item</th>
+          <th class="num" style="width:160px;">{{ to_date.strftime('%d %B, %Y') if to_date else 'Amount' }}</th>
+          {% if comp_mode and comp_periods %}
+          {% for cp in comp_periods %}
+          <th class="num" style="width:140px;">{{ cp.end_date.strftime('%d %B, %Y') }}</th>
+          {% endfor %}
+          {% endif %}
+        </tr>
+      </thead>
       <tbody>
-        <tr class="sec-head"><td colspan="2"><i class="fas fa-cogs"></i> OPERATING ACTIVITIES</td></tr>
-        {% for name, val in op_items %}
-        <tr><td class="indent">{{ name }}</td><td class="num {% if val < 0 %}text-red-600{% endif %}">{{ val|amount_format }}</td></tr>
+        <tr class="sec-head"><td colspan="{% if comp_mode and comp_periods %}{{ 2 + comp_periods|length }}{% else %}2{% endif %}"><i class="fas fa-cogs"></i> OPERATING ACTIVITIES</td></tr>
+        {% for item in op_items %}
+        {% set name = item[0] %}{% set val = item[1] %}{% set comps = item[2] if item|length > 2 else [] %}
+        <tr><td class="indent">{{ name }}</td><td class="num {% if val < 0 %}text-red-600{% endif %}">{{ val|amount_format }}</td>{% for cv in comps %}<td class="num {% if cv is not none and cv < 0 %}text-red-600{% elif cv is not none and cv > 0 %}text-green-600{% endif %}">{{ cv|amount_format if cv is not none else '—' }}</td>{% endfor %}</tr>
         {% endfor %}
-        <tr class="sec-total"><td>Net Cash from Operating Activities</td><td class="num">{{ net_operating|amount_format }}</td></tr>
+        <tr class="sec-total"><td>Net Cash from Operating Activities</td><td class="num">{{ net_operating|amount_format }}</td>{% if comp_mode and comp_periods and comp_item_maps %}{% for m in comp_item_maps %}<td class="num">{{ m.__net_op__|amount_format }}</td>{% endfor %}{% endif %}</tr>
 
-        <tr class="sec-head"><td colspan="2"><i class="fas fa-chart-bar"></i> INVESTING ACTIVITIES</td></tr>
-        {% for name, val in inv_items %}
-        <tr><td class="indent">{{ name }}</td><td class="num {% if val < 0 %}text-red-600{% endif %}">{{ val|amount_format }}</td></tr>
+        <tr class="sec-head"><td colspan="{% if comp_mode and comp_periods %}{{ 2 + comp_periods|length }}{% else %}2{% endif %}"><i class="fas fa-chart-bar"></i> INVESTING ACTIVITIES</td></tr>
+        {% for item in inv_items %}
+        {% set name = item[0] %}{% set val = item[1] %}{% set comps = item[2] if item|length > 2 else [] %}
+        <tr><td class="indent">{{ name }}</td><td class="num {% if val < 0 %}text-red-600{% endif %}">{{ val|amount_format }}</td>{% for cv in comps %}<td class="num {% if cv is not none and cv < 0 %}text-red-600{% elif cv is not none and cv > 0 %}text-green-600{% endif %}">{{ cv|amount_format if cv is not none else '—' }}</td>{% endfor %}</tr>
         {% else %}
-        <tr><td class="indent text-slate-400">No investing activity</td><td class="num">0.00</td></tr>
+        <tr><td class="indent text-slate-400">No investing activity</td><td class="num">0.00</td>{% if comp_mode and comp_periods %}{% for cp in comp_periods %}<td class="num">0.00</td>{% endfor %}{% endif %}</tr>
         {% endfor %}
-        <tr class="sec-total"><td>Net Cash from Investing Activities</td><td class="num">{{ net_investing|amount_format }}</td></tr>
+        <tr class="sec-total"><td>Net Cash from Investing Activities</td><td class="num">{{ net_investing|amount_format }}</td>{% if comp_mode and comp_periods and comp_item_maps %}{% for m in comp_item_maps %}<td class="num">{{ m.__net_inv__|amount_format }}</td>{% endfor %}{% endif %}</tr>
 
-        <tr class="sec-head"><td colspan="2"><i class="fas fa-hand-holding-usd"></i> FINANCING ACTIVITIES</td></tr>
-        {% for name, val in fin_items %}
-        <tr><td class="indent">{{ name }}</td><td class="num {% if val < 0 %}text-red-600{% endif %}">{{ val|amount_format }}</td></tr>
+        <tr class="sec-head"><td colspan="{% if comp_mode and comp_periods %}{{ 2 + comp_periods|length }}{% else %}2{% endif %}"><i class="fas fa-hand-holding-usd"></i> FINANCING ACTIVITIES</td></tr>
+        {% for item in fin_items %}
+        {% set name = item[0] %}{% set val = item[1] %}{% set comps = item[2] if item|length > 2 else [] %}
+        <tr><td class="indent">{{ name }}</td><td class="num {% if val < 0 %}text-red-600{% endif %}">{{ val|amount_format }}</td>{% for cv in comps %}<td class="num {% if cv is not none and cv < 0 %}text-red-600{% elif cv is not none and cv > 0 %}text-green-600{% endif %}">{{ cv|amount_format if cv is not none else '—' }}</td>{% endfor %}</tr>
         {% else %}
-        <tr><td class="indent text-slate-400">No financing activity</td><td class="num">0.00</td></tr>
+        <tr><td class="indent text-slate-400">No financing activity</td><td class="num">0.00</td>{% if comp_mode and comp_periods %}{% for cp in comp_periods %}<td class="num">0.00</td>{% endfor %}{% endif %}</tr>
         {% endfor %}
-        <tr class="sec-total"><td>Net Cash from Financing Activities</td><td class="num">{{ net_financing|amount_format }}</td></tr>
+        <tr class="sec-total"><td>Net Cash from Financing Activities</td><td class="num">{{ net_financing|amount_format }}</td>{% if comp_mode and comp_periods and comp_item_maps %}{% for m in comp_item_maps %}<td class="num">{{ m.__net_fin__|amount_format }}</td>{% endfor %}{% endif %}</tr>
       </tbody>
       <tfoot>
         <tr class="grand-total">
           <td>NET CHANGE IN CASH &amp; EQUIVALENTS</td>
           <td class="num {% if net_change >= 0 %}text-green-400{% else %}text-red-400{% endif %}">{{ net_change|amount_format }}</td>
+          {% if comp_mode and comp_periods and comp_item_maps %}{% for m in comp_item_maps %}<td class="num">{{ m.__net_chg__|amount_format }}</td>{% endfor %}{% endif %}
         </tr>
-        <tr class="recon-line"><td>Opening Cash &amp; Equivalents</td><td class="num">{{ opening_cash|amount_format }}</td></tr>
-        <tr class="recon-line"><td>Closing Cash &amp; Equivalents</td><td class="num">{{ closing_cash|amount_format }}</td></tr>
+        <tr class="recon-line"><td>Opening Cash &amp; Equivalents</td><td class="num">{{ opening_cash|amount_format }}</td>{% if comp_mode and comp_periods and comp_item_maps %}{% for m in comp_item_maps %}<td class="num">{{ m.__open__|amount_format }}</td>{% endfor %}{% endif %}</tr>
+        <tr class="recon-line"><td>Closing Cash &amp; Equivalents</td><td class="num">{{ closing_cash|amount_format }}</td>{% if comp_mode and comp_periods and comp_item_maps %}{% for m in comp_item_maps %}<td class="num">{{ m.__close__|amount_format }}</td>{% endfor %}{% endif %}</tr>
         {% set recon_diff = (opening_cash + net_change - closing_cash) %}
         <tr class="recon-line {% if recon_diff|abs > 0.01 %}recon-bad{% endif %}">
           <td>{% if recon_diff|abs > 0.01 %}<i class="fas fa-triangle-exclamation"></i> Unreconciled difference (check account activity tags){% else %}<i class="fas fa-check"></i> Reconciled with cash-account movement{% endif %}</td>
           <td class="num">{{ recon_diff|amount_format }}</td>
+          {% if comp_mode and comp_periods %}{% for cp in comp_periods %}<td class="num"></td>{% endfor %}{% endif %}
         </tr>
       </tfoot>
     </table>

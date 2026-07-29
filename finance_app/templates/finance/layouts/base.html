@@ -30,11 +30,12 @@
   .btn-outline { background: transparent; border: 1px solid #cbd5e1; color: #475569; }
   .btn-outline:hover { background: #f1f5f9; }
   .btn-sm { padding: 5px 12px; font-size: 12px; }
-  table.report-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  table.report-table th { background: #1e293b; color: #fff; padding: 10px 12px; text-align: left; font-weight: 600; }
-  table.report-table td { padding: 8px 12px; border-bottom: 1px solid #e2e8f0; }
+  table.report-table { width: 100%; border-collapse: collapse; font-size: 13px; table-layout: auto; }
+  table.report-table th { background: #1e293b; color: #fff; padding: 10px 12px; text-align: left; font-weight: 600; white-space: nowrap; }
+  table.report-table td { padding: 8px 12px; border-bottom: 1px solid #e2e8f0; white-space: nowrap; }
   table.report-table tbody tr:hover td { background: #f8fafc; }
   table.report-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+  table.report-table td:nth-child(2), table.report-table th:nth-child(2) { white-space: normal; min-width: 180px; }
   /* ── Financial-statement styling (P&L, cash flow, TB, BS, ledger) ── */
   .report-sheet { padding-top: 20px; }
   .report-head { display: flex; justify-content: space-between; align-items: flex-start;

@@ -77,9 +77,23 @@ def _resolve_period():
     to_date = _parse_date(to_str) if to_str else None
 
     periods = AccountingPeriod.query.order_by(AccountingPeriod.start_date.desc()).all()
+    # Also include periods sorted ascending for comparative display
+    periods_asc = AccountingPeriod.query.order_by(AccountingPeriod.start_date.asc()).all()
     selected_period_id = period_id
 
-    if filter_mode == "period" and period_id:
+    # Comparative params
+    comp_mode = request.args.get("comp_mode", "")
+    comp_period_ids_str = request.args.get("comp_period_ids", "")
+    comp_period_ids = []
+    if comp_period_ids_str:
+        for pid in comp_period_ids_str.split(","):
+            pid = pid.strip()
+            if pid and pid.isdigit():
+                comp_period_ids.append(int(pid))
+    comp_periods = AccountingPeriod.query.filter(
+        AccountingPeriod.id.in_(comp_period_ids)).order_by(AccountingPeriod.start_date.asc()).all() if comp_period_ids else []
+
+    if filter_mode in ("period", "comparative") and period_id:
         period = AccountingPeriod.query.get(period_id)
         if period:
             from_date = period.start_date
@@ -93,7 +107,8 @@ def _resolve_period():
             active = _default_period()
             if active:
                 selected_period_id = active.id
-        return from_date, to_date, periods, selected_period_id, filter_mode, from_str, to_str
+        return (from_date, to_date, periods, selected_period_id, filter_mode,
+                from_str, to_str, comp_mode, comp_periods, comp_period_ids_str)
 
     if not from_date and not to_date:
         active = _default_period()
@@ -107,7 +122,8 @@ def _resolve_period():
         if active:
             selected_period_id = active.id
 
-    return from_date, to_date, periods, selected_period_id, filter_mode, from_str, to_str
+    return (from_date, to_date, periods, selected_period_id, filter_mode,
+            from_str, to_str, comp_mode, comp_periods, comp_period_ids_str)
 
 
 def _get_account_balance(account_id, as_of=None):
@@ -417,7 +433,7 @@ def ledger():
     heads = [a for a in all_accounts if a.parent_id is not None and a.id in child_ids]
     leaf_accounts = [a for a in all_accounts if a.id not in child_ids]
 
-    from_date, to_date, periods, selected_period_id, filter_mode, from_str, to_str = _resolve_period()
+    from_date, to_date, periods, selected_period_id, filter_mode, from_str, to_str, comp_mode, comp_periods, comp_period_ids_str = _resolve_period()
 
     # Don't auto-calculate on first page load
     if from_date is None:
@@ -428,6 +444,7 @@ def ledger():
                                from_date=None, to_date=None,
                                periods=periods, selected_period_id=selected_period_id,
                                filter_mode="", from_str="", to_str="",
+                               comp_mode="", comp_periods=[], comp_period_ids_str="",
                                now=datetime.utcnow())
 
     mode = request.args.get("mode", "all")
@@ -508,6 +525,7 @@ def ledger():
                            from_date=from_date, to_date=to_date,
                            periods=periods, selected_period_id=selected_period_id,
                            filter_mode=filter_mode, from_str=from_str, to_str=to_str,
+                           comp_mode=comp_mode, comp_periods=comp_periods, comp_period_ids_str=comp_period_ids_str,
                            now=datetime.utcnow())
 
 
@@ -518,7 +536,7 @@ def ledger():
 @finance_bp.route("/trial-balance")
 @login_required
 def trial_balance():
-    from_date, to_date, periods, selected_period_id, filter_mode, from_str, to_str = _resolve_period()
+    from_date, to_date, periods, selected_period_id, filter_mode, from_str, to_str, comp_mode, comp_periods, comp_period_ids_str = _resolve_period()
 
     if from_date is None:
         return render_template("finance/trial_balance.html", rows=[],
@@ -528,6 +546,7 @@ def trial_balance():
                                as_of=date.today(), from_date=None,
                                periods=periods, selected_period_id=selected_period_id,
                                filter_mode="", from_str="", to_str="",
+                               comp_mode="", comp_periods=[], comp_period_ids_str="",
                                now=datetime.utcnow())
 
     as_of = to_date or date.today()
@@ -620,33 +639,88 @@ def trial_balance():
     close_class(grouped, cls_tot, prev_cls)
     rows = grouped
 
+    # Comparative: compute closing balances for each comparative period
+    comp_closing_data = []
+    comp_class_totals = []
+    if comp_mode and comp_periods:
+        for cp in comp_periods:
+            cp_balances = _all_account_balances(cp.end_date)
+            cp_map = {b.code: b for b in cp_balances}
+            comp_closing_data.append(cp_map)
+            cp_totals = {"dr": Decimal("0"), "cr": Decimal("0")}
+            for code in all_codes:
+                cb = cp_map.get(code)
+                dr = cb.dr if cb else Decimal("0")
+                cr = cb.cr if cb else Decimal("0")
+                cp_totals["dr"] += dr
+                cp_totals["cr"] += cr
+            comp_class_totals.append({"total_dr_closing": float(cp_totals["dr"]),
+                                      "total_cr_closing": float(cp_totals["cr"])})
+
+        # Annotate rows with comp_dr_closing / comp_cr_closing
+        for r in rows:
+            r["comp_dr_closing"] = []
+            r["comp_cr_closing"] = []
+            for cp_map in comp_closing_data:
+                cb = cp_map.get(r["code"])
+                dr = float(cb.dr) if cb else 0
+                cr = float(cb.cr) if cb else 0
+                r["comp_dr_closing"].append(dr)
+                r["comp_cr_closing"].append(cr)
+
+    n_comp = len(comp_periods)
     fmt = request.args.get("format")
     headers = ["Code", "Account", "Type", "Dr Opening", "Cr Opening",
                "Dr Movement", "Cr Movement", "Dr Closing", "Cr Closing"]
+    for cp in comp_periods:
+        headers += [f"Dr Clsg ({cp.period_name})", f"Cr Clsg ({cp.period_name})"]
+
     if fmt == "excel":
-        data = [[r["code"], r["name"], r["type"],
-                 r["dr_opening"], r["cr_opening"],
-                 r["dr_movement"], r["cr_movement"],
-                 r["dr_closing"], r["cr_closing"]] for r in rows]
-        data.append(["", "TOTAL", "",
+        data = []
+        for r in rows:
+            row_data = [r["code"], r["name"], r["type"],
+                        r["dr_opening"], r["cr_opening"],
+                        r["dr_movement"], r["cr_movement"],
+                        r["dr_closing"], r["cr_closing"]]
+            if r.get("comp_dr_closing"):
+                for i in range(len(comp_periods)):
+                    row_data += [r["comp_dr_closing"][i], r["comp_cr_closing"][i]]
+            else:
+                row_data += [0, 0] * n_comp
+            data.append(row_data)
+        totals_row = ["", "TOTAL", "",
                       float(total_dr_op), float(total_cr_op),
                       float(total_dr_mv), float(total_cr_mv),
-                      float(total_dr_cl), float(total_cr_cl)])
-        wb_out = _build_excel_wb(f"Trial Balance as of {as_of}", headers, data,
-                                 [10, 36, 14, 16, 16, 16, 16, 16, 16])
+                      float(total_dr_cl), float(total_cr_cl)]
+        for ct in comp_class_totals:
+            totals_row += [ct["total_dr_closing"], ct["total_cr_closing"]]
+        data.append(totals_row)
+        col_widths = [10, 36, 14, 16, 16, 16, 16, 16, 16] + [14, 14] * n_comp
+        wb_out = _build_excel_wb(f"Trial Balance as of {as_of}", headers, data, col_widths)
         return send_file(wb_out, as_attachment=True, download_name="trial_balance.xlsx",
                          mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
     if fmt == "pdf":
-        data = [[r["code"], r["name"], r["type"],
-                 f"{r['dr_opening']:,.2f}", f"{r['cr_opening']:,.2f}",
-                 f"{r['dr_movement']:,.2f}", f"{r['cr_movement']:,.2f}",
-                 f"{r['dr_closing']:,.2f}", f"{r['cr_closing']:,.2f}"] for r in rows]
-        data.append(["", "TOTAL", "",
+        data = []
+        for r in rows:
+            row_data = [r["code"], r["name"], r["type"],
+                        f"{r['dr_opening']:,.2f}", f"{r['cr_opening']:,.2f}",
+                        f"{r['dr_movement']:,.2f}", f"{r['cr_movement']:,.2f}",
+                        f"{r['dr_closing']:,.2f}", f"{r['cr_closing']:,.2f}"]
+            if r.get("comp_dr_closing"):
+                for i in range(len(comp_periods)):
+                    row_data += [f"{r['comp_dr_closing'][i]:,.2f}", f"{r['comp_cr_closing'][i]:,.2f}"]
+            else:
+                row_data += ["", ""] * n_comp
+            data.append(row_data)
+        totals_row = ["", "TOTAL", "",
                       f"{float(total_dr_op):,.2f}", f"{float(total_cr_op):,.2f}",
                       f"{float(total_dr_mv):,.2f}", f"{float(total_cr_mv):,.2f}",
-                      f"{float(total_dr_cl):,.2f}", f"{float(total_cr_cl):,.2f}"])
-        pdf_out = _build_pdf_landscape(f"Trial Balance as of {as_of}", headers, data,
-                                        [12, 48, 14, 28, 28, 28, 28, 28, 28])
+                      f"{float(total_dr_cl):,.2f}", f"{float(total_cr_cl):,.2f}"]
+        for ct in comp_class_totals:
+            totals_row += [f"{ct['total_dr_closing']:,.2f}", f"{ct['total_cr_closing']:,.2f}"]
+        data.append(totals_row)
+        col_widths = [12, 48, 14, 28, 28, 28, 28, 28, 28] + [24, 24] * n_comp
+        pdf_out = _build_pdf_landscape(f"Trial Balance as of {as_of}", headers, data, col_widths)
         return send_file(pdf_out, as_attachment=True, download_name="trial_balance.pdf",
                          mimetype="application/pdf")
 
@@ -657,9 +731,11 @@ def trial_balance():
                            total_cr_movement=float(total_cr_mv),
                            total_dr_closing=float(total_dr_cl),
                            total_cr_closing=float(total_cr_cl),
+                           comp_class_totals=comp_class_totals,
                            as_of=as_of, from_date=from_date,
                            periods=periods, selected_period_id=selected_period_id,
                            filter_mode=filter_mode, from_str=from_str, to_str=to_str,
+                           comp_mode=comp_mode, comp_periods=comp_periods, comp_period_ids_str=comp_period_ids_str,
                            now=datetime.utcnow())
 
 
@@ -667,48 +743,97 @@ def trial_balance():
 # 4. PROFIT & LOSS
 # ═══════════════════════════════════════════════
 
+def _pl_account_contribs(from_date, to_date):
+    """Return {account_code: amount} for the period."""
+    movements = _period_movements(from_date, to_date, ["revenue", "expense", "contra-expense"])
+    accounts = {a.id: a for a in ChartOfAccount.query.filter(
+        ChartOfAccount.type.in_(["revenue", "expense", "contra-expense"])).all()}
+    result = {}
+    for aid, (dr, cr) in movements.items():
+        a = accounts.get(aid)
+        if a is None: continue
+        if a.type == "expense":
+            contrib = dr - cr if cr > dr else cr - dr
+        else:
+            contrib = cr - dr
+        if dr == 0 and cr == 0: continue
+        result[a.code] = float(contrib)
+    return result
+
+
 @finance_bp.route("/profit-loss")
 @login_required
 def profit_loss():
-    from_date, to_date, periods, selected_period_id, filter_mode, from_str, to_str = _resolve_period()
+    from_date, to_date, periods, selected_period_id, filter_mode, from_str, to_str, comp_mode, comp_periods, comp_period_ids_str = _resolve_period()
 
     if from_date is None:
         return render_template("finance/profit_loss.html", pl_rows=[], net_profit=0,
                                from_date=None, to_date=None,
                                periods=periods, selected_period_id=selected_period_id,
                                filter_mode="", from_str="", to_str="",
+                               comp_mode="", comp_periods=[], comp_period_ids_str="",
                                now=datetime.utcnow())
 
     pl_rows, net_profit = _pl_rows(from_date, to_date)
 
+    # Comparative data: per-account contributions for each comparative period
+    comp_contribs = []
+    if comp_mode and comp_periods:
+        for cp in comp_periods:
+            comp_contribs.append(_pl_account_contribs(cp.start_date, cp.end_date))
+        # Annotate pl_rows with comp_amounts array
+        for row in pl_rows:
+            if row["kind"] in ("account", "total", "subtotal"):
+                amounts = []
+                base_amt = row.get("amount", 0)
+                amounts.append(base_amt)
+                for cc in comp_contribs:
+                    if row["kind"] == "account":
+                        amounts.append(cc.get(row.get("code", ""), 0))
+                    elif row["kind"] == "total":
+                        total = 0
+                        for code, val in cc.items():
+                            total += val
+                        amounts.append(round(total, 2))
+                    else:  # subtotal — approximate; compute net profit for each comp period
+                        amounts.append(round(sum(cc.values()), 2))
+                row["comp_amounts"] = amounts
+
     fmt = request.args.get("format")
     if fmt == "excel":
+        ncols = 3 + len(comp_periods)
         wb = openpyxl.Workbook()
         ws = wb.active
         ws.title = "P&L"
-        ws.merge_cells("A1:C1")
+        ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=ncols)
         ws.cell(row=1, column=1, value=f"Profit & Loss ({from_date} to {to_date})").font = TITLE_FONT
         r = 3
         for row in pl_rows:
             if row["kind"] == "header":
-                ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=3)
+                ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=ncols)
                 c = ws.cell(row=r, column=1, value=row["label"])
                 c.font = Font(bold=True, size=12); c.fill = HEADER_FILL
                 c.font = Font(bold=True, size=12, color="FFFFFF")
             elif row["kind"] == "account":
                 ws.cell(row=r, column=1, value=row["code"]).font = DATA_FONT
                 ws.cell(row=r, column=2, value=row["name"]).font = DATA_FONT
-                c = ws.cell(row=r, column=3, value=row["amount"])
-                c.font = DATA_FONT; c.alignment = RIGHT
+                ws.cell(row=r, column=3, value=row["amount"]).font = DATA_FONT; ws.cell(row=r, column=3).alignment = RIGHT
+                for ci, cp in enumerate(comp_periods, 4):
+                    amt = row.get("comp_amounts", [])[ci - 3] if row.get("comp_amounts") else 0
+                    ws.cell(row=r, column=ci, value=amt).font = DATA_FONT; ws.cell(row=r, column=ci).alignment = RIGHT
             elif row["kind"] == "total":
                 ws.cell(row=r, column=2, value=row["label"]).font = BOLD_FONT
-                c = ws.cell(row=r, column=3, value=row["amount"])
-                c.font = BOLD_FONT; c.alignment = RIGHT
-            else:  # subtotal / profit line
+                ws.cell(row=r, column=3, value=row["amount"]).font = BOLD_FONT; ws.cell(row=r, column=3).alignment = RIGHT
+                for ci, cp in enumerate(comp_periods, 4):
+                    amt = row.get("comp_amounts", [])[ci - 3] if row.get("comp_amounts") else 0
+                    ws.cell(row=r, column=ci, value=amt).font = BOLD_FONT; ws.cell(row=r, column=ci).alignment = RIGHT
+            else:
                 ws.cell(row=r, column=2, value=row["label"]).font = Font(bold=True, size=12, color="1F4E79")
-                c = ws.cell(row=r, column=3, value=row["amount"])
-                c.font = Font(bold=True, size=12, color="1F4E79"); c.alignment = RIGHT
-                r += 1  # blank spacer after each profit line
+                ws.cell(row=r, column=3, value=row["amount"]).font = Font(bold=True, size=12, color="1F4E79"); ws.cell(row=r, column=3).alignment = RIGHT
+                for ci, cp in enumerate(comp_periods, 4):
+                    amt = row.get("comp_amounts", [])[ci - 3] if row.get("comp_amounts") else 0
+                    ws.cell(row=r, column=ci, value=amt).font = Font(bold=True, size=12, color="1F4E79"); ws.cell(row=r, column=ci).alignment = RIGHT
+                r += 1
             r += 1
         ws.column_dimensions["A"].width = 18
         ws.column_dimensions["B"].width = 44
@@ -718,20 +843,35 @@ def profit_loss():
                          mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
     if fmt == "pdf":
-        headers = ["Code", "Account / Section", "Amount"]
+        headers = ["Code", "Account / Section", "Amount"] + [cp.period_name for cp in comp_periods]
         data = []
         for row in pl_rows:
             if row["kind"] == "header":
-                data.append(["", row["label"].upper(), ""])
+                data.append([""] + [row["label"].upper()] + [""] * (1 + len(comp_periods)))
             elif row["kind"] == "account":
-                data.append([row["code"], row["name"], f"{row['amount']:,.2f}"])
+                vals = [row["code"], row["name"], f"{row['amount']:,.2f}"]
+                if row.get("comp_amounts"):
+                    vals += [f"{a:,.2f}" for a in row["comp_amounts"][1:]]
+                else:
+                    vals += [""] * len(comp_periods)
+                data.append(vals)
             elif row["kind"] == "total":
-                data.append(["", row["label"], f"{row['amount']:,.2f}"])
+                vals = ["", row["label"], f"{row['amount']:,.2f}"]
+                if row.get("comp_amounts"):
+                    vals += [f"{a:,.2f}" for a in row["comp_amounts"][1:]]
+                else:
+                    vals += [""] * len(comp_periods)
+                data.append(vals)
             else:
-                data.append(["", row["label"], f"{row['amount']:,.2f}"])
-                data.append(["", "", ""])
+                vals = ["", row["label"], f"{row['amount']:,.2f}"]
+                if row.get("comp_amounts"):
+                    vals += [f"{a:,.2f}" for a in row["comp_amounts"][1:]]
+                else:
+                    vals += [""] * len(comp_periods)
+                data.append(vals)
+                data.append([""] * (3 + len(comp_periods)))
         pdf_out = _build_pdf_landscape(f"Profit & Loss ({from_date} to {to_date})",
-                                        headers, data, [24, 66, 26])
+                                        headers, data, [24, 66, 26] + [24] * len(comp_periods))
         return send_file(pdf_out, as_attachment=True, download_name="profit_loss.pdf",
                          mimetype="application/pdf")
 
@@ -740,6 +880,7 @@ def profit_loss():
                            from_date=from_date, to_date=to_date,
                            periods=periods, selected_period_id=selected_period_id,
                            filter_mode=filter_mode, from_str=from_str, to_str=to_str,
+                           comp_mode=comp_mode, comp_periods=comp_periods, comp_period_ids_str=comp_period_ids_str,
                            now=datetime.utcnow())
 
 
@@ -747,28 +888,13 @@ def profit_loss():
 # 5. BALANCE SHEET
 # ═══════════════════════════════════════════════
 
-@finance_bp.route("/balance-sheet")
-@login_required
-def balance_sheet():
-    from_date, to_date, periods, selected_period_id, filter_mode, from_str, to_str = _resolve_period()
-
-    if from_date is None:
-        return render_template("finance/balance_sheet.html", assets=[], liabilities=[], equity=[],
-                               total_assets=0, total_liabilities=0, total_equity=0,
-                               as_of=date.today(),
-                               periods=periods, selected_period_id=selected_period_id,
-                               filter_mode="", from_str="", to_str="",
-                               now=datetime.utcnow())
-
-    as_of = to_date or date.today()
-    as_of_end = as_of
-
-    balances = _all_account_balances(as_of_end)
-    ni = _net_income(as_of_end)
-
+def _bs_data(as_of_date, include_ni=True):
+    """Compute balance sheet data for a given date. Returns (assets, liabilities, equity,
+    total_assets, total_liabilities, total_equity, net_income)."""
+    balances = _all_account_balances(as_of_date)
+    ni = _net_income(as_of_date) if include_ni else Decimal("0")
     assets, liabilities, equity = [], [], []
     total_assets = total_liabilities = total_equity = Decimal("0")
-
     for b in balances:
         if b.type == "asset":
             bal = b.dr - b.cr
@@ -785,26 +911,77 @@ def balance_sheet():
             if bal != 0:
                 equity.append({"code": b.code, "name": b.name, "amount": float(bal)})
                 total_equity += bal
+    if include_ni:
+        if ni >= 0:
+            equity.append({"code": "", "name": "Net Income (Current Period)", "amount": float(ni)})
+        else:
+            equity.append({"code": "", "name": "Net Loss (Current Period)", "amount": float(ni)})
+        total_equity += Decimal(str(ni))
+    return assets, liabilities, equity, total_assets, total_liabilities, total_equity, ni
 
-    if ni >= 0:
-        equity.append({"code": "", "name": "Net Income (Current Period)", "amount": float(ni)})
+
+def _merge_multi_period(base_items, comp_items_list, code_key="code", amount_key="amount"):
+    """Merge items from base + comparative periods into a list with 'amounts' array."""
+    merged = {}
+    for pi, items in enumerate([base_items] + comp_items_list):
+        for item in items:
+            code = item[code_key]
+            if code not in merged:
+                merged[code] = {"code": code, "name": item["name"],
+                                "amounts": [0.0] * (1 + len(comp_items_list))}
+            merged[code]["amounts"][pi] = item[amount_key]
+    return sorted(merged.values(), key=lambda x: x["code"])
+
+
+@finance_bp.route("/balance-sheet")
+@login_required
+def balance_sheet():
+    from_date, to_date, periods, selected_period_id, filter_mode, from_str, to_str, comp_mode, comp_periods, comp_period_ids_str = _resolve_period()
+
+    if from_date is None:
+        return render_template("finance/balance_sheet.html", assets=[], liabilities=[], equity=[],
+                               total_assets=0, total_liabilities=0, total_equity=0,
+                               as_of=date.today(),
+                               periods=periods, selected_period_id=selected_period_id,
+                               filter_mode="", from_str="", to_str="", comp_mode="",
+                               comp_periods=[], comp_period_ids_str="", all_periods=[],
+                               merged_assets=[], merged_liabilities=[], merged_equity=[],
+                               now=datetime.utcnow())
+
+    as_of = to_date or date.today()
+    assets, liabilities, equity, total_assets, total_liabilities, total_equity, ni = _bs_data(as_of)
+
+    # Comparative data
+    comp_items_list = []
+    comp_totals = []
+    all_periods = []
+    if comp_mode and comp_periods:
+        base_period = AccountingPeriod.query.get(selected_period_id) if selected_period_id else None
+        all_periods = ([base_period] if base_period else []) + list(comp_periods)
+        for cp in comp_periods:
+            ca, cl, ce, cta, ctl, cte, cni = _bs_data(cp.end_date)
+            comp_items_list.append({"assets": ca, "liabilities": cl, "equity": ce})
+            comp_totals.append({"total_assets": float(cta), "total_liabilities": float(ctl), "total_equity": float(cte)})
     else:
-        equity.append({"code": "", "name": "Net Loss (Current Period)", "amount": float(ni)})
-    total_equity += Decimal(str(ni))
+        base_period = AccountingPeriod.query.get(selected_period_id) if selected_period_id else None
+        if base_period:
+            all_periods = [base_period]
 
     fmt = request.args.get("format")
     if fmt == "excel":
         wb = openpyxl.Workbook()
         ws = wb.active
         ws.title = "Balance Sheet"
-        ws.merge_cells("A1:C1")
-        ws.cell(row=1, column=1, value=f"Balance Sheet as of {as_of_end}").font = TITLE_FONT
+        ncols = 3 + len(comp_periods)
+        ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=ncols)
+        ws.cell(row=1, column=1, value=f"Balance Sheet as of {as_of}").font = TITLE_FONT
 
-        def write_section(ws, sr, section_title, items, total_label, total_val):
-            ws.merge_cells(start_row=sr, start_column=1, end_row=sr, end_column=3)
+        def write_section(ws, sr, section_title, items, total_label, total_val, comp_total_vals=None):
+            ws.merge_cells(start_row=sr, start_column=1, end_row=sr, end_column=ncols)
             ws.cell(row=sr, column=1, value=section_title).font = Font(bold=True, size=12)
             hdr = sr + 1
-            for ci, h in enumerate(["Code", "Account", "Amount"], 1):
+            h_labels = ["Code", "Account", "Amount"] + [f"{cp.period_name}" for cp in comp_periods]
+            for ci, h in enumerate(h_labels[:ncols], 1):
                 c = ws.cell(row=hdr, column=ci, value=h)
                 c.font = HEADER_FONT; c.fill = HEADER_FILL; c.alignment = CENTER; c.border = THIN
             for ri, item in enumerate(items, hdr + 1):
@@ -815,21 +992,36 @@ def balance_sheet():
                 ws.cell(row=ri, column=3, value=item["amount"]).font = DATA_FONT
                 ws.cell(row=ri, column=3).border = THIN
                 ws.cell(row=ri, column=3).alignment = RIGHT
+                for ci, cp in enumerate(comp_periods, 4):
+                    ws.cell(row=ri, column=ci, value=0).font = DATA_FONT
+                    ws.cell(row=ri, column=ci).border = THIN
+                    ws.cell(row=ri, column=ci).alignment = RIGHT
             tr = hdr + len(items) + 1
             ws.cell(row=tr, column=2, value=total_label).font = BOLD_FONT
             ws.cell(row=tr, column=2).border = THIN
             ws.cell(row=tr, column=3, value=float(total_val)).font = BOLD_FONT
             ws.cell(row=tr, column=3).border = THIN
             ws.cell(row=tr, column=3).alignment = RIGHT
+            for ci, cp in enumerate(comp_periods, 4):
+                cv = float(comp_total_vals[ci - 4]) if comp_total_vals else 0
+                ws.cell(row=tr, column=ci, value=cv).font = BOLD_FONT
+                ws.cell(row=tr, column=ci).border = THIN
+                ws.cell(row=tr, column=ci).alignment = RIGHT
             return tr + 2
 
-        nr = write_section(ws, 3, "ASSETS", assets, "Total Assets", total_assets)
-        nr = write_section(ws, nr, "LIABILITIES", liabilities, "Total Liabilities", total_liabilities)
-        nr = write_section(ws, nr, "EQUITY", equity, "Total Equity", total_equity)
+        nr = write_section(ws, 3, "ASSETS", assets, "Total Assets", total_assets,
+                           [t["total_assets"] for t in comp_totals])
+        nr = write_section(ws, nr, "LIABILITIES", liabilities, "Total Liabilities", total_liabilities,
+                           [t["total_liabilities"] for t in comp_totals])
+        nr = write_section(ws, nr, "EQUITY", equity, "Total Equity", total_equity,
+                           [t["total_equity"] for t in comp_totals])
 
-        ws.merge_cells(start_row=nr, start_column=1, end_row=nr, end_column=3)
+        ws.merge_cells(start_row=nr, start_column=1, end_row=nr, end_column=ncols)
         ws.cell(row=nr, column=1, value="LIABILITIES + EQUITY").font = Font(bold=True, size=12)
         ws.cell(row=nr, column=3, value=float(total_liabilities + total_equity)).font = Font(bold=True, size=12)
+        for ci, cp in enumerate(comp_periods, 4):
+            lte = float(comp_totals[ci - 4]["total_liabilities"] + comp_totals[ci - 4]["total_equity"]) if comp_totals else 0
+            ws.cell(row=nr, column=ci, value=lte).font = Font(bold=True, size=12)
         ws.column_dimensions["A"].width = 12
         ws.column_dimensions["B"].width = 40
         ws.column_dimensions["C"].width = 20
@@ -838,22 +1030,38 @@ def balance_sheet():
                          mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
     if fmt == "pdf":
-        headers = ["Code", "Account", "Amount"]
-        all_data = ([[a["code"], a["name"], f"{a['amount']:,.2f}"] for a in assets] +
-                    [["", "", ""]] +
-                    [[l["code"], l["name"], f"{l['amount']:,.2f}"] for l in liabilities] +
-                    [["", "", ""]] +
-                    [[e["code"], e["name"], f"{e['amount']:,.2f}"] for e in equity])
-        pdf_out = _build_pdf_landscape(f"Balance Sheet as of {as_of_end}", headers, all_data, [20, 60, 30])
+        headers = ["Code", "Account", "Amount"] + [cp.period_name for cp in comp_periods]
+        all_data = [[a["code"], a["name"], f"{a['amount']:,.2f}"] +
+                    [""] * len(comp_periods) for a in assets] + \
+                   [["", "", ""] + [""] * len(comp_periods)] + \
+                   [[l["code"], l["name"], f"{l['amount']:,.2f}"] +
+                    [""] * len(comp_periods) for l in liabilities] + \
+                   [["", "", ""] + [""] * len(comp_periods)] + \
+                   [[e["code"], e["name"], f"{e['amount']:,.2f}"] +
+                    [""] * len(comp_periods) for e in equity]
+        pdf_out = _build_pdf_landscape(f"Balance Sheet as of {as_of}", headers, all_data,
+                                       [20, 60, 30] + [24] * len(comp_periods))
         return send_file(pdf_out, as_attachment=True, download_name="balance_sheet.pdf",
                          mimetype="application/pdf")
+
+    # If comparative, merge items across periods
+    merged_assets = _merge_multi_period(assets, [cl["assets"] for cl in comp_items_list]) if comp_items_list else []
+    merged_liabilities = _merge_multi_period(liabilities, [cl["liabilities"] for cl in comp_items_list]) if comp_items_list else []
+    merged_equity = _merge_multi_period(equity, [cl["equity"] for cl in comp_items_list]) if comp_items_list else []
 
     return render_template("finance/balance_sheet.html", assets=assets,
                            liabilities=liabilities, equity=equity,
                            total_assets=float(total_assets),
                            total_liabilities=float(total_liabilities),
                            total_equity=float(total_equity),
-                           as_of=as_of_end,
+                           as_of=as_of,
+                           comp_mode=comp_mode, comp_periods=comp_periods,
+                           comp_period_ids_str=comp_period_ids_str,
+                           comp_totals=comp_totals,
+                           all_periods=all_periods,
+                           merged_assets=merged_assets,
+                           merged_liabilities=merged_liabilities,
+                           merged_equity=merged_equity,
                            periods=periods, selected_period_id=selected_period_id,
                            filter_mode=filter_mode, from_str=from_str, to_str=to_str,
                            now=datetime.utcnow())
@@ -866,7 +1074,7 @@ def balance_sheet():
 @finance_bp.route("/socie")
 @login_required
 def socie():
-    from_date, to_date, periods, selected_period_id, filter_mode, from_str, to_str = _resolve_period()
+    from_date, to_date, periods, selected_period_id, filter_mode, from_str, to_str, comp_mode, comp_periods, comp_period_ids_str = _resolve_period()
 
     if from_date is None:
         return render_template("finance/socie.html", rows=[], opening_total=0,
@@ -874,6 +1082,8 @@ def socie():
                                from_date=None, to_date=None,
                                periods=periods, selected_period_id=selected_period_id,
                                filter_mode="", from_str="", to_str="",
+                               comp_mode="", comp_periods=[], comp_period_ids_str="",
+                               comp_socie_blocks=[],
                                now=datetime.utcnow())
 
     cutoff = from_date - timedelta(days=1)
@@ -949,25 +1159,100 @@ def socie():
 
     closing_total = opening_total + movement_total
 
+    # ── Comparative: build stacked per-period blocks ──────────────────────────
+    comp_socie_blocks = []
+    comp_movement_totals = []
+    if comp_mode and comp_periods:
+        def _period_block(ps, pe, pname):
+            p_cutoff = ps - timedelta(days=1)
+            p_ni = _net_income(pe)
+            p_op = {b.account_id: b.cr - b.dr
+                    for b in _all_account_balances(p_cutoff, ["equity"])}
+            p_cl = {b.account_id: b.cr - b.dr
+                    for b in _all_account_balances(pe, ["equity"])}
+
+            # Share Capital (3-01-01-01-0001)
+            sc_acct = ChartOfAccount.query.filter_by(code="3-01-01-01-0001").first()
+            sc_op = float(p_op.get(sc_acct.id, Decimal("0"))) if sc_acct else 0
+            sc_cl = float(p_cl.get(sc_acct.id, Decimal("0"))) if sc_acct else 0
+
+            # Retained Earnings
+            re_op_val = float(p_op.get(re_open_acct.id, Decimal("0"))) if re_open_acct else 0
+            re_cl_val = float(p_cl.get(re_close_acct.id, Decimal("0"))) if re_close_acct else 0
+            div_val = float(p_cl.get(div_acct.id, Decimal("0"))) if div_acct else 0
+            oci_val = float(p_cl.get(oci_acct.id, Decimal("0"))) if oci_acct else 0
+            re_ni_val = float(p_ni)
+            re_mv = re_ni_val - div_val + oci_val
+            re_cl = re_op_val + re_mv
+
+            sc = {"opening": sc_op, "closing": sc_cl}
+            re = {"opening": re_op_val, "profit": re_ni_val if re_ni_val else 0,
+                   "dividends": -div_val if div_val else 0,
+                   "oci": oci_val if oci_val else 0, "closing": re_cl}
+            tot_op = sc_op + re_op_val
+            tot_cl = sc_cl + re_cl
+            return {
+                "period_name": pname,
+                "period_start": ps, "period_end": pe,
+                "opening_label": f"Balance as on {ps.strftime('%B %d, %Y')}",
+                "closing_label": f"Balance as on {pe.strftime('%B %d, %Y')}",
+                "sc": sc, "re": re,
+                "total": {"opening": tot_op, "closing": tot_cl},
+            }
+
+        comp_socie_blocks.append(
+            _period_block(from_date, to_date,
+                          f"{from_date.strftime('%d %b %Y')} - {to_date.strftime('%d %b %Y')}"))
+        for cp in comp_periods:
+            comp_socie_blocks.append(
+                _period_block(cp.start_date, cp.end_date, cp.period_name))
+
+        # Compute legacy comp_movement_totals for Excel/PDF exports
+        for i, cp in enumerate(comp_periods):
+            blk = comp_socie_blocks[i + 1]
+            blk_mv = (blk["total"]["closing"] - blk["total"]["opening"])
+            comp_movement_totals.append(blk_mv)
+
     fmt = request.args.get("format")
     if fmt == "excel":
+        ncols = 4 + len(comp_periods)
         headers = ["Component", "Opening Balance", "Movement", "Closing Balance"]
-        data = [[r["name"], r["opening"], r["movement"], r["closing"]] for r in rows]
-        data.append(["TOTAL", float(opening_total), float(movement_total), float(closing_total)])
-        wb_out = _build_excel_wb(f"SOCIE ({from_date} to {to_date})", headers, data, [40, 20, 20, 20])
+        for cp in comp_periods:
+            headers.append(f"Movement ({cp.period_name})")
+        data = []
+        for r in rows:
+            row_data = [r["name"], r["opening"], r["movement"], r["closing"]]
+            if r.get("comp_movements"):
+                row_data += [v if v is not None else None for v in r["comp_movements"]]
+            else:
+                row_data += [None] * len(comp_periods)
+            data.append(row_data)
+        data.append(["TOTAL", float(opening_total), float(movement_total), float(closing_total)] +
+                     [t if t is not None else None for t in comp_movement_totals])
+        wb_out = _build_excel_wb(f"SOCIE ({from_date} to {to_date})", headers, data, [40, 20, 20, 20] + [18] * len(comp_periods))
         return send_file(wb_out, as_attachment=True, download_name="socie.xlsx",
                          mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
     if fmt == "pdf":
         headers = ["Component", "Opening", "Movement", "Closing"]
-        data = [[r["name"],
-                 f"{r['opening']:,.2f}" if r['opening'] is not None else "",
-                 f"{r['movement']:,.2f}" if r['movement'] is not None else "",
-                 f"{r['closing']:,.2f}" if r['closing'] is not None else ""]
-                for r in rows]
+        for cp in comp_periods:
+            headers.append(f"Mvmt ({cp.period_name})")
+        data = []
+        for r in rows:
+            row_data = [r["name"],
+                        f"{r['opening']:,.2f}" if r['opening'] is not None else "",
+                        f"{r['movement']:,.2f}" if r['movement'] is not None else "",
+                        f"{r['closing']:,.2f}" if r['closing'] is not None else ""]
+            if r.get("comp_movements"):
+                row_data += [f"{v:,.2f}" if v is not None else "" for v in r["comp_movements"]]
+            else:
+                row_data += [""] * len(comp_periods)
+            data.append(row_data)
         data.append(["TOTAL", f"{float(opening_total):,.2f}", f"{float(movement_total):,.2f}",
-                     f"{float(closing_total):,.2f}"])
-        pdf_out = _build_pdf_landscape(f"SOCIE ({from_date} to {to_date})", headers, data, [60, 30, 30, 30])
+                     f"{float(closing_total):,.2f}"] +
+                     [f"{t:,.2f}" if t is not None else "" for t in comp_movement_totals])
+        pdf_out = _build_pdf_landscape(f"SOCIE ({from_date} to {to_date})", headers, data,
+                                       [60, 30, 30, 30] + [22] * len(comp_periods))
         return send_file(pdf_out, as_attachment=True, download_name="socie.pdf",
                          mimetype="application/pdf")
 
@@ -978,96 +1263,70 @@ def socie():
                            from_date=from_date, to_date=to_date,
                            periods=periods, selected_period_id=selected_period_id,
                            filter_mode=filter_mode, from_str=from_str, to_str=to_str,
+                           comp_mode=comp_mode, comp_periods=comp_periods, comp_period_ids_str=comp_period_ids_str,
+                           comp_socie_blocks=comp_socie_blocks,
                            now=datetime.utcnow())
 
 
 # ═══════════════════════════════════════════════
-# 7. CASH FLOW STATEMENT (Indirect Method)
+# 7. CASH FLOW STATEMENT
 # ═══════════════════════════════════════════════
 
-@finance_bp.route("/cash-flow")
-@login_required
-def cash_flow():
-    """Indirect-method cash flow driven by per-account cash_flow_activity tags.
 
-    Net profit for the period, adjusted by the period's balance-sheet
-    movements grouped by each account's effective activity tag (operating /
-    investing / financing). Accounts tagged "cash" are the statement's
-    subject: their movement is the target the three activity totals must
-    reconcile to.
-    """
-    from_date, to_date, periods, selected_period_id, filter_mode, from_str, to_str = _resolve_period()
-
-    if from_date is None:
-        return render_template("finance/cash_flow.html", op_items=[], inv_items=[], fin_items=[],
-                               net_operating=0, net_investing=0, net_financing=0,
-                               net_change=0, opening_cash=0, closing_cash=0,
-                               cash_movement=0, from_date=None, to_date=None,
-                               periods=periods, selected_period_id=selected_period_id,
-                               filter_mode="", from_str="", to_str="",
-                               now=datetime.utcnow())
-
+def _cash_flow_direct(from_date, to_date):
+    """Direct-method cash flow: aggregate cash receipts & payments from journals
+    involving cash accounts; counterparty accounts determine the activity.
+    Returns (op_items, inv_items, fin_items, opening_cash, closing_cash)."""
     opening_cutoff = from_date - timedelta(days=1)
-
-    # Net profit for the period: revenue contributes (cr - dr), expense
-    # contributes negatively (dr - cr when cr > dr, else cr - dr), matching
-    # the same logic as _pl_rows.
-    pl_moves = _period_movements(from_date, to_date, ["revenue", "expense", "contra-expense"])
     all_accts = {a.id: a for a in ChartOfAccount.query.all()}
-    net_profit = 0.0
-    for aid, (dr, cr) in pl_moves.items():
-        a = all_accts.get(aid)
-        if a is None:
-            continue
-        if a.type == "expense":
-            net_profit += float(dr - cr if cr > dr else cr - dr)
-        else:
-            net_profit += float(cr - dr)
-
-    # Balance-sheet movements for the period, grouped by activity tag, and
-    # within each activity by the account's level-3 head for readability.
-    bs_moves = _period_movements(from_date, to_date, ["asset", "liability", "equity"])
-    accounts = all_accts
-
-    def l3_head(acct):
-        a = acct
-        while a is not None and a.level > 3:
-            a = a.parent
-        return a.name if a is not None else acct.name
-
+    cash_ids = [a.id for a in all_accts.values()
+                if (a.effective_cash_flow_activity() or "") == "cash" and a.level >= 5]
+    cash_set = set(cash_ids)
+    lines = db.session.query(JournalLine).join(JournalEntry).filter(
+        JournalEntry.is_posted == True,
+        JournalEntry.entry_date >= from_date,
+        JournalEntry.entry_date <= to_date,
+    ).all()
+    by_entry = defaultdict(list)
+    for ln in lines:
+        by_entry[ln.journal_entry_id].append(ln)
     groups = {"operating": defaultdict(float), "investing": defaultdict(float),
               "financing": defaultdict(float)}
-    cash_movement = 0.0
-    for aid, (dr, cr) in bs_moves.items():
-        acct = accounts.get(aid)
-        if acct is None:
+    for eid, entry_lines in by_entry.items():
+        cash_lines = [ln for ln in entry_lines if ln.account_id in cash_set]
+        other_lines = [ln for ln in entry_lines if ln.account_id not in cash_set]
+        if not cash_lines:
             continue
-        activity = acct.effective_cash_flow_activity() or "operating"
-        if activity == "cash":
-            cash_movement += float(dr - cr)
+        net_cash = sum(float(ln.debit - ln.credit) for ln in cash_lines)
+        if abs(net_cash) < 0.005:
             continue
-        # Cash effect of a balance-sheet movement: an asset build-up consumes
-        # cash (-(dr-cr)); a liability/equity build-up provides it (+(cr-dr)).
-        # Both reduce to (cr - dr) regardless of account type.
-        effect = float(cr - dr)
-        if effect:
-            groups[activity][l3_head(acct)] += effect
-
-    op_items = [("Net Profit / (Loss) for the period", net_profit)]
-    op_items += [(f"(Increase) / Decrease in {name}" if v < 0 else
-                  f"Decrease / (Increase) in {name}", v)
-                 for name, v in sorted(groups["operating"].items())]
-    inv_items = [(f"Movement in {name}", v) for name, v in sorted(groups["investing"].items())]
-    fin_items = [(f"Movement in {name}", v) for name, v in sorted(groups["financing"].items())]
-
-    net_operating = sum(v for _, v in op_items)
-    net_investing = sum(v for _, v in inv_items)
-    net_financing = sum(v for _, v in fin_items)
-    net_change = net_operating + net_investing + net_financing
-
-    # Reconciliation against the actual cash-account balances.
-    cash_ids = [a.id for a in accounts.values()
-                if (a.effective_cash_flow_activity() or "") == "cash" and a.level >= 5]
+        other_total = sum(float(ln.credit + ln.debit) for ln in other_lines)
+        if other_total == 0:
+            continue
+        for oln in other_lines:
+            oa = all_accts.get(oln.account_id)
+            if oa is None:
+                continue
+            weight = float(oln.credit + oln.debit) / other_total
+            portion = net_cash * weight
+            activity = oa.effective_cash_flow_activity() or "operating"
+            if activity == "cash":
+                continue
+            a = oa
+            while a is not None and a.level > 3:
+                a = a.parent
+            head = a.name if a is not None else oa.name
+            groups[activity][head] += portion
+    op_items = []
+    for name, v in sorted(groups["operating"].items()):
+        if v > 0:
+            op_items.append((f"Cash received — {name}", v))
+        elif v < 0:
+            op_items.append((f"Cash paid — {name}", v))
+    inv_items = [(f"{'Proceeds from' if v > 0 else 'Purchase of'} {name}", v)
+                 for name, v in sorted(groups["investing"].items())]
+    fin_items = [(f"{'Proceeds from' if v > 0 else 'Repayment of'} {name}", v)
+                  for name, v in sorted(groups["financing"].items())]
 
     def cash_balance(as_of):
         total = Decimal("0")
@@ -1077,64 +1336,278 @@ def cash_flow():
         return float(total)
     opening_cash = cash_balance(opening_cutoff)
     closing_cash = cash_balance(to_date)
+    return op_items, inv_items, fin_items, opening_cash, closing_cash
+
+
+@finance_bp.route("/cash-flow")
+@login_required
+def cash_flow():
+    """Cash flow statement — indirect or direct method per ReportSettings."""
+    from_date, to_date, periods, selected_period_id, filter_mode, from_str, to_str, comp_mode, comp_periods, comp_period_ids_str = _resolve_period()
+
+    if from_date is None:
+        return render_template("finance/cash_flow.html", op_items=[], inv_items=[], fin_items=[],
+                               net_operating=0, net_investing=0, net_financing=0,
+                               net_change=0, opening_cash=0, closing_cash=0,
+                               cash_movement=0, method="indirect",
+                               from_date=None, to_date=None,
+                               periods=periods, selected_period_id=selected_period_id,
+                               filter_mode="", from_str="", to_str="",
+                               comp_mode="", comp_periods=[], comp_period_ids_str="",
+                               comp_item_maps=[],
+                               now=datetime.utcnow())
+
+    settings = ReportSettings.get()
+    method = settings.cash_flow_method or "indirect"
+
+    opening_cutoff = from_date - timedelta(days=1)
+    all_accts = {a.id: a for a in ChartOfAccount.query.all()}
+
+    if method == "direct":
+        op_items, inv_items, fin_items, opening_cash, closing_cash = \
+            _cash_flow_direct(from_date, to_date)
+        net_operating = sum(v for _, v in op_items)
+        net_investing = sum(v for _, v in inv_items)
+        net_financing = sum(v for _, v in fin_items)
+        net_change = net_operating + net_investing + net_financing
+        cash_movement = net_change
+    else:
+        # ── Indirect method ────────────────────────────────────────────────
+        pl_moves = _period_movements(from_date, to_date, ["revenue", "expense", "contra-expense"])
+        net_profit = 0.0
+        for aid, (dr, cr) in pl_moves.items():
+            a = all_accts.get(aid)
+            if a is None:
+                continue
+            if a.type == "expense":
+                net_profit += float(dr - cr if cr > dr else cr - dr)
+            else:
+                net_profit += float(cr - dr)
+
+        bs_moves = _period_movements(from_date, to_date, ["asset", "liability", "equity"])
+
+        def l3_head(acct):
+            a = acct
+            while a is not None and a.level > 3:
+                a = a.parent
+            return a.name if a is not None else acct.name
+
+        groups = {"operating": defaultdict(float), "investing": defaultdict(float),
+                  "financing": defaultdict(float)}
+        cash_movement = 0.0
+        for aid, (dr, cr) in bs_moves.items():
+            acct = all_accts.get(aid)
+            if acct is None:
+                continue
+            activity = acct.effective_cash_flow_activity() or "operating"
+            if activity == "cash":
+                cash_movement += float(dr - cr)
+                continue
+            effect = float(cr - dr)
+            if effect:
+                groups[activity][l3_head(acct)] += effect
+
+        op_items = [("Net Profit / (Loss) for the period", net_profit)]
+        op_items += [(f"(Increase) / Decrease in {name}" if v < 0 else
+                      f"Decrease / (Increase) in {name}", v)
+                     for name, v in sorted(groups["operating"].items())]
+        inv_items = [(f"Movement in {name}", v) for name, v in sorted(groups["investing"].items())]
+        fin_items = [(f"Movement in {name}", v) for name, v in sorted(groups["financing"].items())]
+
+        net_operating = sum(v for _, v in op_items)
+        net_investing = sum(v for _, v in inv_items)
+        net_financing = sum(v for _, v in fin_items)
+        net_change = net_operating + net_investing + net_financing
+
+        cash_ids = [a.id for a in all_accts.values()
+                    if (a.effective_cash_flow_activity() or "") == "cash" and a.level >= 5]
+
+        def cash_balance(as_of):
+            total = Decimal("0")
+            for cid in cash_ids:
+                dr, cr = _get_account_balance(cid, as_of)
+                total += dr - cr
+            return float(total)
+        opening_cash = cash_balance(opening_cutoff)
+        closing_cash = cash_balance(to_date)
+
+    # Comparative: per-item values for each comparative period
+    comp_item_maps = []
+    if comp_mode and comp_periods:
+        # Build lookup: for each comp period, map item-label -> value
+        comp_item_maps = []  # list of {label: val} per period
+        for cp in comp_periods:
+            cp_from = cp.start_date
+            cp_to = cp.end_date
+            cmp_map = {}
+            if method == "direct":
+                cp_op, cp_inv, cp_fin, cp_oc, cp_cc = _cash_flow_direct(cp_from, cp_to)
+                for item_list in [cp_op, cp_inv, cp_fin]:
+                    for name, val in item_list:
+                        cmp_map[name] = val
+                cmp_map["__net_op__"] = sum(v for _, v in cp_op)
+                cmp_map["__net_inv__"] = sum(v for _, v in cp_inv)
+                cmp_map["__net_fin__"] = sum(v for _, v in cp_fin)
+                cmp_map["__net_chg__"] = cmp_map["__net_op__"] + cmp_map["__net_inv__"] + cmp_map["__net_fin__"]
+                cmp_map["__open__"] = cp_oc
+                cmp_map["__close__"] = cp_cc
+            else:
+                cp_os = cp_from - timedelta(days=1)
+                cp_pl = _period_movements(cp_from, cp_to, ["revenue", "expense", "contra-expense"])
+                cp_np = 0.0
+                for aid, (dr, cr) in cp_pl.items():
+                    a = all_accts.get(aid)
+                    if a is None: continue
+                    if a.type == "expense":
+                        cp_np += float(dr - cr if cr > dr else cr - dr)
+                    else:
+                        cp_np += float(cr - dr)
+                cp_bs = _period_movements(cp_from, cp_to, ["asset", "liability", "equity"])
+                cp_groups = {"operating": {}, "investing": {}, "financing": {}}
+                for aid, (dr, cr) in cp_bs.items():
+                    acct = all_accts.get(aid)
+                    if acct is None: continue
+                    act = acct.effective_cash_flow_activity() or "operating"
+                    if act == "cash": continue
+                    effect = float(cr - dr)
+                    if effect:
+                        head = l3_head(acct)
+                        cp_groups[act][head] = cp_groups[act].get(head, 0) + effect
+                # Net profit item
+                cmp_map["Net Profit / (Loss) for the period"] = cp_np
+                for head, v in sorted(cp_groups["operating"].items()):
+                    label = f"(Increase) / Decrease in {head}" if v < 0 else f"Decrease / (Increase) in {head}"
+                    cmp_map[label] = v
+                for head, v in sorted(cp_groups["investing"].items()):
+                    cmp_map[f"Movement in {head}"] = v
+                for head, v in sorted(cp_groups["financing"].items()):
+                    cmp_map[f"Movement in {head}"] = v
+                cp_net_op = cp_np + sum(cp_groups["operating"].values())
+                cp_net_inv = sum(cp_groups["investing"].values())
+                cp_net_fin = sum(cp_groups["financing"].values())
+                cmp_map["__net_op__"] = cp_net_op
+                cmp_map["__net_inv__"] = cp_net_inv
+                cmp_map["__net_fin__"] = cp_net_fin
+                cmp_map["__net_chg__"] = cp_net_op + cp_net_inv + cp_net_fin
+                cmp_map["__open__"] = cash_balance(cp_os)
+                cmp_map["__close__"] = cash_balance(cp_to)
+            comp_item_maps.append(cmp_map)
+
+        # Annotate items with comp_vals
+        def annotate_list(items, default=0):
+            new_list = []
+            for name, val in items:
+                comps = [m.get(name, default) for m in comp_item_maps]
+                new_list.append((name, val, comps))
+            return new_list
+
+        op_items = annotate_list(op_items)
+        inv_items = annotate_list(inv_items)
+        fin_items = annotate_list(fin_items)
 
     fmt = request.args.get("format")
+    n_comp = len(comp_periods)
     if fmt == "excel":
+        col_count = 2 + n_comp
         wb = openpyxl.Workbook()
         ws = wb.active
         ws.title = "Cash Flow"
-        ws.merge_cells("A1:B1")
-        ws.cell(row=1, column=1, value=f"Cash Flow Statement ({from_date} to {to_date})").font = TITLE_FONT
+        ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=col_count)
+        ws.cell(row=1, column=1, value=f"Cash Flow Statement — {method.title()} Method ({from_date} to {to_date})").font = TITLE_FONT
 
-        def write_section(sr, title, items, total_label, total_val):
-            ws.merge_cells(start_row=sr, start_column=1, end_row=sr, end_column=2)
+        def write_section_excel(sr, title, items, total_label, total_val, comp_total=None):
+            ws.merge_cells(start_row=sr, start_column=1, end_row=sr, end_column=col_count)
             ws.cell(row=sr, column=1, value=title).font = Font(bold=True, size=12)
             r = sr + 1
-            for name, val in items:
+            for entry in items:
+                if isinstance(entry, tuple) and len(entry) == 3:
+                    name, val, comps = entry
+                else:
+                    name, val = entry
+                    comps = [None] * n_comp
                 ws.cell(row=r, column=1, value=name).font = DATA_FONT
                 cc = ws.cell(row=r, column=2, value=val)
                 cc.font = DATA_FONT; cc.alignment = RIGHT
+                for ci, cv in enumerate(comps):
+                    c = ws.cell(row=r, column=3+ci, value=cv or 0)
+                    c.font = DATA_FONT; c.alignment = RIGHT
                 r += 1
             ws.cell(row=r, column=1, value=total_label).font = BOLD_FONT
             cc = ws.cell(row=r, column=2, value=total_val)
             cc.font = BOLD_FONT; cc.alignment = RIGHT
+            if comp_total is not None:
+                for ci, cv in enumerate(comp_total):
+                    c = ws.cell(row=r, column=3+ci, value=cv or 0)
+                    c.font = BOLD_FONT; c.alignment = RIGHT
             return r + 2
 
-        nr = write_section(3, "OPERATING ACTIVITIES", op_items,
-                           "Net cash from operating activities", net_operating)
-        nr = write_section(nr, "INVESTING ACTIVITIES", inv_items,
-                           "Net cash from investing activities", net_investing)
-        nr = write_section(nr, "FINANCING ACTIVITIES", fin_items,
-                           "Net cash from financing activities", net_financing)
-        for label, val in [("NET CHANGE IN CASH", net_change),
-                           ("Opening cash & equivalents", opening_cash),
-                           ("Closing cash & equivalents", closing_cash)]:
+        comp_net_op = [m["__net_op__"] for m in comp_item_maps] if comp_item_maps else []
+        comp_net_inv = [m["__net_inv__"] for m in comp_item_maps] if comp_item_maps else []
+        comp_net_fin = [m["__net_fin__"] for m in comp_item_maps] if comp_item_maps else []
+        nr = write_section_excel(3, "OPERATING ACTIVITIES", op_items,
+                                 "Net cash from operating activities", net_operating, comp_net_op)
+        nr = write_section_excel(nr, "INVESTING ACTIVITIES", inv_items,
+                                 "Net cash from investing activities", net_investing, comp_net_inv)
+        nr = write_section_excel(nr, "FINANCING ACTIVITIES", fin_items,
+                                 "Net cash from financing activities", net_financing, comp_net_fin)
+        comp_net_chg = [m["__net_chg__"] for m in comp_item_maps] if comp_item_maps else []
+        comp_open = [m["__open__"] for m in comp_item_maps] if comp_item_maps else []
+        comp_close = [m["__close__"] for m in comp_item_maps] if comp_item_maps else []
+        for label, val, comps in [("NET CHANGE IN CASH", net_change, comp_net_chg),
+                                   ("Opening cash & equivalents", opening_cash, comp_open),
+                                   ("Closing cash & equivalents", closing_cash, comp_close)]:
             ws.cell(row=nr, column=1, value=label).font = BOLD_FONT
             cc = ws.cell(row=nr, column=2, value=val)
             cc.font = BOLD_FONT; cc.alignment = RIGHT
+            for ci, cv in enumerate(comps):
+                c = ws.cell(row=nr, column=3+ci, value=cv or 0)
+                c.font = BOLD_FONT; c.alignment = RIGHT
             nr += 1
         ws.column_dimensions["A"].width = 46
         ws.column_dimensions["B"].width = 20
+        for ci in range(n_comp):
+            ws.column_dimensions[chr(ord("C")+ci)].width = 18
         out = BytesIO(); wb.save(out); out.seek(0)
         return send_file(out, as_attachment=True, download_name="cash_flow.xlsx",
                          mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
     if fmt == "pdf":
-        headers = ["Item", "Amount"]
-        pdf_data = ([["OPERATING ACTIVITIES", ""]] +
-                    [[n, f"{v:,.2f}"] for n, v in op_items] +
-                    [["Net cash from operating activities", f"{net_operating:,.2f}"], ["", ""]] +
-                    [["INVESTING ACTIVITIES", ""]] +
-                    [[n, f"{v:,.2f}"] for n, v in inv_items] +
-                    [["Net cash from investing activities", f"{net_investing:,.2f}"], ["", ""]] +
-                    [["FINANCING ACTIVITIES", ""]] +
-                    [[n, f"{v:,.2f}"] for n, v in fin_items] +
-                    [["Net cash from financing activities", f"{net_financing:,.2f}"], ["", ""]] +
-                    [["NET CHANGE IN CASH", f"{net_change:,.2f}"],
-                     ["Opening cash & equivalents", f"{opening_cash:,.2f}"],
-                     ["Closing cash & equivalents", f"{closing_cash:,.2f}"]])
-        pdf_out = _build_pdf_landscape(f"Cash Flow Statement ({from_date} to {to_date})",
-                                       headers, pdf_data, [80, 30])
+        pdf_headers = ["Item", "Amount"]
+        for cp in comp_periods:
+            pdf_headers.append(cp.period_name)
+        def _comp_str(v):
+            return f"{v:,.2f}" if v is not None else ""
+        def _comp_vals(maps, key, n):
+            if maps:
+                return [_comp_str(m.get(key, 0)) for m in maps]
+            return [""] * n
+        pdf_data = [["OPERATING ACTIVITIES", ""] + [""] * n_comp]
+        for entry in op_items:
+            name, val = entry[0], entry[1]
+            comps = entry[2] if len(entry) == 3 else [None] * n_comp
+            pdf_data.append([name, f"{val:,.2f}"] + [_comp_str(cv) for cv in comps])
+        pdf_data.append(["Net cash from operating activities", f"{net_operating:,.2f}"] + _comp_vals(comp_item_maps, "__net_op__", n_comp))
+        pdf_data.append(["", ""] + [""] * n_comp)
+        pdf_data.append(["INVESTING ACTIVITIES", ""] + [""] * n_comp)
+        for entry in inv_items:
+            name, val = entry[0], entry[1]
+            comps = entry[2] if len(entry) == 3 else [None] * n_comp
+            pdf_data.append([name, f"{val:,.2f}"] + [_comp_str(cv) for cv in comps])
+        pdf_data.append(["Net cash from investing activities", f"{net_investing:,.2f}"] + _comp_vals(comp_item_maps, "__net_inv__", n_comp))
+        pdf_data.append(["", ""] + [""] * n_comp)
+        pdf_data.append(["FINANCING ACTIVITIES", ""] + [""] * n_comp)
+        for entry in fin_items:
+            name, val = entry[0], entry[1]
+            comps = entry[2] if len(entry) == 3 else [None] * n_comp
+            pdf_data.append([name, f"{val:,.2f}"] + [_comp_str(cv) for cv in comps])
+        pdf_data.append(["Net cash from financing activities", f"{net_financing:,.2f}"] + _comp_vals(comp_item_maps, "__net_fin__", n_comp))
+        pdf_data.append(["", ""] + [""] * n_comp)
+        pdf_data.append(["NET CHANGE IN CASH", f"{net_change:,.2f}"] + _comp_vals(comp_item_maps, "__net_chg__", n_comp))
+        pdf_data.append(["Opening cash & equivalents", f"{opening_cash:,.2f}"] + _comp_vals(comp_item_maps, "__open__", n_comp))
+        pdf_data.append(["Closing cash & equivalents", f"{closing_cash:,.2f}"] + _comp_vals(comp_item_maps, "__close__", n_comp))
+        col_widths = [80, 30] + [22] * n_comp
+        pdf_out = _build_pdf_landscape(f"Cash Flow Statement — {method.title()} Method ({from_date} to {to_date})",
+                                       pdf_headers, pdf_data, col_widths)
         return send_file(pdf_out, as_attachment=True, download_name="cash_flow.pdf",
                          mimetype="application/pdf")
 
@@ -1143,9 +1616,11 @@ def cash_flow():
                            net_operating=net_operating, net_investing=net_investing,
                            net_financing=net_financing, net_change=net_change,
                            opening_cash=opening_cash, closing_cash=closing_cash,
-                           cash_movement=cash_movement,
+                           cash_movement=cash_movement, method=method,
+                           comp_item_maps=comp_item_maps,
                            from_date=from_date, to_date=to_date,
                            periods=periods, selected_period_id=selected_period_id,
                            filter_mode=filter_mode, from_str=from_str, to_str=to_str,
+                           comp_mode=comp_mode, comp_periods=comp_periods, comp_period_ids_str=comp_period_ids_str,
                            now=datetime.utcnow())
 

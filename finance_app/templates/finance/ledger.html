@@ -42,7 +42,7 @@ summary{cursor:pointer}
 <form method="get" class="card mb-6 no-print" id="ledgerForm">
   <!-- Period filter -->
   <div class="mb-4">
-    {% with filter_mode=filter_mode, selected_period_id=selected_period_id, periods=periods, from_val=from_str, to_val=to_str %}
+    {% with filter_mode=filter_mode, selected_period_id=selected_period_id, periods=periods, from_val=from_str, to_val=to_str, comp_mode=comp_mode %}
     {% include "accounting/_period_filter.html" %}
     {% endwith %}
   </div>

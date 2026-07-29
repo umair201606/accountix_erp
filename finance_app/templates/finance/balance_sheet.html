@@ -2,13 +2,13 @@
 {% block title %}Balance Sheet{% endblock %}
 {% block heading %}Balance Sheet{% endblock %}
 {% block actions %}
-<a href="?filter_mode={{ filter_mode }}&period_id={{ selected_period_id }}&to={{ to_str }}&format=excel" class="btn btn-success btn-sm"><i class="fas fa-file-excel"></i> Excel</a>
-<a href="?filter_mode={{ filter_mode }}&period_id={{ selected_period_id }}&to={{ to_str }}&format=pdf" class="btn btn-danger btn-sm"><i class="fas fa-file-pdf"></i> PDF</a>
+<a href="?filter_mode={{ filter_mode }}&period_id={{ selected_period_id }}&to={{ to_str }}&comp_mode={{ comp_mode }}&comp_period_ids={{ comp_period_ids_str }}&format=excel" class="btn btn-success btn-sm"><i class="fas fa-file-excel"></i> Excel</a>
+<a href="?filter_mode={{ filter_mode }}&period_id={{ selected_period_id }}&to={{ to_str }}&comp_mode={{ comp_mode }}&comp_period_ids={{ comp_period_ids_str }}&format=pdf" class="btn btn-danger btn-sm"><i class="fas fa-file-pdf"></i> PDF</a>
 <button onclick="window.print()" class="btn btn-outline btn-sm"><i class="fas fa-print"></i> Print</button>
 {% endblock %}
 {% block content %}
 <form method="get" class="card mb-6 no-print">
-  {% with filter_mode=filter_mode, selected_period_id=selected_period_id, periods=periods, to_val=to_str %}
+  {% with filter_mode=filter_mode, selected_period_id=selected_period_id, periods=periods, to_val=to_str, comp_mode=comp_mode %}
   {% include "accounting/_period_filter.html" %}
   {% endwith %}
   <div class="mt-3">
@@ -21,42 +21,92 @@
     <div>
       <div class="report-company">{{ company.company_name if company else '' }}</div>
       <div class="report-title-lg">Balance Sheet</div>
-      <div class="report-period">As at {{ as_of.strftime('%d %B %Y') }}</div>
+      <div class="report-period">As at {{ as_of.strftime('%d %B, %Y') }}</div>
     </div>
   </div>
   <div class="overflow-x-auto">
     <table class="report-table statement">
-      <thead><tr><th style="width:150px;">Code</th><th>Account</th><th class="num" style="width:150px;">Amount</th></tr></thead>
+      <thead>
+        <tr>
+          <th style="width:150px;">Code</th>
+          <th>Account</th>
+          {% if comp_mode and comp_periods %}
+          <th class="num" style="width:140px;">{{ all_periods[0].period_name if all_periods else 'Amount' }}</th>
+          {% for cp in comp_periods %}
+          <th class="num" style="width:140px;">{{ cp.end_date.strftime('%d %B, %Y') }}</th>
+          {% endfor %}
+          {% else %}
+          <th class="num" style="width:150px;">{{ to_date.strftime('%d %B, %Y') if to_date else 'Amount' }}</th>
+          {% endif %}
+        </tr>
+      </thead>
       <tbody>
-        <tr class="sec-head"><td colspan="3"><i class="fas fa-building"></i> ASSETS</td></tr>
+        <tr class="sec-head"><td colspan="{{ 2 + (1 + comp_periods|length) if comp_mode and comp_periods else 3 }}"><i class="fas fa-building"></i> ASSETS</td></tr>
+        {% if comp_mode and comp_periods %}
+        {% for a in merged_assets %}
+        <tr><td class="mono">{{ a.code }}</td><td class="indent">{{ a.name }}</td>{% for amt in a.amounts %}<td class="num">{{ amt|amount_format }}</td>{% endfor %}</tr>
+        {% else %}
+        <tr><td colspan="{{ 2 + (1 + comp_periods|length) }}" class="text-slate-400 text-center">No asset accounts</td></tr>
+        {% endfor %}
+        <tr class="sec-total"><td></td><td>Total Assets</td><td class="num">{{ total_assets|amount_format }}</td>{% for ct in comp_totals %}<td class="num">{{ ct.total_assets|amount_format }}</td>{% endfor %}</tr>
+        {% else %}
         {% for a in assets %}
         <tr><td class="mono">{{ a.code }}</td><td class="indent">{{ a.name }}</td><td class="num">{{ a.amount|amount_format }}</td></tr>
         {% else %}
         <tr><td colspan="3" class="text-slate-400 text-center">No asset accounts</td></tr>
         {% endfor %}
         <tr class="sec-total"><td></td><td>Total Assets</td><td class="num">{{ total_assets|amount_format }}</td></tr>
+        {% endif %}
 
-        <tr class="sec-head"><td colspan="3"><i class="fas fa-credit-card"></i> LIABILITIES</td></tr>
+        <tr class="sec-head"><td colspan="{{ 2 + (1 + comp_periods|length) if comp_mode and comp_periods else 3 }}"><i class="fas fa-credit-card"></i> LIABILITIES</td></tr>
+        {% if comp_mode and comp_periods %}
+        {% for l in merged_liabilities %}
+        <tr><td class="mono">{{ l.code }}</td><td class="indent">{{ l.name }}</td>{% for amt in l.amounts %}<td class="num">{{ amt|amount_format }}</td>{% endfor %}</tr>
+        {% else %}
+        <tr><td colspan="{{ 2 + (1 + comp_periods|length) }}" class="text-slate-400 text-center">No liability accounts</td></tr>
+        {% endfor %}
+        <tr class="sec-total"><td></td><td>Total Liabilities</td><td class="num">{{ total_liabilities|amount_format }}</td>{% for ct in comp_totals %}<td class="num">{{ ct.total_liabilities|amount_format }}</td>{% endfor %}</tr>
+        {% else %}
         {% for l in liabilities %}
         <tr><td class="mono">{{ l.code }}</td><td class="indent">{{ l.name }}</td><td class="num">{{ l.amount|amount_format }}</td></tr>
         {% else %}
         <tr><td colspan="3" class="text-slate-400 text-center">No liability accounts</td></tr>
         {% endfor %}
         <tr class="sec-total"><td></td><td>Total Liabilities</td><td class="num">{{ total_liabilities|amount_format }}</td></tr>
+        {% endif %}
 
-        <tr class="sec-head"><td colspan="3"><i class="fas fa-users"></i> EQUITY</td></tr>
+        <tr class="sec-head"><td colspan="{{ 2 + (1 + comp_periods|length) if comp_mode and comp_periods else 3 }}"><i class="fas fa-users"></i> EQUITY</td></tr>
+        {% if comp_mode and comp_periods %}
+        {% for e in merged_equity %}
+        <tr><td class="mono">{{ e.code }}</td><td class="indent">{{ e.name }}</td>{% for amt in e.amounts %}<td class="num">{{ amt|amount_format }}</td>{% endfor %}</tr>
+        {% else %}
+        <tr><td colspan="{{ 2 + (1 + comp_periods|length) }}" class="text-slate-400 text-center">No equity accounts</td></tr>
+        {% endfor %}
+        <tr class="sec-total"><td></td><td>Total Equity</td><td class="num">{{ total_equity|amount_format }}</td>{% for ct in comp_totals %}<td class="num">{{ ct.total_equity|amount_format }}</td>{% endfor %}</tr>
+        {% else %}
         {% for e in equity %}
         <tr><td class="mono">{{ e.code }}</td><td class="indent">{{ e.name }}</td><td class="num">{{ e.amount|amount_format }}</td></tr>
         {% else %}
         <tr><td colspan="3" class="text-slate-400 text-center">No equity accounts</td></tr>
         {% endfor %}
         <tr class="sec-total"><td></td><td>Total Equity</td><td class="num">{{ total_equity|amount_format }}</td></tr>
+        {% endif %}
       </tbody>
       <tfoot>
+        {% if comp_mode and comp_periods %}
+        <tr class="grand-total">
+          <td colspan="2">LIABILITIES + EQUITY</td>
+          <td class="num">{{ (total_liabilities + total_equity)|amount_format }}</td>
+          {% for ct in comp_totals %}
+          <td class="num">{{ (ct.total_liabilities + ct.total_equity)|amount_format }}</td>
+          {% endfor %}
+        </tr>
+        {% else %}
         <tr class="grand-total">
           <td colspan="2">LIABILITIES + EQUITY</td>
           <td class="num">{{ (total_liabilities + total_equity)|amount_format }}</td>
         </tr>
+        {% endif %}
       </tfoot>
     </table>
   </div>

@@ -321,6 +321,7 @@ def _migrate_schema(db):
         ("inv_invoice_items", "comments", "TEXT"),
         ("report_settings", "purchase_template_id", "INTEGER"),
         ("report_settings", "sales_template_id", "INTEGER"),
+        ("report_settings", "cash_flow_method", "VARCHAR(20) DEFAULT 'indirect'"),
         ("invoice_templates", "design", "VARCHAR(20)"),
         ("invoice_templates", "accent_color", "VARCHAR(20)"),
         ("invoice_templates", "options_json", "TEXT"),

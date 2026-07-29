@@ -80,6 +80,7 @@ class ReportSettings(db.Model):
     sales_template_text = db.Column(db.Text)
     purchase_template_id = db.Column(db.Integer, db.ForeignKey("invoice_templates.id"))
     sales_template_id = db.Column(db.Integer, db.ForeignKey("invoice_templates.id"))
+    cash_flow_method = db.Column(db.String(20), default="indirect")  # indirect or direct
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     @classmethod

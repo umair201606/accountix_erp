@@ -2,13 +2,13 @@
 {% block title %}Trial Balance{% endblock %}
 {% block heading %}Trial Balance{% endblock %}
 {% block actions %}
-<a href="?filter_mode={{ filter_mode }}&period_id={{ selected_period_id }}&from={{ from_str }}&to={{ to_str }}&format=excel" class="btn btn-success btn-sm"><i class="fas fa-file-excel"></i> Excel</a>
-<a href="?filter_mode={{ filter_mode }}&period_id={{ selected_period_id }}&from={{ from_str }}&to={{ to_str }}&format=pdf" class="btn btn-danger btn-sm"><i class="fas fa-file-pdf"></i> PDF</a>
+<a href="?filter_mode={{ filter_mode }}&period_id={{ selected_period_id }}&from={{ from_str }}&to={{ to_str }}&comp_mode={{ comp_mode }}&comp_period_ids={{ comp_period_ids_str }}&format=excel" class="btn btn-success btn-sm"><i class="fas fa-file-excel"></i> Excel</a>
+<a href="?filter_mode={{ filter_mode }}&period_id={{ selected_period_id }}&from={{ from_str }}&to={{ to_str }}&comp_mode={{ comp_mode }}&comp_period_ids={{ comp_period_ids_str }}&format=pdf" class="btn btn-danger btn-sm"><i class="fas fa-file-pdf"></i> PDF</a>
 <button onclick="window.print()" class="btn btn-outline btn-sm"><i class="fas fa-print"></i> Print</button>
 {% endblock %}
 {% block content %}
 <form method="get" class="card mb-6 no-print">
-  {% with filter_mode=filter_mode, selected_period_id=selected_period_id, periods=periods, from_val=from_str, to_val=to_str %}
+  {% with filter_mode=filter_mode, selected_period_id=selected_period_id, periods=periods, from_val=from_str, to_val=to_str, comp_mode=comp_mode %}
   {% include "accounting/_period_filter.html" %}
   {% endwith %}
   <div class="mt-3">
@@ -22,7 +22,7 @@
       <div class="report-company">{{ company.company_name if company else '' }}</div>
       <div class="report-title-lg">Trial Balance</div>
       <div class="report-period">
-        {% if from_date %}For the period {{ from_date.strftime('%d %B %Y') }} to {% else %}As at {% endif %}{{ as_of.strftime('%d %B %Y') }}
+        {% if from_date %}For the period {{ from_date.strftime('%d %B, %Y') }} to {% else %}As at {% endif %}{{ as_of.strftime('%d %B, %Y') }}
         &nbsp;·&nbsp; Opening → Movement → Closing
       </div>
     </div>
@@ -30,12 +30,27 @@
   {% if rows %}
   <div class="overflow-x-auto">
     <table class="report-table statement">
+      <colgroup>
+        <col><col><col>
+        <col><col>
+        <col><col>
+        <col><col>
+        {% if comp_mode and comp_periods %}{% for cp in comp_periods %}
+        <col><col>
+        {% endfor %}{% endif %}
+      </colgroup>
       <thead>
         <tr>
           <th>Code</th><th>Account</th><th>Type</th>
           <th class="num">Dr Opening</th><th class="num">Cr Opening</th>
           <th class="num">Dr Movement</th><th class="num">Cr Movement</th>
           <th class="num">Dr Closing</th><th class="num">Cr Closing</th>
+          {% if comp_mode and comp_periods %}
+          {% for cp in comp_periods %}
+          <th class="num">Dr Clsg ({{ cp.end_date.strftime('%d %B, %Y') }})</th>
+          <th class="num">Cr Clsg ({{ cp.end_date.strftime('%d %B, %Y') }})</th>
+          {% endfor %}
+          {% endif %}
         </tr>
       </thead>
       <tbody>
@@ -50,6 +65,12 @@
           <td class="num">{{ r.cr_movement|amount_format if r.cr_movement else "—" }}</td>
           <td class="num">{{ r.dr_closing|amount_format if r.dr_closing else "—" }}</td>
           <td class="num">{{ r.cr_closing|amount_format if r.cr_closing else "—" }}</td>
+          {% if comp_mode and comp_periods and r.get('comp_dr_closing') %}
+          {% for cp in comp_periods %}
+          <td class="num">{{ r.comp_dr_closing[loop.index0]|amount_format if r.comp_dr_closing[loop.index0] else "—" }}</td>
+          <td class="num">{{ r.comp_cr_closing[loop.index0]|amount_format if r.comp_cr_closing[loop.index0] else "—" }}</td>
+          {% endfor %}
+          {% endif %}
         </tr>
         {% endfor %}
       </tbody>
@@ -64,6 +85,12 @@
           <td class="num">{{ total_cr_movement|amount_format }}</td>
           <td class="num">{{ total_dr_closing|amount_format }}</td>
           <td class="num">{{ total_cr_closing|amount_format }}</td>
+          {% if comp_mode and comp_periods and comp_class_totals %}
+          {% for ct in comp_class_totals %}
+          <td class="num">{{ ct.total_dr_closing|amount_format }}</td>
+          <td class="num">{{ ct.total_cr_closing|amount_format }}</td>
+          {% endfor %}
+          {% endif %}
         </tr>
       </tfoot>
     </table>

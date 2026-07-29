@@ -1,0 +1,23 @@
+<form method="post" action="{{ url_for('settings.save_cash_flow') }}">
+  <div class="set-card set-boxed">
+    <div class="set-card-hd"><span>Cash Flow Statement Method</span></div>
+    <div class="set-card-bd">
+      <p class="hint">Choose which approach the Cash Flow Statement report in the Finance module should use.</p>
+      <div class="radio-row">
+        <label class="radio-card {{ 'sel-on' if report_settings.cash_flow_method == 'indirect' }}">
+          <input type="radio" name="cash_flow_method" value="indirect" {{ 'checked' if report_settings.cash_flow_method == 'indirect' }}>
+          <span class="rc-h">Indirect Method</span>
+          <div class="rc-d">Starts with net profit and adjusts for non-cash items (depreciation, working capital changes). This is the most commonly used method.</div>
+        </label>
+        <label class="radio-card {{ 'sel-on' if report_settings.cash_flow_method == 'direct' }}">
+          <input type="radio" name="cash_flow_method" value="direct" {{ 'checked' if report_settings.cash_flow_method == 'direct' }}>
+          <span class="rc-h">Direct Method</span>
+          <div class="rc-d">Lists actual cash receipts and payments (cash from customers, cash paid to suppliers, etc.). Provides more detailed operational visibility.</div>
+        </label>
+      </div>
+      <div class="set-actions">
+        <button type="submit" class="btn btn-primary">Save</button>
+      </div>
+    </div>
+  </div>
+</form>

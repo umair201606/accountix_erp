@@ -47,6 +47,7 @@ SECTIONS = [
     ("company",   "Company Profile",   "&#127970;", lambda u: u.module_access("finance")),
     ("periods",   "Financial Periods", "&#128197;", lambda u: u.module_access("finance")),
     ("reports",   "Report Structure",  "&#128200;", lambda u: u.module_access("finance")),
+    ("cash_flow", "Cash Flow Method",  "&#128181;", lambda u: u.module_access("finance")),
     ("inventory", "Inventory",         "&#128230;", lambda u: u.module_access("inventory")),
     ("purchase",  "Procurement",       "&#128228;", lambda u: u.module_access("invoicing")),
     ("sales",     "Sales",             "&#128229;", lambda u: u.module_access("invoicing")),
@@ -108,6 +109,8 @@ def index():
         ctx["report_settings"] = rs
         ctx["pl_structure"] = rs.pl_structure()
         ctx["pl_sections"] = PL_SECTIONS
+    elif tab == "cash_flow":
+        ctx["report_settings"] = ReportSettings.get()
     elif tab == "inventory":
         ctx["inv"] = InventorySettings.get()
         ctx["accounts"] = _postable_accounts()
@@ -347,6 +350,21 @@ def save_reports():
     db.session.commit()
     flash("Report structure updated.", "success")
     return redirect(url_for("settings.index", tab="reports"))
+
+
+# ── Cash Flow Method ─────────────────────────────────────────────────────────
+
+@settings_bp.route("/cash-flow", methods=["POST"])
+@login_required
+def save_cash_flow():
+    denied = _require("cash_flow")
+    if denied:
+        return denied
+    s = ReportSettings.get()
+    s.cash_flow_method = request.form.get("cash_flow_method", "indirect")
+    db.session.commit()
+    flash("Cash flow method updated.", "success")
+    return redirect(url_for("settings.index", tab="cash_flow"))
 
 
 # ── Inventory ───────────────────────────────────────────────────────────────
