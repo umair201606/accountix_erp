@@ -78,6 +78,10 @@ DESIGNS = [
     ("bold", "Bold",
      "Solid colour header block. High contrast and easy to pick out of a pile "
      "of paperwork."),
+    ("letterhead", "Letterhead",
+     "Logo on the left with the company name centred across the page and the "
+     "invoice number and date on the right. Customer on the left, invoice "
+     "details on the right below it."),
 ]
 DESIGN_KEYS = [k for k, _l, _d in DESIGNS]
 
@@ -793,11 +797,57 @@ def _design_bold(doc_type, opts, accent):
 {_PAGE_CLOSE}"""
 
 
+def _design_letterhead(doc_type, opts, accent):
+    """Logo left, company name centred, invoice number and date right.
+
+    The three-cell top row is a table rather than flexbox because this markup
+    is also read by print engines and by whatever a user pastes it into; a
+    table row is the one layout every one of them agrees on. The logo and meta
+    cells are held to a fixed width so the centred name stays centred on the
+    page whether or not a logo has been uploaded.
+    """
+    logo = _logo(opts)
+    return f"""{_PAGE_OPEN}
+  <table style="width:100%;border-collapse:collapse;">
+    <tr>
+      <td style="width:34mm;vertical-align:middle;">{logo}</td>
+      <td style="vertical-align:middle;text-align:center;padding:0 4mm;">
+        <div style="font-size:22px;font-weight:800;letter-spacing:.3px;line-height:1.2;">{{{{company_name}}}}</div>
+        <div style="color:#475569;font-size:11.5px;margin-top:3px;">{{{{company_address}}}}, {{{{company_city}}}}</div>
+        <div style="color:#475569;font-size:11.5px;">{{{{company_phone}}}} &nbsp;&bull;&nbsp; {{{{company_email}}}}</div>
+        {_company_tax(opts, "color:#64748b;font-size:11.5px;")}
+      </td>
+      <!-- Balances the logo cell so the company name is centred on the page,
+           not on the space left over beside the logo. The invoice number and
+           date live in the Bill To row below, once. -->
+      <td style="width:34mm;"></td>
+    </tr>
+  </table>
+  <div style="border-top:2px solid {accent};margin:10px 0 0;"></div>
+  <div style="text-align:center;font-size:13px;font-weight:800;letter-spacing:2.5px;
+    color:{accent};margin:12px 0 16px;">{_title(doc_type)}</div>
+  <table style="width:100%;border-collapse:collapse;margin-bottom:16px;">
+    <tr>
+      <td style="width:55%;vertical-align:top;">
+        {_party_block(doc_type, opts, "font-size:10px;font-weight:700;letter-spacing:1px;color:#64748b;text-transform:uppercase;")}
+      </td>
+      <td style="width:45%;vertical-align:top;text-align:right;line-height:1.9;">
+        {_meta_rows(opts)}
+      </td>
+    </tr>
+  </table>
+  {{{{items_table}}}}
+  {{{{totals_table}}}}
+  {_footer(doc_type, opts, accent)}
+{_PAGE_CLOSE}"""
+
+
 _BUILDERS = {
     "classic": _design_classic,
     "modern": _design_modern,
     "minimal": _design_minimal,
     "bold": _design_bold,
+    "letterhead": _design_letterhead,
 }
 
 

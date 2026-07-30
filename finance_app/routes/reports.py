@@ -263,8 +263,46 @@ def _pl_rows(from_date, to_date):
     return rows, float(running)
 
 
+# Every figure on a finance report is money. Written without a format Excel
+# shows the raw float — 1234.5 where the report says 1,234.50 — and negatives
+# with a bare minus instead of the brackets an accountant reads.
+MONEY_FMT = "#,##0.00;(#,##0.00)"
+
+
+def _cell_text(v):
+    """What Excel will actually display, which is what a column has to be wide
+    enough for. Sizing from str(1234.5) budgets six characters for the eight
+    that get drawn, and the column shows ###### instead."""
+    if isinstance(v, bool) or v is None:
+        return "" if v is None else str(v)
+    if isinstance(v, (int, float, Decimal)):
+        return f"{v:,.2f}"
+    return str(v)
+
+
+def _finish_sheet(ws, ncols, first_row=3):
+    """Money format and column widths for a hand-built sheet.
+
+    The five export routes each grew their own copy of the width loop and none
+    of them set a number format, so the figures came out unformatted and the
+    columns too narrow for them. One pass, applied everywhere.
+    """
+    for row in ws.iter_rows(min_row=first_row, max_col=ncols):
+        for c in row:
+            if isinstance(c.value, (int, float, Decimal)) and not isinstance(c.value, bool):
+                if c.number_format in (None, "General"):
+                    c.number_format = MONEY_FMT
+    for ci in range(1, ncols + 1):
+        max_len = 0
+        for row_cells in ws.iter_rows(min_row=first_row, min_col=ci,
+                                      max_col=ci, values_only=True):
+            max_len = max(max_len, len(_cell_text(row_cells[0])))
+        ws.column_dimensions[openpyxl.utils.get_column_letter(ci)].width = \
+            min(max(max_len + 2, 8), 60)
+
+
 def _build_excel_wb(title, headers, rows, col_widths=None,
-                    bold_rows=None, number_format=None):
+                    bold_rows=None, number_format=MONEY_FMT):
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = title[:31]
@@ -299,7 +337,8 @@ def _build_excel_wb(title, headers, rows, col_widths=None,
         for ci in range(len(headers)):
             max_len = len(str(headers[ci]))
             for row in rows:
-                cell_val = str(row[ci]) if ci < len(row) else ""
+                # Width has to cover the formatted figure, not the raw float.
+                cell_val = _cell_text(row[ci]) if ci < len(row) else ""
                 max_len = max(max_len, len(cell_val))
             col_widths.append(min(max(max_len + 2, 8), 60))
 
@@ -325,14 +364,15 @@ def _build_pdf(title, headers, rows, col_widths=None, bold_rows=None,
     def add_page_number(canvas, doc):
         canvas.saveState()
         canvas.setFont("Helvetica", 8)
-        canvas.drawRightString(A4[0] - 20*mm, 10*mm, f"Page {doc.page}")
+        # The page width of the sheet actually in use. A4[0] is the portrait
+        # width, so on the landscape reports — anything over five columns —
+        # the number was drawn 87mm in from the right, on top of the table.
+        canvas.drawRightString(pagesize[0] - 20*mm, 10*mm, f"Page {doc.page}")
         canvas.restoreState()
 
     doc = SimpleDocTemplate(buf, pagesize=pagesize,
                             rightMargin=10*mm, leftMargin=10*mm,
-                            topMargin=15*mm, bottomMargin=15*mm,
-                            onFirstPage=add_page_number,
-                            onLaterPages=add_page_number)
+                            topMargin=15*mm, bottomMargin=15*mm)
     styles = getSampleStyleSheet()
     elements = []
 
@@ -348,56 +388,117 @@ def _build_pdf(title, headers, rows, col_widths=None, bold_rows=None,
                          f"{c:,.2f}" for c in row] for row in rows]
     available_width = doc.width
 
+    # Which columns hold money. Decided from the values before they were turned
+    # into strings, so a numeric column is right-aligned and a text one is not
+    # — everything but the first column used to be forced right, which threw
+    # account names and descriptions against their column edge.
+    numeric_cols = set()
+    for ci in range(ncols):
+        seen = False
+        for row in rows:
+            if ci >= len(row) or row[ci] in (None, ""):
+                continue
+            if not isinstance(row[ci], (int, float, Decimal)):
+                seen = False
+                break
+            seen = True
+        if seen:
+            numeric_cols.add(ci)
+
+    base_font = 8
+    header_font_size = base_font + 1
+    # Reportlab pads each cell 6pt left and right by default. The old budget of
+    # +10pt for a whole column was less than that 12pt, so every column came
+    # out narrower than its own widest word and the text broke mid-word —
+    # "Vouche/r", "Balanc/e", "2026-07-0/1". Pad explicitly and budget for it.
+    pad_x = 4
     if col_widths is None:
-        font_size = 8
         max_widths = [0] * ncols
-        for row in data:
+        for ri, row in enumerate(data):
+            # The header row is set larger and bold, so it needs measuring at
+            # its own size or a long heading overflows its column.
+            fname = "Helvetica-Bold" if ri == 0 else "Helvetica"
+            fsize = header_font_size if ri == 0 else base_font
             for ci, val in enumerate(row):
-                text = str(val)
-                w = stringWidth(text, "Helvetica", font_size)
+                w = stringWidth(str(val), fname, fsize)
                 max_widths[ci] = max(max_widths[ci], w)
-        col_widths = [w + 10 for w in max_widths]
+        col_widths = [w + 2 * pad_x + 2 for w in max_widths]
 
     total_width = sum(col_widths)
     if total_width > available_width:
         scale = available_width / total_width
-        font_size = max(6, int(8 * scale))
+        # Shrink the type with the columns. Scaling the widths alone left the
+        # text at its original size inside narrower cells, so it wrapped or ran
+        # over the grid instead of fitting.
+        base_font = max(5.5, base_font * scale)
+        header_font_size = max(6.0, base_font + 1)
         col_widths = [w * scale for w in col_widths]
-    else:
-        font_size = 8
 
-    header_font_size = min(10, font_size + 2)
+    font_size = base_font
 
-    cell_style = ParagraphStyle("cell", fontSize=font_size, leading=font_size * 1.3)
+    cell_style = ParagraphStyle("cell", fontName="Helvetica", fontSize=font_size,
+                                leading=font_size * 1.25)
+    # A Paragraph draws its own text, so TableStyle's FONTNAME/FONTSIZE/TEXTCOLOR
+    # never reached the header — it rendered black, unbolded and at body size on
+    # the dark blue fill, which is close to unreadable. The header carries its
+    # own style instead.
+    head_style = ParagraphStyle("cellhead", fontName="Helvetica-Bold",
+                                fontSize=header_font_size,
+                                leading=header_font_size * 1.2,
+                                textColor=colors.white, alignment=1)
     table_data = []
     for ri, row in enumerate(data):
         table_row = []
         for ci, val in enumerate(row):
-            if ri == 0 or (isinstance(val, str) and len(val) > 50):
-                table_row.append(Paragraph(str(val), cell_style))
-            else:
+            if ri == 0:
+                table_row.append(Paragraph(str(val), head_style))
+            elif ci in numeric_cols:
+                # Short and right-aligned; a plain string keeps TableStyle's
+                # alignment in charge.
                 table_row.append(val)
+            else:
+                # Text wraps inside its column. Left as a plain string it would
+                # run over the grid into the next cell once the columns were
+                # scaled down to fit the page.
+                table_row.append(Paragraph(str(val), cell_style))
         table_data.append(table_row)
 
     t = Table(table_data, colWidths=col_widths, repeatRows=1)
+    pad = 4 if font_size >= 7 else 2
     style = [
         ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1F4E79")),
         ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        # Without these the table kept reportlab's 10pt default: the size
+        # computed to make the columns fit was only ever applied to the few
+        # cells wrapped in a Paragraph, so wide reports ran off the page.
+        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("FONTSIZE", (0, 0), (-1, 0), header_font_size),
+        ("FONTNAME", (0, 1), (-1, -1), "Helvetica"),
+        ("FONTSIZE", (0, 1), (-1, -1), font_size),
+        ("LEADING", (0, 0), (-1, -1), font_size * 1.25),
         ("ALIGN", (0, 0), (-1, 0), "CENTER"),
-        ("ALIGN", (1, 1), (-1, -1), "RIGHT"),
         ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
         ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#F2F7FB")]),
-        ("TOPPADDING", (0, 0), (-1, -1), 4),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ("TOPPADDING", (0, 0), (-1, -1), pad),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), pad),
+        ("LEFTPADDING", (0, 0), (-1, -1), pad_x),
+        ("RIGHTPADDING", (0, 0), (-1, -1), pad_x),
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
     ]
+    # Money right, words left.
+    for ci in range(ncols):
+        style.append(("ALIGN", (ci, 1), (ci, -1),
+                      "RIGHT" if ci in numeric_cols else "LEFT"))
     for ri in (bold_rows or ()):
         r = ri + 1
         style += [("FONTNAME", (0, r), (-1, r), "Helvetica-Bold"),
                   ("BACKGROUND", (0, r), (-1, r), colors.HexColor("#E8EEF5"))]
     t.setStyle(TableStyle(style))
     elements.append(t)
-    doc.build(elements)
+    # These belong to build(), not to the SimpleDocTemplate constructor, which
+    # silently accepted and ignored them — so no finance PDF ever carried a
+    # page number.
+    doc.build(elements, onFirstPage=add_page_number, onLaterPages=add_page_number)
     buf.seek(0)
     return buf
 
@@ -571,13 +672,7 @@ def ledger():
                 ws.cell(row=tr + 1, column=5, value="Closing Balance").font = BOLD_FONT
                 ws.cell(row=tr + 1, column=6,
                         value=f"{sec['closing']:,.2f} {sec['closing_side']}").font = BOLD_FONT
-                for ci in range(1, 7):
-                    max_len = 0
-                    for row_cells in ws.iter_rows(min_row=3, min_col=ci, max_col=ci, values_only=True):
-                        v = row_cells[0]
-                        if v is not None:
-                            max_len = max(max_len, len(str(v)))
-                    ws.column_dimensions[openpyxl.utils.get_column_letter(ci)].width = min(max(max_len + 2, 8), 60)
+                _finish_sheet(ws, 6)
             out = BytesIO(); wb.save(out); out.seek(0)
             return send_file(out, as_attachment=True, download_name="general_ledger.xlsx",
                              mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
@@ -915,13 +1010,7 @@ def profit_loss():
                     ws.cell(row=r, column=ci, value=amt).font = Font(bold=True, size=12, color="1F4E79"); ws.cell(row=r, column=ci).alignment = RIGHT
                 r += 1
             r += 1
-        for ci in range(1, ncols + 1):
-            max_len = 0
-            for row_cells in ws.iter_rows(min_row=3, min_col=ci, max_col=ci, values_only=True):
-                v = row_cells[0]
-                if v is not None:
-                    max_len = max(max_len, len(str(v)))
-            ws.column_dimensions[openpyxl.utils.get_column_letter(ci)].width = min(max(max_len + 2, 8), 60)
+        _finish_sheet(ws, ncols)
         out = BytesIO(); wb.save(out); out.seek(0)
         return send_file(out, as_attachment=True, download_name="profit_loss.xlsx",
                          mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
@@ -1106,13 +1195,7 @@ def balance_sheet():
         for ci, cp in enumerate(comp_periods, 4):
             lte = float(comp_totals[ci - 4]["total_liabilities"] + comp_totals[ci - 4]["total_equity"]) if comp_totals else 0
             ws.cell(row=nr, column=ci, value=lte).font = Font(bold=True, size=12)
-        for ci in range(1, ncols + 1):
-            max_len = 0
-            for row_cells in ws.iter_rows(min_row=3, min_col=ci, max_col=ci, values_only=True):
-                v = row_cells[0]
-                if v is not None:
-                    max_len = max(max_len, len(str(v)))
-            ws.column_dimensions[openpyxl.utils.get_column_letter(ci)].width = min(max(max_len + 2, 8), 60)
+        _finish_sheet(ws, ncols)
         out = BytesIO(); wb.save(out); out.seek(0)
         return send_file(out, as_attachment=True, download_name="balance_sheet.xlsx",
                          mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
@@ -1727,13 +1810,7 @@ def cash_flow():
                 c = ws.cell(row=nr, column=3+ci, value=cv or 0)
                 c.font = BOLD_FONT; c.alignment = RIGHT
             nr += 1
-        for ci in range(1, col_count + 1):
-            max_len = 0
-            for row_cells in ws.iter_rows(min_row=3, min_col=ci, max_col=ci, values_only=True):
-                v = row_cells[0]
-                if v is not None:
-                    max_len = max(max_len, len(str(v)))
-            ws.column_dimensions[openpyxl.utils.get_column_letter(ci)].width = min(max(max_len + 2, 8), 60)
+        _finish_sheet(ws, col_count)
         out = BytesIO(); wb.save(out); out.seek(0)
         return send_file(out, as_attachment=True, download_name="cash_flow.xlsx",
                          mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
