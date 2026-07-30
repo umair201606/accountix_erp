@@ -67,7 +67,37 @@
 
   .tf-actions{display:flex;gap:9px;align-items:center;padding:13px 16px;
     border-top:1px solid #e2e8f0;background:#f8fafc}
-  @media(max-width:1100px){.tf-grid{grid-template-columns:1fr}.tf-preview-wrap{max-height:none}}
+  /* ── Mobile preview FAB + sheet ───────────────────────────── */
+  .tf-fab{display:none;position:fixed;bottom:24px;right:24px;z-index:999;width:56px;height:56px;
+    border-radius:50%;background:#0f172a;color:#fff;border:none;box-shadow:0 4px 14px rgba(0,0,0,.25);
+    cursor:pointer;align-items:center;justify-content:center;font-size:22px;transition:transform .2s,opacity .2s}
+  .tf-fab:active{transform:scale(.92)}
+  .tf-fab.has-new{animation:tf-pulse 1.5s ease-in-out 3}
+  @keyframes tf-pulse{0%,100%{box-shadow:0 4px 14px rgba(0,0,0,.25)}50%{box-shadow:0 4px 20px rgba(0,0,0,.4)}}
+  .tf-sheet{display:none;position:fixed;inset:0;z-index:1000;flex-direction:column;
+    background:#fff;transform:translateY(100%);transition:transform .3s cubic-bezier(.4,0,.2,1)}
+  .tf-sheet.open{display:flex;transform:translateY(0)}
+  .tf-sheet-bar{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;
+    background:#f8fafc;border-bottom:1px solid #e2e8f0;font-size:13px;font-weight:700;color:#0f172a;
+    cursor:pointer;user-select:none}
+  .tf-sheet-bar .tf-sheet-handle{width:36px;height:4px;border-radius:2px;background:#cbd5e1;margin:0 auto;
+    flex:none}
+  .tf-sheet-close{width:32px;height:32px;border-radius:50%;border:none;background:transparent;
+    font-size:20px;cursor:pointer;display:flex;align-items:center;justify-content:center;color:#64748b;
+    transition:background .15s}
+  .tf-sheet-close:hover{background:#f1f5f9}
+  .tf-sheet-body{flex:1;overflow:auto;padding:16px;background:#f1f5f9}
+  .tf-sheet-body .tf-paper{max-width:100%}
+  .tf-sheet-body .tf-paper iframe{min-height:60vh}
+  .tf-sheet-overlay{display:none;position:fixed;inset:0;z-index:999;background:rgba(0,0,0,.35);
+    opacity:0;transition:opacity .25s}
+  .tf-sheet-overlay.show{display:block;opacity:1}
+  @media(max-width:1100px){
+    .tf-grid{grid-template-columns:1fr}
+    .tf-preview-wrap{max-height:none}
+    .tf-panel:last-child .tf-preview-wrap{display:none}
+    .tf-fab{display:flex}
+  }
 </style>
 {% endblock %}
 {% block content %}
@@ -271,7 +301,20 @@
       </div>
     </div>
   </div>
+  <button type="button" class="tf-fab" id="tfFab" title="Preview invoice">&#128065;</button>
 </form>
+
+<div class="tf-sheet-overlay" id="tfSheetOverlay"></div>
+<div class="tf-sheet" id="tfSheet">
+  <div class="tf-sheet-bar" id="tfSheetBar">
+    <span></span>
+    <span class="tf-sheet-handle"></span>
+    <button type="button" class="tf-sheet-close" id="tfSheetClose">&times;</button>
+  </div>
+  <div class="tf-sheet-body">
+    <div class="tf-paper"><iframe id="tfPreviewMobile" title="Invoice preview"></iframe></div>
+  </div>
+</div>
 {% endblock %}
 
 {% block extra_scripts %}
@@ -387,6 +430,83 @@
     bodyHtml.addEventListener('input', refreshSoon);
     syncCustom();
   }
+
+  // Patch refresh to also update the mobile preview iframe
+  var mobFrame = document.getElementById('tfPreviewMobile');
+  refresh = function () {
+    if (inFlight) { pending = true; return; }
+    inFlight = true;
+    fetch('{{ url_for("settings.preview_template") }}',
+          { method: 'POST', body: new FormData(form) })
+      .then(function (r) { return r.text(); })
+      .then(function (html) {
+        [frame, mobFrame].forEach(function (f) {
+          if (!f) return;
+          var d = f.contentDocument;
+          d.open();
+          d.write('<!doctype html><html><head><meta charset="utf-8">' +
+                  '<style>body{margin:0;background:#fff;}</style></head><body>' +
+                  html + '</body></html>');
+          d.close();
+          setTimeout(function () {
+            var h = d.body ? d.body.scrollHeight : 0;
+            if (h) { f.style.minHeight = (h + 24) + 'px'; }
+          }, 40);
+        });
+      })
+      .catch(function () {})
+      .then(function () {
+        inFlight = false;
+        if (pending) { pending = false; refresh(); }
+      });
+  };
+
+  // ── Mobile FAB / sheet ──────────────────────────────────────
+  var fab = document.getElementById('tfFab');
+  var sheet = document.getElementById('tfSheet');
+  var sheetOverlay = document.getElementById('tfSheetOverlay');
+  var sheetClose = document.getElementById('tfSheetClose');
+  var sheetBar = document.getElementById('tfSheetBar');
+
+  function openSheet() {
+    if (!sheet.classList.contains('open')) { refresh(); }
+    sheet.classList.add('open');
+    sheetOverlay.classList.add('show');
+    document.body.style.overflow = 'hidden';
+  }
+
+  function closeSheet() {
+    sheet.classList.remove('open');
+    sheetOverlay.classList.remove('show');
+    sheet.style.transform = '';
+    document.body.style.overflow = '';
+  }
+
+  fab.addEventListener('click', openSheet);
+  sheetClose.addEventListener('click', closeSheet);
+  sheetOverlay.addEventListener('click', closeSheet);
+
+  // Swipe down to dismiss
+  var startY = 0, moving = false;
+  sheetBar.addEventListener('touchstart', function (e) {
+    startY = e.touches[0].clientY;
+    moving = true;
+    sheet.style.transition = 'none';
+  }, { passive: true });
+
+  sheetBar.addEventListener('touchmove', function (e) {
+    if (!moving) return;
+    var dy = e.touches[0].clientY - startY;
+    if (dy > 0) { sheet.style.transform = 'translateY(' + Math.min(dy, 300) + 'px)'; }
+  }, { passive: true });
+
+  sheetBar.addEventListener('touchend', function () {
+    moving = false;
+    sheet.style.transition = '';
+    var m = sheet.style.transform.match(/translateY\(([\d.]+)px\)/);
+    if (m && parseFloat(m[1]) > 80) { closeSheet(); }
+    else { sheet.style.transform = ''; }
+  }, { passive: true });
 
   refresh();
 })();
