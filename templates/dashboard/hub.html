@@ -58,10 +58,13 @@
     </p>
   </a>
   <style>
+    .hub-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;}
     .mod-card{display:flex;flex-direction:column;align-items:center;text-align:center;background:#fff;border-radius:10px;padding:36px 20px;text-decoration:none;color:#1f2937;border:1px solid #e5e7eb;transition:border-color .15s,box-shadow .15s}
     .mod-card:hover{border-color:var(--hover);box-shadow:0 4px 12px rgba(0,0,0,.06)}
     .mod-ico{font-size:40px;margin-bottom:12px;line-height:1}
     .mod-title{margin:0 0 6px;font-size:16px;font-weight:600}
     .mod-desc{margin:0;font-size:12px;color:#6b7280;line-height:1.4}
+    @media(max-width:900px){.hub-grid{grid-template-columns:repeat(2,1fr);}}
+    @media(max-width:500px){.hub-grid{grid-template-columns:1fr;}.mod-card{padding:24px 16px;}.mod-ico{font-size:32px;}.mod-title{font-size:15px;}}
   </style>
 {% endblock %}
