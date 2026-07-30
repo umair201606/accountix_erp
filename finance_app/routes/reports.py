@@ -265,8 +265,6 @@ def _pl_rows(from_date, to_date):
 
 def _build_excel_wb(title, headers, rows, col_widths=None,
                     bold_rows=None, number_format=None):
-    """bold_rows: 0-based indices into ``rows`` to emphasise (subtotal/balance
-    lines). number_format: openpyxl format applied to every numeric cell."""
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = title[:31]
@@ -281,7 +279,7 @@ def _build_excel_wb(title, headers, rows, col_widths=None,
         c = ws.cell(row=hdr_row, column=ci, value=h)
         c.font = HEADER_FONT
         c.fill = HEADER_FILL
-        c.alignment = CENTER
+        c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
         c.border = THIN
 
     bold_rows = set(bold_rows or ())
@@ -296,9 +294,17 @@ def _build_excel_wb(title, headers, rows, col_widths=None,
             if numeric and number_format:
                 c.number_format = number_format
 
-    if col_widths:
-        for ci, w in enumerate(col_widths, 1):
-            ws.column_dimensions[openpyxl.utils.get_column_letter(ci)].width = w
+    if col_widths is None:
+        col_widths = []
+        for ci in range(len(headers)):
+            max_len = len(str(headers[ci]))
+            for row in rows:
+                cell_val = str(row[ci]) if ci < len(row) else ""
+                max_len = max(max_len, len(cell_val))
+            col_widths.append(min(max(max_len + 2, 8), 60))
+
+    for ci, w in enumerate(col_widths, 1):
+        ws.column_dimensions[openpyxl.utils.get_column_letter(ci)].width = w
 
     out = BytesIO()
     wb.save(out)
@@ -306,12 +312,27 @@ def _build_excel_wb(title, headers, rows, col_widths=None,
     return out
 
 
-def _build_pdf_landscape(title, headers, rows, col_widths=None, bold_rows=None,
-                         subtitle=None):
+def _build_pdf(title, headers, rows, col_widths=None, bold_rows=None,
+               subtitle=None):
+    from reportlab.pdfbase.pdfmetrics import stringWidth
+    from reportlab.lib.styles import ParagraphStyle
+
+    ncols = len(headers)
+    is_landscape = ncols > 5
+    pagesize = landscape(A4) if is_landscape else A4
     buf = BytesIO()
-    doc = SimpleDocTemplate(buf, pagesize=landscape(A4),
+
+    def add_page_number(canvas, doc):
+        canvas.saveState()
+        canvas.setFont("Helvetica", 8)
+        canvas.drawRightString(A4[0] - 20*mm, 10*mm, f"Page {doc.page}")
+        canvas.restoreState()
+
+    doc = SimpleDocTemplate(buf, pagesize=pagesize,
                             rightMargin=10*mm, leftMargin=10*mm,
-                            topMargin=15*mm, bottomMargin=15*mm)
+                            topMargin=15*mm, bottomMargin=15*mm,
+                            onFirstPage=add_page_number,
+                            onLaterPages=add_page_number)
     styles = getSampleStyleSheet()
     elements = []
 
@@ -325,28 +346,53 @@ def _build_pdf_landscape(title, headers, rows, col_widths=None, bold_rows=None,
 
     data = [headers] + [[str(c) if not isinstance(c, (int, float, Decimal)) else
                          f"{c:,.2f}" for c in row] for row in rows]
-    if not col_widths:
-        col_widths = [doc.width / len(headers)] * len(headers)
-    else:
-        pw = doc.width
-        tw = sum(col_widths)
-        col_widths = [pw * (w / tw) for w in col_widths]
+    available_width = doc.width
 
-    t = Table(data, colWidths=col_widths, repeatRows=1)
+    if col_widths is None:
+        font_size = 8
+        max_widths = [0] * ncols
+        for row in data:
+            for ci, val in enumerate(row):
+                text = str(val)
+                w = stringWidth(text, "Helvetica", font_size)
+                max_widths[ci] = max(max_widths[ci], w)
+        col_widths = [w + 10 for w in max_widths]
+
+    total_width = sum(col_widths)
+    if total_width > available_width:
+        scale = available_width / total_width
+        font_size = max(6, int(8 * scale))
+        col_widths = [w * scale for w in col_widths]
+    else:
+        font_size = 8
+
+    header_font_size = min(10, font_size + 2)
+
+    cell_style = ParagraphStyle("cell", fontSize=font_size, leading=font_size * 1.3)
+    table_data = []
+    for ri, row in enumerate(data):
+        table_row = []
+        for ci, val in enumerate(row):
+            if ri == 0 or (isinstance(val, str) and len(val) > 50):
+                table_row.append(Paragraph(str(val), cell_style))
+            else:
+                table_row.append(val)
+        table_data.append(table_row)
+
+    t = Table(table_data, colWidths=col_widths, repeatRows=1)
     style = [
         ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1F4E79")),
         ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-        ("FONTSIZE", (0, 0), (-1, 0), 10),
-        ("FONTSIZE", (0, 1), (-1, -1), 8),
         ("ALIGN", (0, 0), (-1, 0), "CENTER"),
         ("ALIGN", (1, 1), (-1, -1), "RIGHT"),
         ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
         ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#F2F7FB")]),
         ("TOPPADDING", (0, 0), (-1, -1), 4),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
     ]
     for ri in (bold_rows or ()):
-        r = ri + 1  # header occupies row 0
+        r = ri + 1
         style += [("FONTNAME", (0, r), (-1, r), "Helvetica-Bold"),
                   ("BACKGROUND", (0, r), (-1, r), colors.HexColor("#E8EEF5"))]
     t.setStyle(TableStyle(style))
@@ -512,7 +558,7 @@ def ledger():
                 ws.cell(row=1, column=1, value=f"{sec['account'].code} - {sec['account'].name}").font = TITLE_FONT
                 for ci, h in enumerate(headers, 1):
                     c = ws.cell(row=3, column=ci, value=h)
-                    c.font = HEADER_FONT; c.fill = HEADER_FILL; c.alignment = CENTER; c.border = THIN
+                    c.font = HEADER_FONT; c.fill = HEADER_FILL; c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True); c.border = THIN
                 for ri, row in enumerate(data, 4):
                     for ci, val in enumerate(row, 1):
                         c = ws.cell(row=ri, column=ci, value=val)
@@ -525,6 +571,13 @@ def ledger():
                 ws.cell(row=tr + 1, column=5, value="Closing Balance").font = BOLD_FONT
                 ws.cell(row=tr + 1, column=6,
                         value=f"{sec['closing']:,.2f} {sec['closing_side']}").font = BOLD_FONT
+                for ci in range(1, 7):
+                    max_len = 0
+                    for row_cells in ws.iter_rows(min_row=3, min_col=ci, max_col=ci, values_only=True):
+                        v = row_cells[0]
+                        if v is not None:
+                            max_len = max(max_len, len(str(v)))
+                    ws.column_dimensions[openpyxl.utils.get_column_letter(ci)].width = min(max(max_len + 2, 8), 60)
             out = BytesIO(); wb.save(out); out.seek(0)
             return send_file(out, as_attachment=True, download_name="general_ledger.xlsx",
                              mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
@@ -541,7 +594,7 @@ def ledger():
                                  f"{sec['closing']:,.2f} {sec['closing_side']}"])
                 all_data.append(["", "", "", "", "", ""])
             hdrs = ["Date", "Voucher #", "Description", "Debit", "Credit", "Balance"]
-            pdf_out = _build_pdf_landscape("General Ledger", hdrs, all_data, [24, 28, 60, 24, 24, 24])
+            pdf_out = _build_pdf("General Ledger", hdrs, all_data)
             return send_file(pdf_out, as_attachment=True, download_name="general_ledger.pdf",
                              mimetype="application/pdf")
 
@@ -724,8 +777,7 @@ def trial_balance():
         for ct in comp_class_totals:
             totals_row += [ct["total_dr_closing"], ct["total_cr_closing"]]
         data.append(totals_row)
-        col_widths = [10, 36, 14, 16, 16, 16, 16, 16, 16] + [14, 14] * n_comp
-        wb_out = _build_excel_wb(f"Trial Balance as of {as_of}", headers, data, col_widths)
+        wb_out = _build_excel_wb(f"Trial Balance as of {as_of}", headers, data)
         return send_file(wb_out, as_attachment=True, download_name="trial_balance.xlsx",
                          mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
     if fmt == "pdf":
@@ -748,8 +800,7 @@ def trial_balance():
         for ct in comp_class_totals:
             totals_row += [f"{ct['total_dr_closing']:,.2f}", f"{ct['total_cr_closing']:,.2f}"]
         data.append(totals_row)
-        col_widths = [12, 48, 14, 28, 28, 28, 28, 28, 28] + [24, 24] * n_comp
-        pdf_out = _build_pdf_landscape(f"Trial Balance as of {as_of}", headers, data, col_widths)
+        pdf_out = _build_pdf(f"Trial Balance as of {as_of}", headers, data)
         return send_file(pdf_out, as_attachment=True, download_name="trial_balance.pdf",
                          mimetype="application/pdf")
 
@@ -864,9 +915,13 @@ def profit_loss():
                     ws.cell(row=r, column=ci, value=amt).font = Font(bold=True, size=12, color="1F4E79"); ws.cell(row=r, column=ci).alignment = RIGHT
                 r += 1
             r += 1
-        ws.column_dimensions["A"].width = 18
-        ws.column_dimensions["B"].width = 44
-        ws.column_dimensions["C"].width = 18
+        for ci in range(1, ncols + 1):
+            max_len = 0
+            for row_cells in ws.iter_rows(min_row=3, min_col=ci, max_col=ci, values_only=True):
+                v = row_cells[0]
+                if v is not None:
+                    max_len = max(max_len, len(str(v)))
+            ws.column_dimensions[openpyxl.utils.get_column_letter(ci)].width = min(max(max_len + 2, 8), 60)
         out = BytesIO(); wb.save(out); out.seek(0)
         return send_file(out, as_attachment=True, download_name="profit_loss.xlsx",
                          mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
@@ -899,8 +954,8 @@ def profit_loss():
                     vals += [""] * len(comp_periods)
                 data.append(vals)
                 data.append([""] * (3 + len(comp_periods)))
-        pdf_out = _build_pdf_landscape(f"Profit & Loss ({from_date} to {to_date})",
-                                        headers, data, [24, 66, 26] + [24] * len(comp_periods))
+        pdf_out = _build_pdf(f"Profit & Loss ({from_date} to {to_date})",
+                             headers, data)
         return send_file(pdf_out, as_attachment=True, download_name="profit_loss.pdf",
                          mimetype="application/pdf")
 
@@ -1051,9 +1106,13 @@ def balance_sheet():
         for ci, cp in enumerate(comp_periods, 4):
             lte = float(comp_totals[ci - 4]["total_liabilities"] + comp_totals[ci - 4]["total_equity"]) if comp_totals else 0
             ws.cell(row=nr, column=ci, value=lte).font = Font(bold=True, size=12)
-        ws.column_dimensions["A"].width = 12
-        ws.column_dimensions["B"].width = 40
-        ws.column_dimensions["C"].width = 20
+        for ci in range(1, ncols + 1):
+            max_len = 0
+            for row_cells in ws.iter_rows(min_row=3, min_col=ci, max_col=ci, values_only=True):
+                v = row_cells[0]
+                if v is not None:
+                    max_len = max(max_len, len(str(v)))
+            ws.column_dimensions[openpyxl.utils.get_column_letter(ci)].width = min(max(max_len + 2, 8), 60)
         out = BytesIO(); wb.save(out); out.seek(0)
         return send_file(out, as_attachment=True, download_name="balance_sheet.xlsx",
                          mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
@@ -1068,8 +1127,7 @@ def balance_sheet():
                    [["", "", ""] + [""] * len(comp_periods)] + \
                    [[e["code"], e["name"], f"{e['amount']:,.2f}"] +
                     [""] * len(comp_periods) for e in equity]
-        pdf_out = _build_pdf_landscape(f"Balance Sheet as of {as_of}", headers, all_data,
-                                       [20, 60, 30] + [24] * len(comp_periods))
+        pdf_out = _build_pdf(f"Balance Sheet as of {as_of}", headers, all_data)
         return send_file(pdf_out, as_attachment=True, download_name="balance_sheet.pdf",
                          mimetype="application/pdf")
 
@@ -1358,12 +1416,11 @@ def socie():
         title = "Statement of Changes in Equity"
         if fmt == "excel":
             out = _build_excel_wb(f"{title} ({span})", headers, data,
-                                  [46] + [20] * len(columns), bold_rows=bold,
+                                  bold_rows=bold,
                                   number_format="#,##0.00;(#,##0.00)")
             return send_file(out, as_attachment=True, download_name="socie.xlsx",
                              mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-        out = _build_pdf_landscape(title, headers, data, [70] + [30] * len(columns),
-                                   bold_rows=bold, subtitle=span)
+        out = _build_pdf(title, headers, data, bold_rows=bold, subtitle=span)
         return send_file(out, as_attachment=True, download_name="socie.pdf",
                          mimetype="application/pdf")
 
@@ -1670,10 +1727,13 @@ def cash_flow():
                 c = ws.cell(row=nr, column=3+ci, value=cv or 0)
                 c.font = BOLD_FONT; c.alignment = RIGHT
             nr += 1
-        ws.column_dimensions["A"].width = 46
-        ws.column_dimensions["B"].width = 20
-        for ci in range(n_comp):
-            ws.column_dimensions[chr(ord("C")+ci)].width = 18
+        for ci in range(1, col_count + 1):
+            max_len = 0
+            for row_cells in ws.iter_rows(min_row=3, min_col=ci, max_col=ci, values_only=True):
+                v = row_cells[0]
+                if v is not None:
+                    max_len = max(max_len, len(str(v)))
+            ws.column_dimensions[openpyxl.utils.get_column_letter(ci)].width = min(max(max_len + 2, 8), 60)
         out = BytesIO(); wb.save(out); out.seek(0)
         return send_file(out, as_attachment=True, download_name="cash_flow.xlsx",
                          mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
@@ -1712,9 +1772,8 @@ def cash_flow():
         pdf_data.append(["NET CHANGE IN CASH", f"{net_change:,.2f}"] + _comp_vals(comp_item_maps, "__net_chg__", n_comp))
         pdf_data.append(["Opening cash & equivalents", f"{opening_cash:,.2f}"] + _comp_vals(comp_item_maps, "__open__", n_comp))
         pdf_data.append(["Closing cash & equivalents", f"{closing_cash:,.2f}"] + _comp_vals(comp_item_maps, "__close__", n_comp))
-        col_widths = [80, 30] + [22] * n_comp
-        pdf_out = _build_pdf_landscape(f"Cash Flow Statement — {method.title()} Method ({from_date} to {to_date})",
-                                       pdf_headers, pdf_data, col_widths)
+        pdf_out = _build_pdf(f"Cash Flow Statement — {method.title()} Method ({from_date} to {to_date})",
+                             pdf_headers, pdf_data)
         return send_file(pdf_out, as_attachment=True, download_name="cash_flow.pdf",
                          mimetype="application/pdf")
 
