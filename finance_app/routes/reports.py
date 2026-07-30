@@ -269,6 +269,34 @@ def _pl_rows(from_date, to_date):
 MONEY_FMT = "#,##0.00;(#,##0.00)"
 
 
+def _looks_numeric(v):
+    """Is this cell a figure, whoever formatted it?
+
+    Several reports hand the PDF builder money already rendered — "1,234.50",
+    "(9,876.50)". Judging a column only by its Python type classified those as
+    text and left-aligned them, so the decimal points stopped lining up. A
+    column is numeric if every value in it reads as a number, formatted or not.
+    """
+    if isinstance(v, bool):
+        return False
+    if isinstance(v, (int, float, Decimal)):
+        return True
+    if not isinstance(v, str):
+        return False
+    s = v.strip().replace(",", "")
+    if s.startswith("(") and s.endswith(")"):
+        s = s[1:-1]
+    if s.endswith("%"):
+        s = s[:-1]
+    if not s:
+        return False
+    try:
+        float(s)
+        return True
+    except ValueError:
+        return False
+
+
 def _cell_text(v):
     """What Excel will actually display, which is what a column has to be wide
     enough for. Sizing from str(1234.5) budgets six characters for the eight
@@ -292,11 +320,23 @@ def _finish_sheet(ws, ncols, first_row=3):
             if isinstance(c.value, (int, float, Decimal)) and not isinstance(c.value, bool):
                 if c.number_format in (None, "General"):
                     c.number_format = MONEY_FMT
+    # A section label written into a merged row spans the whole table, so
+    # measuring it would size the narrow Code column to "Less: Selling &
+    # Distribution Expenses". Those cells are skipped.
+    merged = set()
+    for rng in ws.merged_cells.ranges:
+        if rng.max_col > rng.min_col:
+            for r in range(rng.min_row, rng.max_row + 1):
+                for c in range(rng.min_col, rng.max_col + 1):
+                    merged.add((r, c))
+
     for ci in range(1, ncols + 1):
         max_len = 0
-        for row_cells in ws.iter_rows(min_row=first_row, min_col=ci,
-                                      max_col=ci, values_only=True):
-            max_len = max(max_len, len(_cell_text(row_cells[0])))
+        for row in ws.iter_rows(min_row=first_row, min_col=ci, max_col=ci):
+            cell = row[0]
+            if (cell.row, ci) in merged:
+                continue
+            max_len = max(max_len, len(_cell_text(cell.value)))
         ws.column_dimensions[openpyxl.utils.get_column_letter(ci)].width = \
             min(max(max_len + 2, 8), 60)
 
@@ -398,7 +438,7 @@ def _build_pdf(title, headers, rows, col_widths=None, bold_rows=None,
         for row in rows:
             if ci >= len(row) or row[ci] in (None, ""):
                 continue
-            if not isinstance(row[ci], (int, float, Decimal)):
+            if not _looks_numeric(row[ci]):
                 seen = False
                 break
             seen = True
@@ -650,8 +690,12 @@ def ledger():
             wb = openpyxl.Workbook()
             wb.remove(wb.active)
             for sec in account_sections:
-                data = ([["", "", "Opening Balance", "", "",
-                          f"{sec['opening']:,.2f} {sec['opening_side']}"]] +
+                # The balance stays a number and the Dr/Cr side goes in the
+                # label. Written as "1,234.50 Dr" it was text: SUM() skipped
+                # it, it sorted apart from the figures above it, and it sat
+                # left-aligned in an otherwise right-aligned column.
+                data = ([["", "", f"Opening Balance ({sec['opening_side']})",
+                          "", "", sec["opening"]]] +
                         [[r["date"], r["voucher"], r["description"], r["debit"], r["credit"], r["balance"]]
                          for r in sec["rows"]])
                 ws = wb.create_sheet(title=sec["account"].code[:31])
@@ -665,13 +709,23 @@ def ledger():
                         c = ws.cell(row=ri, column=ci, value=val)
                         c.font = DATA_FONT; c.border = THIN
                         c.alignment = RIGHT if isinstance(val, (int, float, Decimal)) else LEFT_ALIGN
+                # Both summary rows go through the same cell treatment as the
+                # data above them — they were written bare, so the grid stopped
+                # at the last transaction and the totals floated outside the
+                # table, unbordered and left-aligned.
                 tr = 4 + len(data)
-                ws.cell(row=tr, column=3, value="Period Movement").font = BOLD_FONT
-                ws.cell(row=tr, column=4, value=sec["total_debit"]).font = BOLD_FONT
-                ws.cell(row=tr, column=5, value=sec["total_credit"]).font = BOLD_FONT
-                ws.cell(row=tr + 1, column=5, value="Closing Balance").font = BOLD_FONT
-                ws.cell(row=tr + 1, column=6,
-                        value=f"{sec['closing']:,.2f} {sec['closing_side']}").font = BOLD_FONT
+                summary = [
+                    ["", "", "Period Movement", sec["total_debit"],
+                     sec["total_credit"], ""],
+                    ["", "", f"Closing Balance ({sec['closing_side']})",
+                     "", "", sec["closing"]],
+                ]
+                for ri, row in enumerate(summary, tr):
+                    for ci, val in enumerate(row, 1):
+                        c = ws.cell(row=ri, column=ci, value=val)
+                        c.font = BOLD_FONT
+                        c.border = THIN
+                        c.alignment = RIGHT if isinstance(val, (int, float, Decimal)) else LEFT_ALIGN
                 _finish_sheet(ws, 6)
             out = BytesIO(); wb.save(out); out.seek(0)
             return send_file(out, as_attachment=True, download_name="general_ledger.xlsx",
@@ -680,13 +734,17 @@ def ledger():
             all_data = []
             for sec in account_sections:
                 all_data.append([sec["account"].code, sec["account"].name, "", "", "", ""])
-                all_data.append(["", "", "Opening Balance", "", "",
-                                 f"{sec['opening']:,.2f} {sec['opening_side']}"])
+                # Labels belong in the Description column. "Closing Balance"
+                # was landing in the Credit column, which made that column
+                # text and left-aligned every credit figure under it, while
+                # Debit stayed right — the two money columns disagreed.
+                all_data.append(["", "", f"Opening Balance ({sec['opening_side']})",
+                                 "", "", sec["opening"]])
                 for r in sec["rows"]:
                     all_data.append([r["date"], r["voucher"], r["description"], r["debit"], r["credit"], r["balance"]])
                 all_data.append(["", "", "Period Movement", sec["total_debit"], sec["total_credit"], ""])
-                all_data.append(["", "", "", "", "Closing Balance",
-                                 f"{sec['closing']:,.2f} {sec['closing_side']}"])
+                all_data.append(["", "", f"Closing Balance ({sec['closing_side']})",
+                                 "", "", sec["closing"]])
                 all_data.append(["", "", "", "", "", ""])
             hdrs = ["Date", "Voucher #", "Description", "Debit", "Credit", "Balance"]
             pdf_out = _build_pdf("General Ledger", hdrs, all_data)
@@ -845,7 +903,11 @@ def trial_balance():
                 r["comp_dr_closing"].append(dr)
                 r["comp_cr_closing"].append(cr)
 
-    n_comp = len(comp_periods)
+    # Count the comparative data actually built, not the periods that happen
+    # to be in the query string. Switching the filter back from comparative
+    # leaves comp_period_ids populated with comp_mode cleared, which opened
+    # unlabelled columns of zeros.
+    n_comp = len(comp_periods) if comp_mode else 0
     fmt = request.args.get("format")
     headers = ["Code", "Account", "Type", "Dr Opening", "Cr Opening",
                "Dr Movement", "Cr Movement", "Dr Closing", "Cr Closing"]
@@ -876,22 +938,25 @@ def trial_balance():
         return send_file(wb_out, as_attachment=True, download_name="trial_balance.xlsx",
                          mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
     if fmt == "pdf":
+        # Figures stay numeric. _build_pdf formats them and decides column
+        # alignment from the values, so pre-rendering them here left every
+        # money column classified as text and aligned left.
         data = []
         for r in rows:
             row_data = [r["code"], r["name"], r["type"],
-                        f"{r['dr_opening']:,.2f}", f"{r['cr_opening']:,.2f}",
-                        f"{r['dr_movement']:,.2f}", f"{r['cr_movement']:,.2f}",
-                        f"{r['dr_closing']:,.2f}", f"{r['cr_closing']:,.2f}"]
+                        r["dr_opening"], r["cr_opening"],
+                        r["dr_movement"], r["cr_movement"],
+                        r["dr_closing"], r["cr_closing"]]
             if r.get("comp_dr_closing"):
                 for i in range(len(comp_periods)):
-                    row_data += [f"{r['comp_dr_closing'][i]:,.2f}", f"{r['comp_cr_closing'][i]:,.2f}"]
+                    row_data += [r["comp_dr_closing"][i], r["comp_cr_closing"][i]]
             else:
                 row_data += ["", ""] * n_comp
             data.append(row_data)
         totals_row = ["", "TOTAL", "",
-                      f"{float(total_dr_op):,.2f}", f"{float(total_cr_op):,.2f}",
-                      f"{float(total_dr_mv):,.2f}", f"{float(total_cr_mv):,.2f}",
-                      f"{float(total_dr_cl):,.2f}", f"{float(total_cr_cl):,.2f}"]
+                      float(total_dr_op), float(total_cr_op),
+                      float(total_dr_mv), float(total_cr_mv),
+                      float(total_dr_cl), float(total_cr_cl)]
         for ct in comp_class_totals:
             totals_row += [f"{ct['total_dr_closing']:,.2f}", f"{ct['total_cr_closing']:,.2f}"]
         data.append(totals_row)
@@ -982,7 +1047,17 @@ def profit_loss():
         ws.title = "P&L"
         ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=ncols)
         ws.cell(row=1, column=1, value=f"Profit & Loss ({from_date} to {to_date})").font = TITLE_FONT
-        r = 3
+        # The sheet had no column headings at all: with comparatives on, every
+        # column from D rightwards was an unlabelled wall of figures and there
+        # was no way to tell which period was which.
+        for ci, h in enumerate(["Code", "Account", "Amount"] +
+                               [cp.period_name for cp in comp_periods], 1):
+            c = ws.cell(row=3, column=ci, value=h)
+            c.font = HEADER_FONT
+            c.fill = HEADER_FILL
+            c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+            c.border = THIN
+        r = 4
         for row in pl_rows:
             if row["kind"] == "header":
                 ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=ncols)
@@ -1010,7 +1085,7 @@ def profit_loss():
                     ws.cell(row=r, column=ci, value=amt).font = Font(bold=True, size=12, color="1F4E79"); ws.cell(row=r, column=ci).alignment = RIGHT
                 r += 1
             r += 1
-        _finish_sheet(ws, ncols)
+        _finish_sheet(ws, ncols, first_row=4)
         out = BytesIO(); wb.save(out); out.seek(0)
         return send_file(out, as_attachment=True, download_name="profit_loss.xlsx",
                          mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
@@ -1189,7 +1264,11 @@ def balance_sheet():
         nr = write_section(ws, nr, "EQUITY", equity, "Total Equity", total_equity,
                            [t["total_equity"] for t in comp_totals])
 
-        ws.merge_cells(start_row=nr, start_column=1, end_row=nr, end_column=ncols)
+        # Merge the label columns only. Merging the whole row and then writing
+        # the figure into column 3 raised "'MergedCell' object attribute
+        # 'value' is read-only" — every Balance Sheet Excel export was a 500,
+        # with or without a comparative period.
+        ws.merge_cells(start_row=nr, start_column=1, end_row=nr, end_column=2)
         ws.cell(row=nr, column=1, value="LIABILITIES + EQUITY").font = Font(bold=True, size=12)
         ws.cell(row=nr, column=3, value=float(total_liabilities + total_equity)).font = Font(bold=True, size=12)
         for ci, cp in enumerate(comp_periods, 4):
@@ -1245,9 +1324,14 @@ SOCIE_EPS = Decimal("0.005")
 
 
 def _socie_paren(v):
-    """Accounting presentation for exports: negatives in parentheses, gaps as a dash."""
+    """Accounting presentation for exports: negatives in parentheses.
+
+    A gap is empty rather than a dash: the PDF builder decides a column is
+    money by looking at its values, and one "—" among them classified the
+    whole column as text and left-aligned every figure in it.
+    """
     if v is None:
-        return "—"
+        return ""
     return f"({abs(v):,.2f})" if v < 0 else f"{v:,.2f}"
 
 
@@ -1483,7 +1567,10 @@ def socie():
     columns, rows = _socie_matrix(specs)
 
     fmt = request.args.get("format")
-    if fmt in ("excel", "pdf"):
+    # No resolvable period means no columns, and the span line below indexes
+    # specs[0] and specs[-1]. The on-screen report already guards this; the
+    # export used to answer a 500 for a filter the page renders happily.
+    if fmt in ("excel", "pdf") and specs:
         headers = [""] + [c["label"] for c in columns]
         data, bold = [], []
         for r in rows:
@@ -1626,10 +1713,15 @@ def cash_flow():
             a = all_accts.get(aid)
             if a is None:
                 continue
-            if a.type == "expense":
-                net_profit += float(dr - cr if cr > dr else cr - dr)
-            else:
-                net_profit += float(cr - dr)
+            # Credit less debit, whatever the account type. Expenses used to
+            # take a special case, `dr - cr if cr > dr else cr - dr`, whose
+            # arms are both negative — it always added -abs(movement), so an
+            # expense with a net credit (a refund, rebate or reversal) cut
+            # profit instead of raising it, by twice the amount. _net_income()
+            # uses this plain form, and the two have to agree or the exported
+            # cash flow contradicts the P&L and opening + change stops
+            # equalling closing cash.
+            net_profit += float(cr - dr)
 
         bs_moves = _period_movements(from_date, to_date, ["asset", "liability", "equity"])
 
@@ -1753,7 +1845,11 @@ def cash_flow():
         fin_items = annotate_list(fin_items)
 
     fmt = request.args.get("format")
-    n_comp = len(comp_periods)
+    # Count the comparative maps actually built, not the periods that happen to
+    # be in the query string. Switching the filter back from comparative leaves
+    # comp_period_ids populated with comp_mode cleared, which opened unlabelled
+    # columns of zeros in Excel and of whitespace in the PDF.
+    n_comp = len(comp_item_maps)
     if fmt == "excel":
         col_count = 2 + n_comp
         wb = openpyxl.Workbook()
