@@ -1,4 +1,5 @@
 {% extends "layouts/app_shell.html" %}
+{% set module_key = "settings" %}
 {% set is_sales = doc_type == 'sales' %}
 {% block title %}{{ 'Edit' if template else 'New' }} {{ 'Sales' if is_sales else 'Purchase' }} Invoice Design{% endblock %}
 {% block page_title %}{{ 'Edit' if template else 'New' }} {{ 'Sales' if is_sales else 'Purchase' }} Invoice Design{% endblock %}
