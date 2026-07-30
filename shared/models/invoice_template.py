@@ -547,8 +547,46 @@ _SHEET_FIT_JS = """<script>
     }
   }
 
+  // A sheet is usually laid out inside something not visible yet — the preview
+  // pane behind a tab, the mobile preview before it slides up. Measured while
+  // hidden every width is zero, so the fit is skipped; nothing then fires when
+  // the container is finally shown and the page is left at full 210mm inside a
+  // phone-width frame, overflowing to the right with the summary off-screen.
+  // Watching the box it sits in catches that moment and every later resize.
+  //
+  // Wired from fitAll rather than on load: this script is emitted ahead of the
+  // sheet markup, so at the time it first runs there is no sheet to observe.
+  var ro = null;
+  function observeSheets(sheets) {
+    if (!window.ResizeObserver) { return; }
+    if (!ro) {
+      ro = new ResizeObserver(function (entries) {
+        // Width is what drives the scale. Refitting on a height change would
+        // chase the height the fit itself just produced.
+        var moved = false;
+        for (var i = 0; i < entries.length; i++) {
+          var el = entries[i].target;
+          var w = el.clientWidth;
+          if (el.__invLastW !== w) { el.__invLastW = w; moved = true; }
+        }
+        if (!moved) { return; }
+        clearTimeout(window.__invFitT);
+        window.__invFitT = setTimeout(fitAll, 60);
+      });
+    }
+    for (var s = 0; s < sheets.length; s++) {
+      var box = sheets[s].parentElement;
+      if (box && !box.__invObserved) {
+        box.__invObserved = true;
+        box.__invLastW = box.clientWidth;
+        ro.observe(box);
+      }
+    }
+  }
+
   function fitAll() {
     var sheets = document.querySelectorAll('.inv-sheet');
+    observeSheets(sheets);
     for (var s = 0; s < sheets.length; s++) {
       // Measure at true size: a scale left over from the last pass would make
       // the sheet look narrower than A4 and shrink the type for no reason.
@@ -568,6 +606,13 @@ _SHEET_FIT_JS = """<script>
     fitAll();
   }
   window.addEventListener('load', fitAll);
+  // ResizeObserver is the right tool for "the pane just became visible", but it
+  // is suspended while a tab is not rendering and absent on older engines. A
+  // few settling passes cover the common case — a preview revealed a moment
+  // after load — without depending on it. Bounded, so this cannot become a
+  // polling loop.
+  var settleAt = [200, 600, 1500];
+  for (var q = 0; q < settleAt.length; q++) { setTimeout(fitAll, settleAt[q]); }
   // Print geometry differs from screen geometry, so measure again for paper.
   if (window.matchMedia) {
     try { window.matchMedia('print').addListener(fitAll); } catch (e) {}
@@ -577,6 +622,7 @@ _SHEET_FIT_JS = """<script>
     clearTimeout(window.__invFitT);
     window.__invFitT = setTimeout(fitAll, 120);
   });
+
   window.invoiceFitSheets = fitAll;
 })();
 </script>"""
@@ -799,9 +845,17 @@ _TABLE_CLOSE = '\n</table></td></tr></table>'
 
 
 def _table_open(gap_content=""):
-    return ('<table class="inv-totals"><tr>'
-            f'<td class="inv-totals-gap">{gap_content}</td>'
-            '<td class="inv-totals-box">'
+    """The totals block, styled inline as well as by class.
+
+    The classes let the sheet refine it, but the layout cannot depend on them:
+    a hand-written template still gets ``{{totals_table}}`` substituted into
+    HTML that carries none of the sheet's CSS, and without an explicit width
+    the table shrinks to its contents and the summary lands on the left.
+    """
+    return ('<table class="inv-totals" style="width:100%;border-collapse:collapse;'
+            'margin-top:14px;"><tr>'
+            f'<td class="inv-totals-gap" style="vertical-align:top;">{gap_content}</td>'
+            '<td class="inv-totals-box" style="width:72mm;vertical-align:top;">'
             '<table style="width:100%;border-collapse:collapse;">\n')
 
 
@@ -858,7 +912,7 @@ def _sample_items_table(doc_type="sales", opts=None):
               + ((2 if doc_type == "sales" else 3) if show_chg_col else 0))
     m = items_table_metrics(n_cols)
 
-    tds = f"padding:{m['pad']};border:1px solid #e2e8f0;"
+    tds = f"padding:{m['pad']};border:1px solid #e2e8f0;white-space:nowrap;"
     tdc = tds + "text-align:center;"
     tdr = tds + "text-align:right;"
 
@@ -893,7 +947,7 @@ def _sample_items_table(doc_type="sales", opts=None):
         cells = (
             f"<td style='{tdc}'>{n}</td>"
             f"<td style='{tds}'>{sku}</td>"
-            f"<td class='inv-desc' style='{tds}'>{desc}</td>"
+            f"<td class='inv-desc' style='{tds}white-space:normal;'>{desc}</td>"
             f"<td style='{tdc}'>{qty}</td>"
             f"<td style='{tdc}'>{unit}</td>"
             f"<td style='{tdr}'>{price:,.2f}</td>")
@@ -919,7 +973,7 @@ def _sample_items_table(doc_type="sales", opts=None):
 
     # ── Totals footer row ────────────────────────────────────────────
     tds_b = (f"padding:{m['pad']};border:1px solid #e2e8f0;font-weight:700;"
-             f"background:#f1f5f9;")
+             f"background:#f1f5f9;white-space:nowrap;")
     tdr_b = tds_b + "text-align:right;"
     foot_cells = (
         f"<td style='{tds_b};text-align:center;'></td>"
@@ -948,7 +1002,8 @@ def _sample_items_table(doc_type="sales", opts=None):
     foot_cells += f"<td style='{tdr_b}'>{tot_line:,.2f}</td>"
 
     # ── Header ───────────────────────────────────────────────────────
-    hds = f"padding:{m['pad']};border:1px solid #1e293b;"
+    hds = (f"padding:{m['pad']};border:1px solid #1e293b;"
+           "white-space:normal;vertical-align:bottom;")
     hdc = hds + "text-align:center;"
     hdl = hds + "text-align:left;"
     hdr = hds + "text-align:right;"
@@ -980,7 +1035,8 @@ def _sample_items_table(doc_type="sales", opts=None):
     head += f"<th style='{hdr}'>Total</th>"
 
     return (
-        f'<table class="inv-items" style="font-size:{m["font"]}px;">'
+        f'<table class="inv-items" style="width:100%;border-collapse:collapse;'
+        f'font-size:{m["font"]}px;">'
         '<thead><tr style="background:#1e293b;color:#fff;">' + head +
         '</tr></thead><tbody>' + body +
         '<tr>' + foot_cells + '</tr></tbody></table>')

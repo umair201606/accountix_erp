@@ -11,8 +11,9 @@ import pytest
 
 from shared.models.invoice_template import (
     DESIGNS, DESIGN_KEYS, ACCENT_PRESETS, PLACEHOLDER_HELP, SHEET_MARKER,
-    build_body, default_options, items_table_metrics, normalise_options,
-    option_groups, render_invoice_template, sample_context, InvoiceTemplate)
+    build_body, build_totals_table, default_options, items_table_metrics,
+    normalise_options, option_groups, render_invoice_template, sample_context,
+    InvoiceTemplate)
 
 
 DOC_TYPES = ("sales", "purchase")
@@ -284,8 +285,8 @@ def test_extra_columns_shrink_the_type_rather_than_overflow(doc_type):
                        tax_display="per_line", charges_display="per_line")
 
     def size(html):
-        return float(re.search(r'<table class="inv-items" style="font-size:([\d.]+)px',
-                               html).group(1))
+        table = re.search(r'<table class="inv-items" style="([^"]+)"', html).group(1)
+        return float(re.search(r"font-size:([\d.]+)px", table).group(1))
 
     assert size(perline) < size(combined)
 
@@ -295,6 +296,33 @@ def test_the_type_scale_is_monotonic_in_the_column_count():
     assert sizes == sorted(sizes, reverse=True)
     assert sizes[0] == 11.0, "a plain invoice is not shrunk at all"
     assert min(sizes) >= 7.0, "the starting size stays legible; auto-fit takes it further"
+
+
+@pytest.mark.parametrize("doc_type", DOC_TYPES)
+def test_the_totals_block_stands_up_without_the_sheet_stylesheet(doc_type):
+    """A hand-written template gets {{totals_table}} substituted into HTML that
+    carries none of the sheet's CSS. If the layout lives only in those classes
+    the table shrinks to its contents and the summary drops to the left."""
+    html = build_totals_table(doc_type, default_options(doc_type), "#0f766e")
+    outer = html[:html.index(">") + 1]
+    assert "width:100%" in outer, "outer table must set its own width"
+    assert "border-collapse:collapse" in outer
+    box = html[html.index('class="inv-totals-box"'):]
+    assert box[:120].count("width:72mm") == 1, "summary keeps its width inline"
+
+
+@pytest.mark.parametrize("doc_type", DOC_TYPES)
+def test_the_items_table_stands_up_without_the_sheet_stylesheet(doc_type):
+    out = rendered("classic", doc_type)
+    body = out[out.index('<div class="inv-sheet'):]
+    table = re.search(r'<table class="inv-items" style="([^"]+)"', body).group(1)
+    assert "width:100%" in table
+    assert "border-collapse:collapse" in table
+    # Numbers must not wrap even with no stylesheet backing the table.
+    row = re.search(r"<tbody>.*?</tr>", body, re.S).group(0)
+    money = re.findall(r"<td style='([^']*)'>[\d,]+\.\d\d</td>", row)
+    assert money, "expected money cells"
+    assert all("white-space:nowrap" in c for c in money)
 
 
 @pytest.mark.parametrize("doc_type", DOC_TYPES)

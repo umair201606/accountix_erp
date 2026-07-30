@@ -198,7 +198,7 @@ def invoice_form(id):
                   + (3 if show_chg_col else 0))
         m = items_table_metrics(n_cols)
         fs = m["font"]
-        tds = f"padding:{m['pad']};border:1px solid #e2e8f0;"
+        tds = f"padding:{m['pad']};border:1px solid #e2e8f0;white-space:nowrap;"
         tdc = tds + "text-align:center;"
         tdr = tds + "text-align:right;"
 
@@ -234,7 +234,7 @@ def invoice_form(id):
             cells = (
                 f"<td style='{tdc}'>{i}</td>"
                 f"<td style='{tds}'>{it.product.sku if it.product else ''}</td>"
-                f"<td class='inv-desc' style='{tds}'>{it.description or ''}</td>"
+                f"<td class='inv-desc' style='{tds}white-space:normal;'>{it.description or ''}</td>"
                 f"<td style='{tdc}'>{it.quantity}</td>"
                 f"<td style='{tdc}'>{it.unit or ''}</td>"
                 f"<td style='{tdr}'>{it.unit_price:.2f}</td>")
@@ -255,7 +255,7 @@ def invoice_form(id):
             items_rows += "<tr>" + cells + "</tr>"
 
         tds_b = (f"padding:{m['pad']};border:1px solid #e2e8f0;font-weight:700;"
-                 f"background:#f1f5f9;")
+                 f"background:#f1f5f9;white-space:nowrap;")
         tdr_b = tds_b + "text-align:right;"
         foot = (
             f"<td style='{tds_b};text-align:center;'></td>"
@@ -279,7 +279,8 @@ def invoice_form(id):
         foot += f"<td style='{tdr_b}'>{tot_incl:.2f}</td>"
         foot += f"<td style='{tdr_b}'>{tot_line:.2f}</td>"
 
-        hds = f"padding:{m['pad']};border:1px solid #1e293b;"
+        hds = (f"padding:{m['pad']};border:1px solid #1e293b;"
+               "white-space:normal;vertical-align:bottom;")
         hdr = hds + "text-align:right;"
         hdl = hds + "text-align:left;"
         hdc = hds + "text-align:center;"
@@ -307,7 +308,8 @@ def invoice_form(id):
         head += f"<th style='{hdr}'>Total</th>"
 
         items_table = (
-            f'<table class="inv-items" style="font-size:{fs}px;">'
+            f'<table class="inv-items" style="width:100%;border-collapse:collapse;'
+            f'font-size:{fs}px;">'
             '<thead><tr style="background:#1e293b;color:#fff;">' + head +
             '</tr></thead><tbody>' + items_rows +
             '<tr>' + foot + '</tr></tbody></table>'
