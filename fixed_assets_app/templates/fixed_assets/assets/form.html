@@ -95,6 +95,16 @@
             {% endfor %}
           </select>
         </div>
+        <div class="form-group">
+          <label class="form-label">Paid From / Credit Account</label>
+          <select name="acquisition_credit_account_id" class="form-control">
+            <option value="">Default (Trade Creditors — General)</option>
+            {% for a in accounts %}
+            <option value="{{ a.id }}" {{ 'selected' if asset and asset.acquisition_credit_account_id == a.id }}>{{ a.code }} {{ a.name }}</option>
+            {% endfor %}
+          </select>
+          <small class="text-muted">Credited when the asset is booked to the ledger — a payable, cash or bank account.</small>
+        </div>
       </div>
       {% endif %}
       {% if asset %}

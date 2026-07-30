@@ -6,8 +6,8 @@
   <div class="card-body">
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;">
       <div><strong>Purchase Cost:</strong><br>{{ "{:,.0f}".format(asset.purchase_cost) }}</div>
-      <div><strong>Accum. Depreciation:</strong><br>{{ "{:,.0f}".format(asset.accumulated_depreciation) }}</div>
-      <div><strong>Book Value (now):</strong><br><span style="font-size:1.2em;font-weight:700;">{{ "{:,.0f}".format(asset.purchase_cost - asset.accumulated_depreciation) }}</span></div>
+      <div><strong>Accum. Depreciation:</strong><br>{{ "{:,.0f}".format(asset.posted_depreciation) }}</div>
+      <div><strong>Book Value (now):</strong><br><span style="font-size:1.2em;font-weight:700;">{{ "{:,.0f}".format(asset.net_book_value) }}</span></div>
       <div><strong>Useful Life:</strong><br>{{ asset.useful_life }} yrs</div>
     </div>
   </div>
@@ -43,8 +43,8 @@
         <table class="table" style="margin:8px 0 0;font-size:13px;">
           <thead><tr><th>Account</th><th>Debit</th><th>Credit</th></tr></thead>
           <tbody>
-            <tr><td>Accumulated Depreciation</td><td>{{ "{:,.0f}".format(asset.accumulated_depreciation) }}</td><td>—</td></tr>
-            <tr><td>Trading Stock</td><td>{{ "{:,.0f}".format(asset.purchase_cost - asset.accumulated_depreciation) }}</td><td>—</td></tr>
+            <tr><td>Accumulated Depreciation</td><td>{{ "{:,.0f}".format(asset.posted_depreciation) }}</td><td>—</td></tr>
+            <tr><td>Trading Stock</td><td>{{ "{:,.0f}".format(asset.net_book_value) }}</td><td>—</td></tr>
             <tr><td>Fixed Asset</td><td>—</td><td>{{ "{:,.0f}".format(asset.purchase_cost) }}</td></tr>
           </tbody>
         </table>

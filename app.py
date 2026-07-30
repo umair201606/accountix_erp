@@ -408,6 +408,8 @@ def _migrate_schema(db):
         ("fixed_assets", "fixed_asset_account_id", "INTEGER"),
         ("fixed_assets", "accum_dep_account_id", "INTEGER"),
         ("fixed_assets", "dep_expense_account_id", "INTEGER"),
+        ("fixed_assets", "acquisition_credit_account_id", "INTEGER"),
+        ("asset_depreciation", "journal_entry_id", "INTEGER"),
     ]
 
     inspector = inspect(engine)

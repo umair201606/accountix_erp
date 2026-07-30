@@ -186,6 +186,10 @@ FIXED_ACCOUNTS = [
     ("5-04-01",         "Other Operating Expenses",      "expense",   None,        None),
     ("5-04-01-01",      "Other Operating Expenses",      "expense",   None,        None),
     ("5-04-01-01-0001", "Other Expenses — General",      "expense",   None,        None),
+    # Disposals net to one account: a loss is a debit, a gain a credit, so the
+    # balance reads as the net result for the period. Never book this to
+    # Depreciation Expense — that overstates depreciation and distorts EBITDA.
+    ("5-04-01-01-0002", "Loss/(Gain) on Disposal of Fixed Assets", "expense", None, None),
     ("5-05",            "Finance Costs",                 "expense",   None,        "finance_cost"),
     ("5-05-01",         "Bank & Interest Charges",       "expense",   None,        None),
     ("5-05-01-01",      "Bank & Interest Charges",       "expense",   None,        None),
@@ -220,6 +224,7 @@ ROLE_CODES = {
     "suspense_equity":            "3-01-01-01-0002",
     "accumulated_depreciation": "1-02-02-01-0001",
     "depreciation_expense": "5-02-04-01-0001",
+    "disposal_gain_loss": "5-04-01-01-0002",
 }
 
 # Entity subledger kinds -> level-4 parent code. Entity accounts are level-5

@@ -60,6 +60,8 @@ class FixedAsset(db.Model):
     fixed_asset_account_id = db.Column(db.Integer, db.ForeignKey("chart_of_accounts.id"), nullable=True)
     accum_dep_account_id = db.Column(db.Integer, db.ForeignKey("chart_of_accounts.id"), nullable=True)
     dep_expense_account_id = db.Column(db.Integer, db.ForeignKey("chart_of_accounts.id"), nullable=True)
+    # Credited when the acquisition is booked (payable, cash or bank).
+    acquisition_credit_account_id = db.Column(db.Integer, db.ForeignKey("chart_of_accounts.id"), nullable=True)
     notes = db.Column(db.Text, default="")
     is_active = db.Column(db.Boolean, default=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
@@ -68,13 +70,55 @@ class FixedAsset(db.Model):
     depreciation_entries = db.relationship("AssetDepreciation", backref="asset",
                                            lazy="dynamic", order_by="AssetDepreciation.entry_date")
 
+    # ── Derived balances ────────────────────────────────────────────────────
+    # ``accumulated_depreciation`` / ``current_book_value`` are CACHES. The
+    # truth is the set of depreciation rows whose journal entry is still posted,
+    # so deleting a voucher or un-posting it (reverse_journal_entry flips
+    # is_posted and keeps the row) silently drops that month back out of the
+    # total. Nothing accumulates by incrementing a stored number, so a reversal
+    # can never leave the asset stranded at a figure no journal supports.
+
+    def live_depreciation_query(self):
+        """Depreciation rows still backed by a posted journal entry.
+
+        A NULL ``journal_entry_id`` means the row predates the link and has no
+        journal to contradict it, so it counts.
+        """
+        from shared.models.ledger import JournalEntry
+        return (AssetDepreciation.query
+                .outerjoin(JournalEntry,
+                           AssetDepreciation.journal_entry_id == JournalEntry.id)
+                .filter(AssetDepreciation.asset_id == self.id)
+                .filter(db.or_(AssetDepreciation.journal_entry_id.is_(None),
+                               JournalEntry.is_posted == True)))
+
+    @property
+    def posted_depreciation(self):
+        """Accumulated depreciation derived from live rows, floored at cost."""
+        from shared.extensions import db as _db
+        total = (self.live_depreciation_query()
+                 .with_entities(_db.func.coalesce(
+                     _db.func.sum(AssetDepreciation.amount), 0)).scalar()) or 0
+        return min(float(total), float(self.depreciable_amount))
+
+    def recalculate(self):
+        """Refresh the cached columns from the live rows. Idempotent."""
+        self.accumulated_depreciation = self.posted_depreciation
+        self.current_book_value = self.purchase_cost - self.accumulated_depreciation
+        return self.accumulated_depreciation
+
     @property
     def net_book_value(self):
-        return self.purchase_cost - self.accumulated_depreciation
+        return self.purchase_cost - self.posted_depreciation
 
     @property
     def depreciable_amount(self):
         return self.purchase_cost - self.salvage_value
+
+    @property
+    def remaining_depreciable(self):
+        """What may still be charged before the salvage floor is reached."""
+        return max(0.0, float(self.depreciable_amount) - float(self.posted_depreciation))
 
     @property
     def annual_depreciation(self):
@@ -83,8 +127,11 @@ class FixedAsset(db.Model):
         if self.depreciation_method == "straight_line":
             return self.depreciable_amount / self.useful_life
         elif self.depreciation_method == "declining_balance":
+            # Reducing balance on the *depreciable* base: charging on
+            # cost - accumulated ignores salvage and drives book value below it.
             rate = 2.0 / self.useful_life
-            return (self.purchase_cost - self.accumulated_depreciation) * rate
+            return min(self.remaining_depreciable,
+                       (self.purchase_cost - self.posted_depreciation) * rate)
         return 0
 
     def calculate_depreciation(self, for_date=None):
@@ -107,10 +154,24 @@ class AssetDepreciation(db.Model):
     asset_id = db.Column(db.Integer, db.ForeignKey("fixed_assets.id"), nullable=False)
     entry_date = db.Column(db.Date, nullable=False)
     amount = db.Column(db.Float, nullable=False, default=0)
+    # accumulated_after / net_book_value_after are a point-in-time SNAPSHOT for
+    # display. They are deliberately not read back for arithmetic: a later
+    # reversal would make them lie. FixedAsset derives its totals instead.
     accumulated_after = db.Column(db.Float, nullable=False, default=0)
     net_book_value_after = db.Column(db.Float, nullable=False, default=0)
+    # The journal this charge was posted as. Un-posting or deleting it removes
+    # this row from every derived total.
+    journal_entry_id = db.Column(db.Integer, db.ForeignKey("journal_entries.id"), nullable=True)
     notes = db.Column(db.String(200), default="")
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    @property
+    def is_live(self):
+        from shared.models.ledger import JournalEntry
+        if not self.journal_entry_id:
+            return True
+        je = db.session.get(JournalEntry, self.journal_entry_id)
+        return bool(je and je.is_posted)
 
     def __repr__(self):
         return f"<AssetDepreciation {self.asset_id} @ {self.entry_date}: {self.amount}>"

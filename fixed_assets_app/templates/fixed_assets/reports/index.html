@@ -54,8 +54,8 @@
           <td><a href="{{ url_for('fa_assets.view_asset', asset_id=a.id) }}">{{ a.name }}</a></td>
           <td>{{ a.category_obj.name if a.category_obj else '' }}</td>
           <td>{{ "{:,.0f}".format(a.purchase_cost) }}</td>
-          <td>{{ "{:,.0f}".format(a.accumulated_depreciation) }}</td>
-          <td>{{ "{:,.0f}".format(a.current_book_value) }}</td>
+          <td>{{ "{:,.0f}".format(a.posted_depreciation) }}</td>
+          <td>{{ "{:,.0f}".format(a.net_book_value) }}</td>
           <td><span class="badge {{ 'badge-success' if a.status == 'active' else 'badge-secondary' }}">{{ a.status }}</span></td>
         </tr>
         {% endfor %}
