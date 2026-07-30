@@ -5,7 +5,11 @@
 <a href="{{ url_for('fa_assets.edit_asset', asset_id=asset.id) }}" class="btn btn-primary">Edit</a>
 {% if asset.status == 'active' %}
 <a href="{{ url_for('fa_transfers.create_transfer', asset_id=asset.id) }}" class="btn btn-secondary">Transfer to Inventory</a>
-<button class="btn btn-danger" onclick="if(confirm('Dispose this asset?'))document.getElementById('dispose-form').submit()">Dispose</button>
+{% elif asset.status == 'disposed' %}
+<form method="POST" action="{{ url_for('fa_assets.undo_disposal', asset_id=asset.id) }}" style="display:inline;"
+      onsubmit="return confirm('Reverse this disposal and put the asset back into service?');">
+  <button type="submit" class="btn btn-warning">Undo Disposal</button>
+</form>
 {% endif %}
 {% endblock %}
 {% block content %}
@@ -18,8 +22,8 @@
       <div><strong>Useful Life:</strong><br>{{ asset.useful_life }} years</div>
       <div><strong>Depreciation Method:</strong><br>{{ asset.depreciation_method|replace('_', ' ')|title }}</div>
       <div><strong>Salvage Value:</strong><br>{{ "{:,.0f}".format(asset.salvage_value) }}</div>
-      <div><strong>Accumulated Depreciation:</strong><br>{{ "{:,.0f}".format(asset.accumulated_depreciation) }}</div>
-      <div><strong>Current Book Value:</strong><br>{{ "{:,.0f}".format(asset.current_book_value) }}</div>
+      <div><strong>Accumulated Depreciation:</strong><br>{{ "{:,.0f}".format(asset.posted_depreciation) }}</div>
+      <div><strong>Current Book Value:</strong><br>{{ "{:,.0f}".format(asset.net_book_value) }}</div>
       <div><strong>Status:</strong><br><span class="badge {{ 'badge-success' if asset.status == 'active' else 'badge-secondary' }}">{{ asset.status }}</span></div>
       <div><strong>Location:</strong><br>{{ asset.location or 'N/A' }}</div>
       <div><strong>Assigned To:</strong><br>{{ asset.assigned_to or 'N/A' }}</div>
@@ -40,15 +44,25 @@
   <div class="card-body">
     {% if depreciation_entries %}
     <table class="table">
-      <thead><tr><th>Date</th><th>Amount</th><th>Accumulated</th><th>Net Book Value</th><th>Notes</th></tr></thead>
+      <thead><tr><th>Date</th><th>Amount</th><th>Accumulated</th><th>Net Book Value</th><th>Notes</th><th></th></tr></thead>
       <tbody>
         {% for e in depreciation_entries %}
-        <tr>
+        <tr {{ 'class=text-muted' if not e.is_live }}>
           <td>{{ e.entry_date }}</td>
           <td>{{ "{:,.0f}".format(e.amount) }}</td>
           <td>{{ "{:,.0f}".format(e.accumulated_after) }}</td>
           <td>{{ "{:,.0f}".format(e.net_book_value_after) }}</td>
           <td>{{ e.notes }}</td>
+          <td>
+            {% if e.is_live %}
+            <form method="post" action="{{ url_for('fa_dep.reverse_entry', dep_id=e.id) }}"
+                  onsubmit="return confirm('Reverse this depreciation charge? The period it covers becomes chargeable again.');">
+              <button type="submit" class="btn btn-sm btn-danger">Reverse</button>
+            </form>
+            {% else %}
+            <span class="badge">Reversed</span>
+            {% endif %}
+          </td>
         </tr>
         {% endfor %}
       </tbody>
@@ -67,5 +81,34 @@
   </div>
 </div>
 
-<form id="dispose-form" method="POST" action="{{ url_for('fa_assets.dispose_asset', asset_id=asset.id) }}" style="display:none;"></form>
+{% if asset.status == 'active' %}
+<div class="card" style="margin-top:16px;">
+  <div class="card-header"><h3>Dispose Asset</h3></div>
+  <div class="card-body">
+    <p class="text-muted">
+      Book value now is <strong>{{ "{:,.0f}".format(asset.net_book_value) }}</strong>.
+      Enter what you sold it for — leave it at 0 to scrap it. The difference
+      between the proceeds and the book value is booked as a gain or a loss.
+    </p>
+    <form method="POST" action="{{ url_for('fa_assets.dispose_asset', asset_id=asset.id) }}"
+          style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;"
+          onsubmit="return confirm('Dispose this asset?');">
+      <div>
+        <label class="form-label">Proceeds</label>
+        <input type="number" step="0.01" min="0" name="proceeds" class="form-control" value="0">
+      </div>
+      <div>
+        <label class="form-label">Received Into</label>
+        <select name="proceeds_account_id" class="form-control">
+          <option value="">Default (Main Cash)</option>
+          {% for a in accounts %}
+          <option value="{{ a.id }}">{{ a.code }} {{ a.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div><button type="submit" class="btn btn-danger">Dispose</button></div>
+    </form>
+  </div>
+</div>
+{% endif %}
 {% endblock %}

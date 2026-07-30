@@ -21,8 +21,11 @@ class TestFADashboard:
     def test_dashboard_shows_stats(self, admin_page):
         admin_page.goto(f"{BASE_URL}/fixed-assets/dashboard")
         admin_page.wait_for_load_state("networkidle")
-        body = admin_page.locator("body").inner_text()
-        assert "Total Assets" in body
+        # Case-insensitive: .stat-label is text-transform:uppercase, and
+        # inner_text() returns the transformed text. Asserting on the rendered
+        # case tested the stylesheet, not the dashboard.
+        body = admin_page.locator("body").inner_text().lower()
+        assert "total assets" in body
 
 
 class TestFACategories:
@@ -106,8 +109,8 @@ class TestFAResponsive:
     def test_mobile_dashboard(self, admin_mobile):
         admin_mobile.goto(f"{BASE_URL}/fixed-assets/dashboard")
         admin_mobile.wait_for_load_state("networkidle")
-        body = admin_mobile.locator("body").inner_text()
-        assert "Total Assets" in body
+        body = admin_mobile.locator("body").inner_text().lower()
+        assert "total assets" in body
 
     def test_mobile_assets_list(self, admin_mobile):
         admin_mobile.goto(f"{BASE_URL}/fixed-assets/assets/")

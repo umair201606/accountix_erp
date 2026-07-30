@@ -31,6 +31,7 @@ POSTING_ACCOUNTS = {
     "suspense_equity":            ("Suspense Equity", "equity", []),
     "accumulated_depreciation": ("Accumulated Depreciation — General", "asset", []),
     "depreciation_expense": ("Depreciation Expense", "expense", ["5700"]),
+    "disposal_gain_loss": ("Loss/(Gain) on Disposal of Fixed Assets", "expense", []),
 }
 
 
