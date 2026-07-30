@@ -260,32 +260,30 @@ def invoice_form(id):
         foot += f"<td style='{tdr_b}'>{tot_incl:.2f}</td>"
         foot += f"<td style='{tdr_b}'>{tot_line:.2f}</td>"
 
-        hds = (f"padding:{m['pad']};border:1px solid #1e293b;"
-               "white-space:normal;vertical-align:bottom;")
-        hdr = hds + "text-align:right;"
-        hdl = hds + "text-align:left;"
-        hdc = hds + "text-align:center;"
+        # One style for every header: centred in the cell both ways.
+        hd = (f"padding:{m['pad']};border:1px solid #1e293b;white-space:normal;"
+              "text-align:center;vertical-align:middle;")
 
         head = (
-            f"<th style='{hdc}'>#</th>"
-            f"<th style='{hdl}'>SKU</th>"
-            f"<th class='inv-desc' style='{hdl}'>Description</th>"
-            f"<th style='{hdc}'>Qty</th>"
-            f"<th style='{hdc}'>Unit</th>"
-            f"<th style='{hdr}'>Per Unit Price</th>")
+            f"<th style='{hd}'>#</th>"
+            f"<th style='{hd}'>SKU</th>"
+            f"<th class='inv-desc' style='{hd}'>Description</th>"
+            f"<th style='{hd}'>Qty</th>"
+            f"<th style='{hd}'>Unit</th>"
+            f"<th style='{hd}'>Per Unit Price</th>")
         if show_disc_col:
-            head += f"<th style='{hdr}'>Discount %</th>"
-            head += f"<th style='{hdr}'>Discount allowed</th>"
-        head += f"<th style='{hdr}'>Amount Excl. of Sales Tax</th>"
+            head += f"<th style='{hd}'>Discount %</th>"
+            head += f"<th style='{hd}'>Discount allowed</th>"
+        head += f"<th style='{hd}'>Amount Excl. of Sales Tax</th>"
         if show_tax_col:
-            head += f"<th style='{hdr}'>Sales Tax %</th>"
-            head += f"<th style='{hdr}'>Sales Tax Amount per Unit</th>"
+            head += f"<th style='{hd}'>Sales Tax %</th>"
+            head += f"<th style='{hd}'>Sales Tax Amount per Unit</th>"
         if show_chg_col:
-            head += f"<th style='{hdr}'>Carriage Expense</th>"
-            head += f"<th style='{hdr}'>Installation</th>"
-        head += f"<th style='{hdr}'>Total Sales Tax</th>"
-        head += f"<th style='{hdr}'>Amount Incl. of Sales Tax</th>"
-        head += f"<th style='{hdr}'>Total</th>"
+            head += f"<th style='{hd}'>Carriage Expense</th>"
+            head += f"<th style='{hd}'>Installation</th>"
+        head += f"<th style='{hd}'>Total Sales Tax</th>"
+        head += f"<th style='{hd}'>Amount Incl. of Sales Tax</th>"
+        head += f"<th style='{hd}'>Total</th>"
 
         items_table = (
             f'<table class="inv-items" style="width:100%;border-collapse:collapse;'

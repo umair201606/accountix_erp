@@ -388,8 +388,12 @@ _SHEET_CSS = """<style>
 .inv-sheet table.inv-items{width:100%;border-collapse:collapse;table-layout:auto}
 .inv-sheet table.inv-items th,
 .inv-sheet table.inv-items td{white-space:nowrap;overflow-wrap:normal}
+/* Headers read as labels for the column, so they sit centred in the cell both
+   ways — including the tall ones that wrap to two or three lines. The body
+   cells keep their own alignment: numbers right, codes left. */
 .inv-sheet table.inv-items th{white-space:normal;word-break:normal;
-  overflow-wrap:break-word;vertical-align:bottom;line-height:1.25;font-size:.95em}
+  overflow-wrap:break-word;text-align:center;vertical-align:middle;
+  line-height:1.25;font-size:.95em}
 /* Every other column takes exactly the width its content needs — width:1% on a
    nowrap cell resolves to min-content — so the slack all lands on the
    description instead of being shared out and leaving it to wrap early. */
@@ -1002,37 +1006,35 @@ def _sample_items_table(doc_type="sales", opts=None):
     foot_cells += f"<td style='{tdr_b}'>{tot_line:,.2f}</td>"
 
     # ── Header ───────────────────────────────────────────────────────
-    hds = (f"padding:{m['pad']};border:1px solid #1e293b;"
-           "white-space:normal;vertical-align:bottom;")
-    hdc = hds + "text-align:center;"
-    hdl = hds + "text-align:left;"
-    hdr = hds + "text-align:right;"
+    # One style for every header: centred in the cell both ways.
+    hd = (f"padding:{m['pad']};border:1px solid #1e293b;white-space:normal;"
+          "text-align:center;vertical-align:middle;")
 
     head = (
-        f"<th style='{hdc}'>#</th>"
-        f"<th style='{hdl}'>SKU</th>"
-        f"<th class='inv-desc' style='{hdl}'>Description</th>"
-        f"<th style='{hdc}'>Qty</th>"
-        f"<th style='{hdc}'>Unit</th>"
-        f"<th style='{hdr}'>Per Unit Price</th>")
+        f"<th style='{hd}'>#</th>"
+        f"<th style='{hd}'>SKU</th>"
+        f"<th class='inv-desc' style='{hd}'>Description</th>"
+        f"<th style='{hd}'>Qty</th>"
+        f"<th style='{hd}'>Unit</th>"
+        f"<th style='{hd}'>Per Unit Price</th>")
     if show_disc_col:
-        head += f"<th style='{hdr}'>Discount %</th>"
-        head += f"<th style='{hdr}'>Discount allowed</th>"
-    head += f"<th style='{hdr}'>Amount Excl. of Sales Tax</th>"
+        head += f"<th style='{hd}'>Discount %</th>"
+        head += f"<th style='{hd}'>Discount allowed</th>"
+    head += f"<th style='{hd}'>Amount Excl. of Sales Tax</th>"
     if show_tax_col:
-        head += f"<th style='{hdr}'>Sales Tax %</th>"
-        head += f"<th style='{hdr}'>Sales Tax Amount per Unit</th>"
+        head += f"<th style='{hd}'>Sales Tax %</th>"
+        head += f"<th style='{hd}'>Sales Tax Amount per Unit</th>"
     if show_chg_col:
         if doc_type == "sales":
-            head += f"<th style='{hdr}'>Carriage Expense</th>"
-            head += f"<th style='{hdr}'>Installation</th>"
+            head += f"<th style='{hd}'>Carriage Expense</th>"
+            head += f"<th style='{hd}'>Installation</th>"
         else:
-            head += f"<th style='{hdr}'>Commission</th>"
-            head += f"<th style='{hdr}'>Freight</th>"
-            head += f"<th style='{hdr}'>Ld/Unld</th>"
-    head += f"<th style='{hdr}'>Total Sales Tax</th>"
-    head += f"<th style='{hdr}'>Amount Incl. of Sales Tax</th>"
-    head += f"<th style='{hdr}'>Total</th>"
+            head += f"<th style='{hd}'>Commission</th>"
+            head += f"<th style='{hd}'>Freight</th>"
+            head += f"<th style='{hd}'>Ld/Unld</th>"
+    head += f"<th style='{hd}'>Total Sales Tax</th>"
+    head += f"<th style='{hd}'>Amount Incl. of Sales Tax</th>"
+    head += f"<th style='{hd}'>Total</th>"
 
     return (
         f'<table class="inv-items" style="width:100%;border-collapse:collapse;'
