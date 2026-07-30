@@ -126,6 +126,20 @@ def _resolve_period():
             from_str, to_str, comp_mode, comp_periods, comp_period_ids_str)
 
 
+def _eod(d):
+    """Inclusive upper bound for an ``entry_date`` filter.
+
+    ``JournalEntry.entry_date`` is a DateTime carrying a real wall-clock time,
+    so comparing it against a bare ``date`` excludes every entry posted on that
+    day. Widen the cutoff to the end of the day so the boundary is inclusive.
+    """
+    if d is None:
+        return None
+    if isinstance(d, datetime):
+        return d
+    return datetime.combine(d, datetime.max.time())
+
+
 def _get_account_balance(account_id, as_of=None):
     q = db.session.query(
         db.func.coalesce(db.func.sum(JournalLine.debit), 0).label("dr"),
@@ -134,7 +148,7 @@ def _get_account_balance(account_id, as_of=None):
            ).filter(JournalLine.account_id == account_id,
                     JournalEntry.is_posted == True)
     if as_of:
-        q = q.filter(JournalEntry.entry_date <= as_of)
+        q = q.filter(JournalEntry.entry_date <= _eod(as_of))
     row = q.first()
     return Decimal(str(row.dr)), Decimal(str(row.cr))
 
@@ -151,7 +165,7 @@ def _all_account_balances(as_of=None, account_types=None):
            ).join(ChartOfAccount, JournalLine.account_id == ChartOfAccount.id
                   ).filter(JournalEntry.is_posted == True)
     if as_of:
-        q = q.filter(JournalEntry.entry_date <= as_of)
+        q = q.filter(JournalEntry.entry_date <= _eod(as_of))
     if account_types:
         q = q.filter(ChartOfAccount.type.in_(account_types))
     q = q.group_by(JournalLine.account_id, ChartOfAccount.code,
@@ -180,7 +194,7 @@ def _period_movements(from_date=None, to_date=None, types=None):
     if from_date:
         q = q.filter(JournalEntry.entry_date >= from_date)
     if to_date:
-        q = q.filter(JournalEntry.entry_date <= to_date)
+        q = q.filter(JournalEntry.entry_date <= _eod(to_date))
     if types:
         q = q.join(ChartOfAccount, JournalLine.account_id == ChartOfAccount.id
                    ).filter(ChartOfAccount.type.in_(types))
@@ -395,7 +409,7 @@ def _get_ledger_sections(account_ids, from_date, to_date):
         if from_date:
             q = q.filter(JournalEntry.entry_date >= from_date)
         if to_date:
-            q = q.filter(JournalEntry.entry_date <= to_date)
+            q = q.filter(JournalEntry.entry_date <= _eod(to_date))
         q = q.order_by(JournalEntry.entry_date, JournalEntry.id)
         lines = q.all()
         rows = []
@@ -1378,7 +1392,7 @@ def _cash_flow_direct(from_date, to_date):
     lines = db.session.query(JournalLine).join(JournalEntry).filter(
         JournalEntry.is_posted == True,
         JournalEntry.entry_date >= from_date,
-        JournalEntry.entry_date <= to_date,
+        JournalEntry.entry_date <= _eod(to_date),
     ).all()
     by_entry = defaultdict(list)
     for ln in lines:
