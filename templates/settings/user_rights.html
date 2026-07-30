@@ -24,6 +24,15 @@
   .pw-row { display: flex; gap: 12px; flex-wrap: wrap; }
   .pw-row input { flex: 1; min-width: 200px; padding: 9px 12px; border: 1px solid var(--line);
                   border-radius: 6px; font: inherit; font-size: 13px; }
+  @media (max-width: 600px) {
+    .pgrid { min-width: 0; font-size: 12px; }
+    .pgrid th, .pgrid td { padding: 6px 8px; }
+    .pgrid th.act, .pgrid td.act { text-align: left; }
+    .mod-head { padding: 10px 12px; }
+    .mod-head label { font-size: 13px; }
+    .mod-note { font-size: 11px; }
+    .rights-wrap { padding: 0; }
+  }
 </style>
 {% endblock %}
 {% block content %}

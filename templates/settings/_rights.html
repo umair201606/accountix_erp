@@ -3,19 +3,19 @@
   <p class="hint">HR creates users; here you decide which modules they reach and what they may do inside each section. A user with no rights row configured has unrestricted section access within the modules they can open.</p>
 
   <div class="tbl-scroll">
-    <table class="stbl">
+    <table class="stbl rights-tbl">
       <thead>
         <tr><th>User</th><th>Role</th><th>Module Access</th><th>Section Rights</th><th>Status</th><th></th></tr>
       </thead>
       <tbody>
         {% for u in users %}
         <tr>
-          <td>
-            <div style="font-weight:600;">{{ u.full_name }}</div>
-            <div style="font-size:11px;color:var(--muted);">{{ u.login_id or u.email }}</div>
+          <td class="r-cell-user">
+            <div class="r-name">{{ u.full_name }}</div>
+            <div class="r-email">{{ u.login_id or u.email }}</div>
           </td>
-          <td><span class="pill pill-off">{{ u.get_role_name()|title }}</span></td>
-          <td>
+          <td class="r-cell-role" data-label="Role"><span class="pill pill-off">{{ u.get_role_name()|title }}</span></td>
+          <td class="r-cell-mods" data-label="Module Access">
             {% if u.is_admin() %}
             <span class="pill pill-on">All (admin)</span>
             {% else %}
@@ -28,7 +28,7 @@
               {% endif %}
             {% endif %}
           </td>
-          <td>
+          <td class="r-cell-sec" data-label="Section Rights">
             {% if u.is_admin() %}
             <span style="font-size:12px;color:var(--muted);">Unrestricted</span>
             {% elif u.id in configured %}
@@ -37,23 +37,25 @@
             <span class="pill pill-off">Unrestricted</span>
             {% endif %}
           </td>
-          <td>
+          <td class="r-cell-status" data-label="Status">
             {% if u.is_active %}<span class="pill pill-on">Active</span>
             {% else %}<span class="pill" style="background:#fee2e2;color:#b91c1c;">Inactive</span>{% endif %}
           </td>
-          <td style="text-align:right;white-space:nowrap;">
-            <a href="{{ url_for('settings.user_rights', uid=u.id) }}" class="btn btn-sm btn-outline">Edit Rights</a>
-            {% if u.id in configured %}
-            <form method="POST" action="{{ url_for('settings.reset_rights', uid=u.id) }}" style="display:inline;"
-                  onsubmit="return confirm('Reset section rights for {{ u.full_name }}?');">
-              <button type="submit" class="btn btn-sm btn-outline">Reset</button>
-            </form>
-            {% endif %}
-            {% if u.id != current_user.id %}
-            <form method="POST" action="{{ url_for('settings.toggle_active', uid=u.id) }}" style="display:inline;">
-              <button type="submit" class="btn btn-sm {{ 'btn-danger' if u.is_active else 'btn-outline' }}">{{ 'Deactivate' if u.is_active else 'Activate' }}</button>
-            </form>
-            {% endif %}
+          <td class="r-cell-acts" data-label="">
+            <div class="r-acts">
+              <a href="{{ url_for('settings.user_rights', uid=u.id) }}" class="btn btn-sm btn-outline">Edit Rights</a>
+              {% if u.id in configured %}
+              <form method="POST" action="{{ url_for('settings.reset_rights', uid=u.id) }}" style="display:inline;"
+                    onsubmit="return confirm('Reset section rights for {{ u.full_name }}?');">
+                <button type="submit" class="btn btn-sm btn-outline">Reset</button>
+              </form>
+              {% endif %}
+              {% if u.id != current_user.id %}
+              <form method="POST" action="{{ url_for('settings.toggle_active', uid=u.id) }}" style="display:inline;">
+                <button type="submit" class="btn btn-sm {{ 'btn-danger' if u.is_active else 'btn-outline' }}">{{ 'Deactivate' if u.is_active else 'Activate' }}</button>
+              </form>
+              {% endif %}
+            </div>
           </td>
         </tr>
         {% endfor %}
@@ -61,3 +63,16 @@
     </table>
   </div>
 </div>
+<style>
+  @media (max-width: 768px) {
+    .rights-tbl, .rights-tbl thead, .rights-tbl tbody, .rights-tbl tr, .rights-tbl th, .rights-tbl td { display: block; }
+    .rights-tbl thead { display: none; }
+    .rights-tbl tr { background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 12px; margin-bottom: 10px; }
+    .rights-tbl td { border: none !important; padding: 3px 0 !important; }
+    .rights-tbl td[data-label]:before { content: attr(data-label) ": "; font-weight: 700; font-size: 10.5px; text-transform: uppercase; letter-spacing: .4px; color: var(--muted); display: inline; margin-right: 4px; }
+    .r-cell-user { margin-bottom: 6px; }
+    .r-cell-user:before { display: none !important; }
+    .r-acts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+    .r-acts .btn { font-size: 11px; padding: 5px 10px; }
+  }
+</style>
