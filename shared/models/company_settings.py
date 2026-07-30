@@ -17,6 +17,12 @@ class CompanyInfo(db.Model):
     tax_id = db.Column(db.String(100))
     registration_number = db.Column(db.String(100))
     logo_url = db.Column(db.String(500))
+    # Where a customer is meant to send the money. Printed opposite the totals
+    # on a sales invoice, which is the one document that has to tell someone
+    # how to pay it.
+    bank_name = db.Column(db.String(200))
+    bank_account_title = db.Column(db.String(200))
+    bank_account_number = db.Column(db.String(100))
     fiscal_year_start_month = db.Column(db.Integer, default=1)
     currency = db.Column(db.String(10), default="PKR")
     currency_symbol = db.Column(db.String(10), default="Rs.")

@@ -50,6 +50,25 @@
     </div>
 
     <div style="border-top:1px solid var(--line);margin:16px 0 14px;padding-top:14px;">
+      <div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px;">Bank Details</div>
+      <div style="font-size:11.5px;color:var(--muted);margin:-4px 0 10px;">Printed beside the totals on a sales invoice, so a customer knows where to send payment.</div>
+      <div class="fgrid">
+        <div class="fgroup">
+          <label class="lbl">Bank Name</label>
+          <input type="text" name="bank_name" class="inp" value="{{ company.bank_name or '' }}">
+        </div>
+        <div class="fgroup">
+          <label class="lbl">Account Title</label>
+          <input type="text" name="bank_account_title" class="inp" value="{{ company.bank_account_title or '' }}">
+        </div>
+        <div class="fgroup">
+          <label class="lbl">Account Number / IBAN</label>
+          <input type="text" name="bank_account_number" class="inp" value="{{ company.bank_account_number or '' }}">
+        </div>
+      </div>
+    </div>
+
+    <div style="border-top:1px solid var(--line);margin:16px 0 14px;padding-top:14px;">
       <div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px;">Locale &amp; Fiscal Year</div>
       <div class="fgrid">
         <div class="fgroup">

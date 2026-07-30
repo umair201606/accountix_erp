@@ -434,6 +434,21 @@
 
   // Patch refresh to also update the mobile preview iframe
   var mobFrame = document.getElementById('tfPreviewMobile');
+
+  // The rendered sheet scales itself to whatever width it is given (see
+  // _SHEET_FIT_JS), so the preview only has to give the frame the right height
+  // — duplicating the scaling here would compound it.
+  function fitSheet(f, d) {
+    if (!d || !d.body) { return; }
+    if (d.defaultView && d.defaultView.invoiceFitSheets) {
+      d.defaultView.invoiceFitSheets();
+    }
+    var sheet = d.querySelector('.inv-sheet');
+    var h = sheet ? sheet.getBoundingClientRect().height : d.body.scrollHeight;
+    if (h) { f.style.minHeight = Math.ceil(h + 24) + 'px'; }
+    d.body.style.overflowX = 'hidden';
+  }
+
   refresh = function () {
     if (inFlight) { pending = true; return; }
     inFlight = true;
@@ -444,15 +459,14 @@
         [frame, mobFrame].forEach(function (f) {
           if (!f) return;
           var d = f.contentDocument;
+          if (!d) return;
           d.open();
           d.write('<!doctype html><html><head><meta charset="utf-8">' +
-                  '<style>body{margin:0;background:#fff;}</style></head><body>' +
+                  '<style>html,body{margin:0;background:#fff;}</style></head><body>' +
                   html + '</body></html>');
           d.close();
-          setTimeout(function () {
-            var h = d.body ? d.body.scrollHeight : 0;
-            if (h) { f.style.minHeight = (h + 24) + 'px'; }
-          }, 40);
+          // Let the sheet lay out in the frame before measuring it.
+          setTimeout(function () { fitSheet(f, d); }, 40);
         });
       })
       .catch(function () {})
@@ -461,6 +475,17 @@
         if (pending) { pending = false; refresh(); }
       });
   };
+
+  // The pane width drives the scale, so re-fit when it changes.
+  var fitTimer = null;
+  window.addEventListener('resize', function () {
+    clearTimeout(fitTimer);
+    fitTimer = setTimeout(function () {
+      [frame, mobFrame].forEach(function (f) {
+        if (f && f.contentDocument) { fitSheet(f, f.contentDocument); }
+      });
+    }, 120);
+  });
 
   // ── Mobile FAB / sheet ──────────────────────────────────────
   var fab = document.getElementById('tfFab');
