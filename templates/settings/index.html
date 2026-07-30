@@ -85,10 +85,19 @@
      220px column that would squeeze the forms off-screen. */
   @media (max-width: 900px) {
     .set-wrap { grid-template-columns: 1fr; }
-    .set-rail { position: static; display: flex; overflow-x: auto; }
-    .set-rail a { border-left: none; border-bottom: 3px solid transparent; white-space: nowrap; }
-    .set-rail a.active { border-left: none; border-bottom-color: var(--ledger); }
+    .set-rail { position: static; display: flex; flex-wrap: wrap; gap: 4px;
+                padding: 8px; background: #fff; border: 1px solid var(--line);
+                border-radius: 10px; }
+    .set-rail a { border-left: none; border: 1px solid #e5e7eb; border-radius: 8px;
+                  white-space: nowrap; padding: 8px 12px; font-size: 12px; flex: 0 0 auto; }
+    .set-rail a:hover { background: #f8fafc; }
+    .set-rail a.active { border-left: none; border-color: var(--ledger);
+                         background: #f0fdfa; border-bottom-color: var(--ledger); }
     .fgrid { grid-template-columns: 1fr; }
+  }
+  @media (max-width: 500px) {
+    .set-rail { gap: 3px; padding: 6px; }
+    .set-rail a { padding: 6px 10px; font-size: 11px; }
   }
 </style>
 {% endblock %}
