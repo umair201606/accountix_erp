@@ -171,7 +171,9 @@ def test_columns_are_wide_enough_for_the_formatted_figure():
 
 @pytest.mark.parametrize("value,expected", [
     (1234567.891, "1,234,567.89"),
-    (-9876.5, "-9,876.50"),
+    # Brackets, not a minus — and a character wider, which is the reason the
+    # width has to be measured through the formatter rather than str().
+    (-9876.5, "(9,876.50)"),
     (0, "0.00"),
     (None, ""),
     ("Cash at Bank", "Cash at Bank"),
@@ -252,3 +254,76 @@ def test_an_others_row_takes_whatever_the_listed_accounts_do_not():
     row = {"kind": "account", "code": "", "name": "Others (1 accounts)",
            "section": "admin", "shown_codes": ["A", "B"]}
     assert _pl_comp_amount(row, lk) == 25.0
+
+
+# ─────────────────────────────────────────────
+# Statement styling
+# ─────────────────────────────────────────────
+
+STMT_HEADERS = ["Code", "Account / Section", "31 December, 2027"]
+STMT_ROWS = [
+    ["SALES", "", ""],
+    ["4-01-01-01-0001", "Sales General", "630,000.00"],
+    ["", "Total Sales", "630,000.00"],
+    ["", "Net Sales", "(100,000.00)"],
+    ["", "", ""],
+]
+STMT_KINDS = ["section", "account", "total", "subtotal", "spacer"]
+
+
+def _fills(page):
+    """Every fill colour the page paints, as reportlab writes them."""
+    data = page.get_contents().get_data().decode("latin-1")
+    return set(re.findall(r"([\d.]+ [\d.]+ [\d.]+) rg", data))
+
+
+def _strokes(page):
+    data = page.get_contents().get_data().decode("latin-1")
+    return set(re.findall(r"([\d.]+ [\d.]+ [\d.]+) RG", data))
+
+
+def _statement_pdf(**kw):
+    buf = _build_pdf("Profit &amp; Loss Statement", STMT_HEADERS, STMT_ROWS,
+                     row_kinds=STMT_KINDS, indent_col=1, mono_col=0, **kw)
+    return PdfReader(io.BytesIO(buf.getvalue()))
+
+
+def test_a_statement_pdf_bands_its_sections():
+    """Section headings rendered as ordinary striped rows, indistinguishable
+    from the accounts under them."""
+    page = _statement_pdf().pages[0]
+    assert ".945098 .960784 .976471" in _fills(page), "#F1F5F9 section band"
+
+
+def test_totals_and_profit_lines_are_ruled_off():
+    page = _statement_pdf().pages[0]
+    strokes = _strokes(page)
+    assert ".580392 .639216 .721569" in strokes, "#94A3B8 rule above a total"
+    assert ".117647 .160784 .231373" in strokes, "#1E293B rule around a profit line"
+
+
+def test_the_header_matches_the_screen_not_the_old_export_blue():
+    page = _statement_pdf().pages[0]
+    fills = _fills(page)
+    assert ".117647 .160784 .231373" in fills, "#1E293B slate, as on screen"
+    assert ".121569 .305882 .47451" not in fills, "#1F4E79 was the export's own blue"
+
+
+def test_a_negative_profit_line_is_flagged_red():
+    page = _statement_pdf().pages[0]
+    assert ".933333 .933333 .933333" not in _fills(page)
+    assert ".996078 .94902 .94902" in _fills(page), "#FEF2F2 behind a loss"
+
+
+def test_the_statement_still_reads_in_order():
+    text = _statement_pdf().pages[0].extract_text()
+    for label in ["SALES", "Sales General", "Total Sales", "Net Sales"]:
+        assert label in text
+    assert text.index("SALES") < text.index("Total Sales")
+
+
+def test_a_report_without_row_kinds_still_renders():
+    """The ledger and any other caller keep working while they are converted."""
+    r = _pdf()
+    assert len(r.pages) >= 1
+    assert "Account Code" in _page_text(r.pages[0])
