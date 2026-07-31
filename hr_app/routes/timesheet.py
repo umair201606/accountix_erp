@@ -3,6 +3,7 @@ from flask import Blueprint, render_template, request, jsonify, flash, redirect,
 from flask_login import login_required, current_user
 from sqlalchemy import func
 from ..extensions import db, csrf
+from shared.tenancy import scoped_get, scoped_get_404
 from ..models.timesheet import TimesheetWeek, TimesheetEntry, TimesheetApproval
 from ..models.project import Project, WorkPackage, ProjectTask
 from ..models.communication import Notification, NotificationRecipient
@@ -53,7 +54,7 @@ def add_entry():
     description = request.form.get("description", "").strip()
     if not task_name or not hours:
         return jsonify({"error": "Task and hours required"}), 400
-    week = TimesheetWeek.query.get_or_404(week_id)
+    week = scoped_get_404(TimesheetWeek, week_id)
     if week.user_id != current_user.id:
         return jsonify({"error": "Not authorized"}), 403
     entry = TimesheetEntry(week_id=week_id, day=day, project=task_name,
@@ -68,8 +69,8 @@ def add_entry():
 @csrf.exempt
 @login_required
 def delete_entry(eid):
-    entry = TimesheetEntry.query.get_or_404(eid)
-    week = TimesheetWeek.query.get(entry.week_id)
+    entry = scoped_get_404(TimesheetEntry, eid)
+    week = scoped_get(TimesheetWeek, entry.week_id)
     if week.user_id != current_user.id:
         return jsonify({"error": "Not authorized"}), 403
     week.total_hours = max(0, (week.total_hours or 0) - entry.hours)
@@ -81,7 +82,7 @@ def delete_entry(eid):
 @timesheet_bp.route("/submit/<int:wid>", methods=["POST"])
 @login_required
 def submit(wid):
-    week = TimesheetWeek.query.get_or_404(wid)
+    week = scoped_get_404(TimesheetWeek, wid)
     if week.user_id != current_user.id:
         return jsonify({"error": "Not authorized"}), 403
     week.status = "submitted"
@@ -112,7 +113,7 @@ def approvals():
 @timesheet_bp.route("/review/<int:aid>", methods=["POST"])
 @login_required
 def review(aid):
-    approval = TimesheetApproval.query.get_or_404(aid)
+    approval = scoped_get_404(TimesheetApproval, aid)
     if approval.approver_id != current_user.id:
         return jsonify({"error": "Not authorized"}), 403
     action = request.form.get("action")

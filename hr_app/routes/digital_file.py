@@ -1,8 +1,9 @@
 import os
 from datetime import datetime, date, timedelta
-from flask import Blueprint, render_template, request, jsonify, flash, redirect, url_for, send_from_directory
+from flask import Blueprint, render_template, request, jsonify, flash, redirect, url_for, send_file, abort
 from flask_login import login_required, current_user
 from ..extensions import db
+from shared.tenancy import scoped_get_404, get_member, current_company_id
 from ..models.digital_file import DigitalFile, FileCategory
 from ..models.user import User
 from ..models.attendance import Attendance
@@ -16,9 +17,33 @@ df_bp = Blueprint("digital_files", __name__, url_prefix="/digital-files")
 
 
 def _ensure_upload_dir():
-    d = Config.UPLOAD_FOLDER
+    """Per-company, per-user upload directory: uploads/<company_id>/<user_id>/.
+
+    Files live under the company's own subfolder so one company's admins can
+    never address another company's files from disk.
+    """
+    cid = current_company_id()
+    if cid is None:
+        raise RuntimeError("No active company for file upload")
+    d = os.path.join(Config.UPLOAD_FOLDER, str(cid), str(current_user.id))
     os.makedirs(d, exist_ok=True)
     return d
+
+
+def _resolve_path(f):
+    """Absolute path of a DigitalFile's blob.
+
+    Looks in the per-company folder first (uploads/<company_id>/<user_id>/);
+    falls back to the legacy flat folder (uploads/) so files uploaded before
+    multi-company keep working.
+    """
+    cid = f.company_id
+    if cid:
+        p = os.path.join(Config.UPLOAD_FOLDER, str(cid),
+                         str(f.user_id), f.filename)
+        if os.path.exists(p):
+            return p
+    return os.path.join(Config.UPLOAD_FOLDER, f.filename)
 
 
 @df_bp.route("/")
@@ -70,20 +95,23 @@ def upload():
 @df_bp.route("/download/<int:fid>")
 @login_required
 def download(fid):
-    f = DigitalFile.query.get_or_404(fid)
+    f = scoped_get_404(DigitalFile, fid)
     if f.user_id != current_user.id and not current_user.is_admin():
         flash("Access denied.", "danger")
         return redirect(url_for("digital_files.index"))
-    return send_from_directory(Config.UPLOAD_FOLDER, f.filename, download_name=f.original_name)
+    path = _resolve_path(f)
+    if not os.path.exists(path):
+        abort(404)
+    return send_file(path, download_name=f.original_name)
 
 
 @df_bp.route("/delete/<int:fid>", methods=["POST"])
 @login_required
 def delete(fid):
-    f = DigitalFile.query.get_or_404(fid)
+    f = scoped_get_404(DigitalFile, fid)
     if f.user_id != current_user.id and not current_user.is_admin():
         return jsonify({"error": "Access denied"}), 403
-    fpath = os.path.join(Config.UPLOAD_FOLDER, f.filename)
+    fpath = _resolve_path(f)
     if os.path.exists(fpath):
         os.remove(fpath)
     db.session.delete(f)
@@ -110,7 +138,7 @@ def admin():
 def verify(fid):
     if not current_user.is_admin():
         return jsonify({"error": "Access denied"}), 403
-    f = DigitalFile.query.get_or_404(fid)
+    f = scoped_get_404(DigitalFile, fid)
     f.is_verified = True
     f.verified_by = current_user.id
     f.verified_at = datetime.utcnow()
@@ -148,7 +176,7 @@ def profile(uid):
     if not current_user.is_admin() and current_user.id != uid:
         flash("Access denied.", "danger")
         return redirect(url_for("dashboard"))
-    emp = User.query.get_or_404(uid)
+    emp = get_member(uid) or abort(404)
     files = DigitalFile.query.filter_by(user_id=uid).order_by(DigitalFile.uploaded_at.desc()).all()
     attendance_count = Attendance.query.filter_by(user_id=uid).count()
     timesheet_count = TimesheetWeek.query.filter_by(user_id=uid, status="approved").count()

@@ -5,6 +5,7 @@ from ..extensions import db
 class PerformanceReview(db.Model):
     __tablename__ = "performance_reviews"
     id = db.Column(db.Integer, primary_key=True)
+    company_id = db.Column(db.Integer, index=True)
     user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
     reviewer_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
     review_period = db.Column(db.String(50), nullable=False)
@@ -27,6 +28,7 @@ class PerformanceReview(db.Model):
 class PerformanceGoal(db.Model):
     __tablename__ = "performance_goals"
     id = db.Column(db.Integer, primary_key=True)
+    company_id = db.Column(db.Integer, index=True)
     user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
     title = db.Column(db.String(200), nullable=False)
     description = db.Column(db.Text)
@@ -43,6 +45,7 @@ class PerformanceGoal(db.Model):
 class TimesheetMergedReport(db.Model):
     __tablename__ = "timesheet_merged_reports"
     id = db.Column(db.Integer, primary_key=True)
+    company_id = db.Column(db.Integer, index=True)
     user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
     period_start = db.Column(db.Date, nullable=False)
     period_end = db.Column(db.Date, nullable=False)

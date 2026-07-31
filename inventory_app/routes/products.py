@@ -4,6 +4,7 @@ from flask import Blueprint, render_template, redirect, url_for, flash, request,
 from flask_login import login_required, current_user
 from sqlalchemy import or_
 from ..extensions import db
+from shared.tenancy import scoped_get_404
 from ..models.product import InvProduct
 from ..models.category import InvCategory
 from ..models.unit import InvUnit
@@ -64,7 +65,7 @@ def create_product():
 def edit_product(id):
     if deny_page("products", "edit"):
         return redirect(url_for("inv_products.list_products"))
-    prod = InvProduct.query.get_or_404(id)
+    prod = scoped_get_404(InvProduct, id)
     if request.method == "POST":
         prod.sku = request.form["sku"]
         prod.name = request.form["name"]
@@ -91,7 +92,7 @@ def edit_product(id):
 def delete_product(id):
     if deny_page("products", "delete"):
         return redirect(url_for("inv_products.list_products"))
-    prod = InvProduct.query.get_or_404(id)
+    prod = scoped_get_404(InvProduct, id)
     if prod.po_items.count() > 0 or prod.so_items.count() > 0:
         flash("Cannot delete product with order history", "error")
     else:
@@ -104,7 +105,7 @@ def delete_product(id):
 @inv_prod_bp.route("/adjust-stock/<int:id>", methods=["GET", "POST"])
 @login_required
 def adjust_stock(id):
-    prod = InvProduct.query.get_or_404(id)
+    prod = scoped_get_404(InvProduct, id)
     if request.method == "POST":
         qty = request.form.get("quantity", 0, type=int)
         note = request.form.get("notes", "")

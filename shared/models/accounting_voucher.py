@@ -5,9 +5,14 @@ from shared.extensions import db
 
 class AccountingVoucher(db.Model):
     __tablename__ = "accounting_vouchers"
+    __table_args__ = (
+        db.UniqueConstraint("company_id", "voucher_number",
+                            name="uq_accounting_vouchers_voucher_number"),
+    )
     id = db.Column(db.Integer, primary_key=True)
+    company_id = db.Column(db.Integer, index=True)
     voucher_type = db.Column(db.String(10), nullable=False)
-    voucher_number = db.Column(db.String(50), unique=True, nullable=False)
+    voucher_number = db.Column(db.String(50), nullable=False)
     voucher_date = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
     cash_bank_account_id = db.Column(db.Integer, db.ForeignKey("chart_of_accounts.id"), nullable=True)
     notes = db.Column(db.Text)
@@ -28,6 +33,7 @@ class AccountingVoucher(db.Model):
 class AccountingVoucherLine(db.Model):
     __tablename__ = "accounting_voucher_lines"
     id = db.Column(db.Integer, primary_key=True)
+    company_id = db.Column(db.Integer, index=True)
     voucher_id = db.Column(db.Integer, db.ForeignKey("accounting_vouchers.id"), nullable=False)
     line_no = db.Column(db.Integer, nullable=False)
     account_id = db.Column(db.Integer, db.ForeignKey("chart_of_accounts.id"), nullable=False)

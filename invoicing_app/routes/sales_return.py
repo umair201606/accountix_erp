@@ -3,6 +3,7 @@ from flask_login import login_required, current_user
 from datetime import datetime
 
 from inventory_app.extensions import db
+from shared.tenancy import scoped_get, scoped_get_404
 from inventory_app.models.sales_return import InvSalesReturn, InvSalesReturnItem
 from inventory_app.models.invoice import InvInvoice, InvInvoiceItem
 from inventory_app.models.customer import InvCustomer
@@ -27,7 +28,7 @@ def next_return_number():
 @inv_sreturn_bp.route("/<int:id>")
 @login_required
 def return_form(id):
-    ret = InvSalesReturn.query.get(id) if id else None
+    ret = scoped_get(InvSalesReturn, id) if id else None
     approved_invoices = InvInvoice.query.filter_by(voucher_status="approved").order_by(
         InvInvoice.id.desc()
     ).all()
@@ -58,7 +59,7 @@ def api_invoice_detail(invoice_id):
         ).scalar()
 
         max_qty = orig.quantity - previously_returned
-        prod = InvProduct.query.get(orig.product_id) if orig.product_id else None
+        prod = scoped_get(InvProduct, orig.product_id) if orig.product_id else None
         # The cost this line left stock at. Shown so the user can see what the
         # return puts back, and stored on the line at approval.
         basis = original_issue_cost("SI", inv.id, orig.product_id) if orig.product_id else None
@@ -158,7 +159,7 @@ def save_return():
         return denied
 
     if ret_id:
-        ret = InvSalesReturn.query.get_or_404(ret_id)
+        ret = scoped_get_404(InvSalesReturn, ret_id)
         if ret.status == "approved":
             return jsonify({"ok": False, "error": "Cannot modify approved return"}), 400
     else:
@@ -231,7 +232,7 @@ def save_return():
                 returned_by_product.get(item.product_id, 0.0) + qty)
 
         if action == "approve" and item.product_id:
-            prod = InvProduct.query.get(item.product_id)
+            prod = scoped_get(InvProduct, item.product_id)
             if prod:
                 db.session.add(InvStockMovement(
                     product_id=item.product_id,
@@ -341,7 +342,7 @@ def unapprove_return(id):
     denied = deny_json("sales_returns", "approve")
     if denied:
         return denied
-    ret = InvSalesReturn.query.get_or_404(id)
+    ret = scoped_get_404(InvSalesReturn, id)
     if ret.status != "approved":
         return jsonify({"ok": False, "error": "Only approved returns can be unapproved"}), 400
 

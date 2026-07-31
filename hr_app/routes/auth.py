@@ -1,7 +1,8 @@
 from datetime import datetime
-from flask import Blueprint, render_template, redirect, url_for, request, flash, jsonify
+from flask import Blueprint, render_template, redirect, url_for, request, flash, jsonify, abort
 from flask_login import login_user, logout_user, login_required, current_user
 from ..extensions import db, csrf
+from shared.tenancy import get_member
 from ..models.user import User, Role
 from ..models.communication import Notification, NotificationRecipient
 
@@ -219,7 +220,7 @@ def user_add():
 def user_edit(uid):
     if not _can_manage_users():
         return redirect(url_for("dashboard"))
-    u = User.query.get_or_404(uid)
+    u = get_member(uid) or abort(404)
     if u.is_admin() and not current_user.is_admin():
         flash("Admin accounts are managed from ERP hub Settings.", "danger")
         return redirect(url_for("auth.user_list"))
@@ -257,7 +258,7 @@ def user_edit(uid):
 def user_delete(uid):
     if not _can_manage_users():
         return redirect(url_for("dashboard"))
-    u = User.query.get_or_404(uid)
+    u = get_member(uid) or abort(404)
     if u.id == current_user.id:
         flash("Cannot delete yourself.", "danger")
         return redirect(url_for("auth.user_list"))
@@ -277,7 +278,7 @@ def user_hr_rights(uid):
     Rights for other modules are assigned exclusively by admin in Settings."""
     if not _can_manage_users():
         return redirect(url_for("dashboard"))
-    u = User.query.get_or_404(uid)
+    u = get_member(uid) or abort(404)
     if u.is_admin():
         flash("Admin accounts are managed from ERP hub Settings.", "danger")
         return redirect(url_for("auth.user_list"))
@@ -311,7 +312,7 @@ def user_hr_rights(uid):
 def user_reset_password(uid):
     if not _require_admin():
         return redirect(url_for("dashboard"))
-    u = User.query.get_or_404(uid)
+    u = get_member(uid) or abort(404)
     new_pw = request.form.get("new_password", "")
     if len(new_pw) < 4:
         flash("Password must be at least 4 characters.", "danger")

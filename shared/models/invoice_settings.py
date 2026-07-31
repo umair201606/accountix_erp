@@ -4,6 +4,7 @@ from shared.extensions import db
 class InvoiceSettings(db.Model):
     __tablename__ = "invoice_settings"
     id = db.Column(db.Integer, primary_key=True)
+    company_id = db.Column(db.Integer, index=True)
     default_sales_tax_pct = db.Column(db.Float, default=0)
     default_further_tax_pct = db.Column(db.Float, default=0)
     default_withholding_tax_pct = db.Column(db.Float, default=0)
@@ -33,9 +34,15 @@ class InvoiceSettings(db.Model):
 
     @classmethod
     def get(cls):
-        s = cls.query.first()
+        from shared.tenancy import current_company_id
+        cid = current_company_id()
+        if cid is None:
+            # No active company (login page, boot): return an unsaved default
+            # rather than querying a tenant-scoped table (which fails closed).
+            return cls()
+        s = cls.query.filter_by(company_id=cid).first()
         if not s:
-            s = cls()
+            s = cls(company_id=cid)
             db.session.add(s)
             db.session.commit()
         return s
@@ -53,9 +60,14 @@ class ChargeLedgerDefault(db.Model):
     the goods) and an expense-only amount never reaches the counterparty.
     """
     __tablename__ = "charge_ledger_defaults"
+    __table_args__ = (
+        db.UniqueConstraint("company_id", "account_id",
+                            name="uq_charge_ledger_defaults_account_id"),
+    )
     id = db.Column(db.Integer, primary_key=True)
+    company_id = db.Column(db.Integer, index=True)
     account_id = db.Column(db.Integer, db.ForeignKey("chart_of_accounts.id"),
-                           nullable=False, unique=True)
+                           nullable=False)
     treatment = db.Column(db.String(10), default="bill")  # bill | absorb | expense
     st_taxable = db.Column(db.Boolean, default=True)
     wht_taxable = db.Column(db.Boolean, default=False)
@@ -83,9 +95,14 @@ class CategoryRevenueAccount(db.Model):
     system that configures none of this posts exactly as it did before.
     """
     __tablename__ = "category_revenue_accounts"
+    __table_args__ = (
+        db.UniqueConstraint("company_id", "category_id",
+                            name="uq_category_revenue_accounts_category_id"),
+    )
     id = db.Column(db.Integer, primary_key=True)
+    company_id = db.Column(db.Integer, index=True)
     category_id = db.Column(db.Integer, db.ForeignKey("inv_categories.id"),
-                            nullable=False, unique=True)
+                            nullable=False)
     account_id = db.Column(db.Integer, db.ForeignKey("chart_of_accounts.id"),
                            nullable=False)
 
@@ -104,8 +121,13 @@ class TaxRateAccount(db.Model):
     fall back to the single global Output Sales Tax account.
     """
     __tablename__ = "tax_rate_accounts"
+    __table_args__ = (
+        db.UniqueConstraint("company_id", "rate_pct",
+                            name="uq_tax_rate_accounts_rate_pct"),
+    )
     id = db.Column(db.Integer, primary_key=True)
-    rate_pct = db.Column(db.Float, nullable=False, unique=True)
+    company_id = db.Column(db.Integer, index=True)
+    rate_pct = db.Column(db.Float, nullable=False)
     account_id = db.Column(db.Integer, db.ForeignKey("chart_of_accounts.id"),
                            nullable=False)
 

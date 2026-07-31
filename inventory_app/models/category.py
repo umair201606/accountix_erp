@@ -5,6 +5,7 @@ from ..extensions import db
 class InvCategory(db.Model):
     __tablename__ = "inv_categories"
     id = db.Column(db.Integer, primary_key=True)
+    company_id = db.Column(db.Integer, index=True)
     name = db.Column(db.String(100), nullable=False)
     description = db.Column(db.Text)
     parent_id = db.Column(db.Integer, db.ForeignKey("inv_categories.id"))

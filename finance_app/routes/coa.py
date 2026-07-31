@@ -4,6 +4,7 @@ from shared.extensions import db
 from shared.models.ledger import ChartOfAccount, JournalLine
 from shared.models.company_settings import PL_SECTIONS
 from shared.coa import next_child_code
+from shared.tenancy import scoped_get, scoped_get_404
 
 coa_bp = Blueprint("coa", __name__, url_prefix="/accounting/coa",
                    template_folder="../../finance_app/templates")
@@ -57,7 +58,7 @@ def add_account():
         if not name:
             flash("Account name is required.", "error")
             return redirect(url_for("coa.add_account"))
-        parent = ChartOfAccount.query.get(parent_id) if parent_id else None
+        parent = scoped_get(ChartOfAccount, parent_id) if parent_id else None
         if not parent:
             flash("Parent account is required.", "error")
             return redirect(url_for("coa.add_account"))
@@ -91,7 +92,7 @@ def add_account():
 @coa_bp.route("/<int:id>/edit", methods=["GET", "POST"])
 @login_required
 def edit_account(id):
-    acct = ChartOfAccount.query.get_or_404(id)
+    acct = scoped_get_404(ChartOfAccount, id)
     if request.method == "POST":
         # Fixed structural accounts keep name/code, but tags stay editable so
         # reports can be tuned without unlocking the tree.
@@ -115,7 +116,7 @@ def edit_account(id):
 @coa_bp.route("/<int:id>/delete", methods=["POST"])
 @login_required
 def delete_account(id):
-    acct = ChartOfAccount.query.get_or_404(id)
+    acct = scoped_get_404(ChartOfAccount, id)
     if not acct.can_delete():
         if acct.is_fixed:
             flash(f"\"{acct.name}\" is a fixed account and cannot be deleted.", "error")
@@ -152,7 +153,7 @@ def api_children():
 @login_required
 def api_next_code():
     parent_id = request.args.get("parent_id", type=int)
-    parent = ChartOfAccount.query.get(parent_id) if parent_id else None
+    parent = scoped_get(ChartOfAccount, parent_id) if parent_id else None
     if parent is None or parent.level >= 5:
         return jsonify({"code": ""})
     return jsonify({"code": next_child_code(parent), "level": parent.level + 1,

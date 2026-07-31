@@ -455,3 +455,62 @@ def test_designs_and_accents_are_well_formed():
         assert key and label and desc
     for hex_code, name in ACCENT_PRESETS:
         assert re.fullmatch(r"#[0-9a-f]{6}", hex_code), hex_code
+
+
+# ─────────────────────────────────────────────
+# Money on the invoice reads the same as money everywhere else
+#
+# The invoice document used to format its own figures: the print routes wrote
+# f"{v:.2f}" (no thousands separator at all) while this module wrote f"{v:,.2f}"
+# (grouped, western only). So one document could show 881760.00 in the totals
+# panel and 881,760.00 in the items table, and neither honoured a company set
+# to Indian grouping. Both now go through shared.formatting.format_amount.
+# ─────────────────────────────────────────────
+
+def _cells(html):
+    """The text inside every <td> of a rendered table."""
+    return re.findall(r"<td[^>]*>([^<]*)</td>", html)
+
+
+@pytest.mark.parametrize("doc_type", DOC_TYPES)
+def test_invoice_money_is_grouped_in_thousands(doc_type):
+    """The defect: the live print routes emitted 881760.00, ungrouped."""
+    ctx = sample_context(doc_type)
+    assert ctx["grand_total"] == "881,760.00"
+    assert ctx["subtotal"] == "760,000.00"
+
+
+@pytest.mark.parametrize("doc_type", DOC_TYPES)
+def test_items_table_and_totals_panel_use_one_convention(doc_type):
+    """Both halves of the same document must group money the same way."""
+    from shared.models.invoice_template import _sample_items_table
+    from shared.models.invoice_template import default_options
+
+    table = _sample_items_table(doc_type, default_options(doc_type))
+    money = [c for c in _cells(table)
+             if re.fullmatch(r"[\d,]+\.\d{2}", c or "")]
+    assert money, "the items table should contain money cells"
+    # A figure of four digits or more must carry a separator, exactly as the
+    # totals panel does.
+    big = [c for c in money if len(c.split(".")[0].replace(",", "")) > 3]
+    assert big, "sample data should include a figure above 999"
+    for cell in big:
+        assert "," in cell, f"{cell} is not grouped like the totals panel"
+
+
+def test_invoice_money_follows_the_company_number_format(monkeypatch):
+    """A company set to Indian grouping gets it on the invoice too, not just
+    on the finance reports."""
+    import shared.formatting as fmt
+    monkeypatch.setattr(fmt, "company_number_format", lambda default=None: fmt.INDIAN)
+    ctx = sample_context("sales")
+    # 881760 -> 8,81,760.00 in Indian grouping, not 881,760.00
+    assert ctx["grand_total"] == "8,81,760.00"
+
+
+def test_invoice_negatives_use_accounting_brackets():
+    """A credit line prints (1,234.50), the convention the reports and the
+    spreadsheet already use — never a bare minus."""
+    from shared.formatting import format_amount
+    assert format_amount(-1234.5) == "(1,234.50)"
+    assert "-" not in format_amount(-1234.5)

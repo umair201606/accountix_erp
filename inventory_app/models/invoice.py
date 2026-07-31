@@ -4,9 +4,16 @@ from ..extensions import db
 
 class InvInvoice(db.Model):
     __tablename__ = "inv_invoices"
+    __table_args__ = (
+        db.UniqueConstraint("company_id", "invoice_number",
+                            name="uq_inv_invoices_invoice_number"),
+        db.UniqueConstraint("company_id", "voucher_number",
+                            name="uq_inv_invoices_voucher_number"),
+    )
     id = db.Column(db.Integer, primary_key=True)
-    invoice_number = db.Column(db.String(50), unique=True, nullable=False)
-    voucher_number = db.Column(db.String(50), unique=True, nullable=False)
+    company_id = db.Column(db.Integer, index=True)
+    invoice_number = db.Column(db.String(50), nullable=False)
+    voucher_number = db.Column(db.String(50), nullable=False)
     sales_order_id = db.Column(db.Integer, db.ForeignKey("inv_sales_orders.id"))
     customer_id = db.Column(db.Integer, db.ForeignKey("inv_customers.id"), nullable=False)
     # Set when settings allow picking an arbitrary ledger account as the
@@ -59,6 +66,7 @@ class InvInvoice(db.Model):
 class InvInvoiceItem(db.Model):
     __tablename__ = "inv_invoice_items"
     id = db.Column(db.Integer, primary_key=True)
+    company_id = db.Column(db.Integer, index=True)
     invoice_id = db.Column(db.Integer, db.ForeignKey("inv_invoices.id"), nullable=False)
     product_id = db.Column(db.Integer, db.ForeignKey("inv_products.id"))
     description = db.Column(db.String(300))

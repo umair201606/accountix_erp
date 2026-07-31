@@ -75,14 +75,19 @@ def register_hr_blueprints(app):
     def inject_notifications():
         ctx = {}
         if current_user.is_authenticated:
-            from .models.communication import NotificationRecipient
-            unread_count = NotificationRecipient.query.filter_by(
-                user_id=current_user.id, is_read=False
-            ).count()
-            recent_notifs = NotificationRecipient.query.filter_by(
-                user_id=current_user.id, is_read=False
-            ).order_by(NotificationRecipient.id.desc()).limit(5).all()
-            ctx.update({"unread_count": unread_count, "recent_notifications": recent_notifs})
+            from shared.tenancy import current_company_id
+            # NotificationRecipient is tenant-scoped; a user with no active
+            # company (no memberships) would otherwise trip the fail-closed
+            # tenancy hook and 500 every page render.
+            if current_company_id() is not None:
+                from .models.communication import NotificationRecipient
+                unread_count = NotificationRecipient.query.filter_by(
+                    user_id=current_user.id, is_read=False
+                ).count()
+                recent_notifs = NotificationRecipient.query.filter_by(
+                    user_id=current_user.id, is_read=False
+                ).order_by(NotificationRecipient.id.desc()).limit(5).all()
+                ctx.update({"unread_count": unread_count, "recent_notifications": recent_notifs})
         return ctx
 
     @app.context_processor

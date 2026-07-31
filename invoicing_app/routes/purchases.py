@@ -2,6 +2,7 @@ from flask import Blueprint, render_template, redirect, url_for, flash, request,
 from flask_login import login_required, current_user
 from datetime import date, datetime
 from inventory_app.extensions import db
+from shared.tenancy import scoped_get, scoped_get_404
 from inventory_app.models.purchase_order import InvPurchaseOrder, InvPurchaseOrderItem
 from inventory_app.models.supplier import InvSupplier
 from inventory_app.models.product import InvProduct
@@ -25,7 +26,7 @@ def next_po_number():
 @inv_pur_bp.route("/<int:id>")
 @login_required
 def purchase_form(id):
-    order = InvPurchaseOrder.query.get(id) if id else None
+    order = scoped_get(InvPurchaseOrder, id) if id else None
     suppliers = InvSupplier.query.filter_by(is_active=True).order_by(InvSupplier.name).all()
     products = InvProduct.query.filter_by(is_active=True).order_by(InvProduct.name).all()
     order_items = []
@@ -76,7 +77,7 @@ def save_purchase():
         return denied
 
     if order_id:
-        order = InvPurchaseOrder.query.get_or_404(order_id)
+        order = scoped_get_404(InvPurchaseOrder, order_id)
         if order.status == "approved":
             return jsonify({"ok": False, "error": "Cannot modify approved order"}), 400
     else:
@@ -151,7 +152,7 @@ def unapprove_purchase(id):
     denied = deny_json("purchase_orders", "approve")
     if denied:
         return denied
-    order = InvPurchaseOrder.query.get_or_404(id)
+    order = scoped_get_404(InvPurchaseOrder, id)
     if order.status != "approved":
         return jsonify({"ok": False, "error": "Only approved orders can be unapproved"}), 400
     order.status = "unapproved"
@@ -167,7 +168,7 @@ def delete_purchase(id):
     denied = deny_json("purchase_orders", "delete")
     if denied:
         return denied
-    order = InvPurchaseOrder.query.get_or_404(id)
+    order = scoped_get_404(InvPurchaseOrder, id)
     if order.status == "approved":
         return jsonify({"ok": False, "error": "Cannot delete approved order. Unapprove first."}), 400
     try:
@@ -197,12 +198,12 @@ def list_purchases():
 def receive_purchase(id):
     if deny_page("purchase_orders", "approve"):
         return redirect(url_for("inv_purchases.list_purchases"))
-    po = InvPurchaseOrder.query.get_or_404(id)
+    po = scoped_get_404(InvPurchaseOrder, id)
     if po.status in ("received", "cancelled"):
         flash("Order already received or cancelled", "error")
     else:
         for item in po.items.all():
-            prod = InvProduct.query.get(item.product_id)
+            prod = scoped_get(InvProduct, item.product_id)
             if prod:
                 prod.current_stock += item.quantity
                 db.session.add(InvStockMovement(
@@ -224,7 +225,7 @@ def receive_purchase(id):
 def cancel_purchase(id):
     if deny_page("purchase_orders", "edit"):
         return redirect(url_for("inv_purchases.list_purchases"))
-    order = InvPurchaseOrder.query.get_or_404(id)
+    order = scoped_get_404(InvPurchaseOrder, id)
     order.status = "cancelled"
     db.session.commit()
     flash(f"PO {order.po_number} cancelled", "warning")

@@ -3,6 +3,7 @@ from decimal import Decimal
 from flask import Blueprint, render_template, request, jsonify
 from flask_login import login_required, current_user
 from shared.extensions import db
+from shared.tenancy import scoped_get
 from shared.models.stock_ledger import StockLedger
 from ..models.product import InvProduct
 from ..models.stock_movement import InvStockMovement
@@ -18,7 +19,7 @@ def stock_ledger_report():
 
     if product_id:
         entries = StockLedger.query.filter_by(product_id=product_id).order_by(StockLedger.id).all()
-        product = InvProduct.query.get(product_id)
+        product = scoped_get(InvProduct, product_id)
     else:
         entries = []
         product = None

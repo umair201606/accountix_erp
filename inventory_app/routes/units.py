@@ -4,6 +4,7 @@ from flask import Blueprint, render_template, redirect, url_for, flash, request,
 from flask_login import login_required
 from sqlalchemy import or_
 from ..extensions import db
+from shared.tenancy import scoped_get_404
 from ..models.unit import InvUnit
 
 inv_units_bp = Blueprint("inv_units", __name__, url_prefix="/inventory/units")
@@ -80,7 +81,7 @@ def create_unit():
 @inv_units_bp.route("/edit/<int:id>", methods=["GET", "POST"])
 @login_required
 def edit_unit(id):
-    unit = InvUnit.query.get_or_404(id)
+    unit = scoped_get_404(InvUnit, id)
     if request.method == "POST":
         name = request.form["name"].strip()
         abbreviation = request.form["abbreviation"].strip()
@@ -110,7 +111,7 @@ def edit_unit(id):
 @inv_units_bp.route("/delete/<int:id>")
 @login_required
 def delete_unit(id):
-    unit = InvUnit.query.get_or_404(id)
+    unit = scoped_get_404(InvUnit, id)
     db.session.delete(unit)
     db.session.commit()
     flash(f"Unit '{unit.name}' deleted.", "success")

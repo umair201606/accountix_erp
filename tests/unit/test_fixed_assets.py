@@ -17,6 +17,7 @@ HR_PROJECT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(HR_PROJECT))
 
 from shared.extensions import db  # noqa: E402
+import shared.tenancy  # noqa: E402,F401  (registers the scoping listener)
 
 
 @pytest.fixture
@@ -27,6 +28,7 @@ def app():
     db.init_app(application)
 
     import shared.models.ledger  # noqa: F401
+    import shared.models.company  # noqa: F401  (companies + memberships: FK targets)
     import shared.models.stock_ledger  # noqa: F401
     import shared.models.stock_layer  # noqa: F401
     import shared.models.company_settings  # noqa: F401
@@ -37,8 +39,18 @@ def app():
     import inventory_app.models.product  # noqa: F401
     import fixed_assets_app.models.asset  # noqa: F401
 
+    shared.tenancy._reset_registry()
+
     with application.app_context():
         db.create_all()
+        from shared.models.company import Company
+        from shared.tenancy import set_current_company, unscoped
+        with unscoped():
+            default = Company(name="Unit Test Co", slug="unit-default",
+                              is_active=True)
+            db.session.add(default)
+            db.session.commit()
+        set_current_company(default.id)
         from shared.coa import seed_fixed_tree
         seed_fixed_tree()
         from shared.models.inventory_settings import InventorySettings

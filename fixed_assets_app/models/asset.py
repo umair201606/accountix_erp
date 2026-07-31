@@ -4,8 +4,13 @@ from shared.extensions import db
 
 class AssetCategory(db.Model):
     __tablename__ = "fa_categories"
+    __table_args__ = (
+        db.UniqueConstraint("company_id", "name",
+                            name="uq_fa_categories_name"),
+    )
     id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(100), nullable=False, unique=True)
+    company_id = db.Column(db.Integer, index=True)
+    name = db.Column(db.String(100), nullable=False)
     description = db.Column(db.Text, default="")
     default_useful_life = db.Column(db.Integer, default=5)
     default_depreciation_method = db.Column(db.String(20), default="straight_line")
@@ -40,8 +45,13 @@ class AssetCategory(db.Model):
 
 class FixedAsset(db.Model):
     __tablename__ = "fixed_assets"
+    __table_args__ = (
+        db.UniqueConstraint("company_id", "asset_code",
+                            name="uq_fixed_assets_asset_code"),
+    )
     id = db.Column(db.Integer, primary_key=True)
-    asset_code = db.Column(db.String(50), unique=True, nullable=False)
+    company_id = db.Column(db.Integer, index=True)
+    asset_code = db.Column(db.String(50), nullable=False)
     name = db.Column(db.String(200), nullable=False)
     description = db.Column(db.Text, default="")
     category_id = db.Column(db.Integer, db.ForeignKey("fa_categories.id"), nullable=False)
@@ -151,6 +161,7 @@ class FixedAsset(db.Model):
 class AssetDepreciation(db.Model):
     __tablename__ = "asset_depreciation"
     id = db.Column(db.Integer, primary_key=True)
+    company_id = db.Column(db.Integer, index=True)
     asset_id = db.Column(db.Integer, db.ForeignKey("fixed_assets.id"), nullable=False)
     entry_date = db.Column(db.Date, nullable=False)
     amount = db.Column(db.Float, nullable=False, default=0)

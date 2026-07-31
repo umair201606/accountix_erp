@@ -4,8 +4,13 @@ from ..extensions import db
 
 class InvPurchaseReturn(db.Model):
     __tablename__ = "inv_purchase_returns"
+    __table_args__ = (
+        db.UniqueConstraint("company_id", "return_number",
+                            name="uq_inv_purchase_returns_return_number"),
+    )
     id = db.Column(db.Integer, primary_key=True)
-    return_number = db.Column(db.String(50), unique=True, nullable=False)
+    company_id = db.Column(db.Integer, index=True)
+    return_number = db.Column(db.String(50), nullable=False)
     original_invoice_id = db.Column(db.Integer, db.ForeignKey("inv_purchase_invoices.id"), nullable=False)
     supplier_id = db.Column(db.Integer, db.ForeignKey("inv_suppliers.id"), nullable=False)
     return_date = db.Column(db.DateTime, default=datetime.utcnow)
@@ -36,6 +41,7 @@ class InvPurchaseReturn(db.Model):
 class InvPurchaseReturnItem(db.Model):
     __tablename__ = "inv_purchase_return_items"
     id = db.Column(db.Integer, primary_key=True)
+    company_id = db.Column(db.Integer, index=True)
     return_id = db.Column(db.Integer, db.ForeignKey("inv_purchase_returns.id"), nullable=False)
     product_id = db.Column(db.Integer, db.ForeignKey("inv_products.id"))
     description = db.Column(db.String(300))

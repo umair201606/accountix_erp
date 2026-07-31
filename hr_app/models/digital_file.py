@@ -4,14 +4,20 @@ from ..extensions import db
 
 class FileCategory(db.Model):
     __tablename__ = "file_categories"
+    __table_args__ = (
+        db.UniqueConstraint("company_id", "name",
+                            name="uq_file_categories_name"),
+    )
     id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(100), unique=True, nullable=False)
+    company_id = db.Column(db.Integer, index=True)
+    name = db.Column(db.String(100), nullable=False)
     description = db.Column(db.Text)
 
 
 class DigitalFile(db.Model):
     __tablename__ = "digital_files"
     id = db.Column(db.Integer, primary_key=True)
+    company_id = db.Column(db.Integer, index=True)
     user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
     category_id = db.Column(db.Integer, db.ForeignKey("file_categories.id"))
     title = db.Column(db.String(200), nullable=False)

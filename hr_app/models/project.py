@@ -4,9 +4,14 @@ from ..extensions import db
 
 class Project(db.Model):
     __tablename__ = "projects"
+    __table_args__ = (
+        db.UniqueConstraint("company_id", "code",
+                            name="uq_projects_code"),
+    )
     id = db.Column(db.Integer, primary_key=True)
+    company_id = db.Column(db.Integer, index=True)
     name = db.Column(db.String(200), nullable=False)
-    code = db.Column(db.String(20), unique=True)
+    code = db.Column(db.String(20))
     description = db.Column(db.Text)
     department = db.Column(db.String(100))
     project_manager_id = db.Column(db.Integer, db.ForeignKey("users.id"))
@@ -23,6 +28,7 @@ class Project(db.Model):
 class WorkPackage(db.Model):
     __tablename__ = "work_packages"
     id = db.Column(db.Integer, primary_key=True)
+    company_id = db.Column(db.Integer, index=True)
     project_id = db.Column(db.Integer, db.ForeignKey("projects.id"), nullable=False)
     name = db.Column(db.String(200), nullable=False)
     code = db.Column(db.String(20))
@@ -37,6 +43,7 @@ class WorkPackage(db.Model):
 class ProjectTask(db.Model):
     __tablename__ = "project_tasks"
     id = db.Column(db.Integer, primary_key=True)
+    company_id = db.Column(db.Integer, index=True)
     work_package_id = db.Column(db.Integer, db.ForeignKey("work_packages.id"), nullable=False)
     name = db.Column(db.String(200), nullable=False)
     description = db.Column(db.Text)

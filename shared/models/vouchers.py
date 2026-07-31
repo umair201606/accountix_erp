@@ -4,8 +4,13 @@ from shared.extensions import db
 
 class ConsumptionVoucher(db.Model):
     __tablename__ = "consumption_vouchers"
+    __table_args__ = (
+        db.UniqueConstraint("company_id", "voucher_number",
+                            name="uq_consumption_vouchers_voucher_number"),
+    )
     id = db.Column(db.Integer, primary_key=True)
-    voucher_number = db.Column(db.String(50), unique=True, nullable=False)
+    company_id = db.Column(db.Integer, index=True)
+    voucher_number = db.Column(db.String(50), nullable=False)
     date = db.Column(db.DateTime, default=datetime.utcnow)
     department = db.Column(db.String(100))
     reason = db.Column(db.Text)
@@ -25,6 +30,7 @@ class ConsumptionVoucher(db.Model):
 class ConsumptionItem(db.Model):
     __tablename__ = "consumption_items"
     id = db.Column(db.Integer, primary_key=True)
+    company_id = db.Column(db.Integer, index=True)
     voucher_id = db.Column(db.Integer, db.ForeignKey("consumption_vouchers.id"), nullable=False)
     product_id = db.Column(db.Integer, nullable=False)
     product_name = db.Column(db.String(200))
@@ -35,8 +41,13 @@ class ConsumptionItem(db.Model):
 
 class ScrapVoucher(db.Model):
     __tablename__ = "scrap_vouchers"
+    __table_args__ = (
+        db.UniqueConstraint("company_id", "voucher_number",
+                            name="uq_scrap_vouchers_voucher_number"),
+    )
     id = db.Column(db.Integer, primary_key=True)
-    voucher_number = db.Column(db.String(50), unique=True, nullable=False)
+    company_id = db.Column(db.Integer, index=True)
+    voucher_number = db.Column(db.String(50), nullable=False)
     date = db.Column(db.DateTime, default=datetime.utcnow)
     reason = db.Column(db.Text)
     # Account debited with the scrapped value — scrap loss by default, or a
@@ -55,6 +66,7 @@ class ScrapVoucher(db.Model):
 class ScrapItem(db.Model):
     __tablename__ = "scrap_items"
     id = db.Column(db.Integer, primary_key=True)
+    company_id = db.Column(db.Integer, index=True)
     voucher_id = db.Column(db.Integer, db.ForeignKey("scrap_vouchers.id"), nullable=False)
     product_id = db.Column(db.Integer, nullable=False)
     product_name = db.Column(db.String(200))
@@ -65,8 +77,13 @@ class ScrapItem(db.Model):
 
 class StockAdjustmentVoucher(db.Model):
     __tablename__ = "stock_adjustment_vouchers"
+    __table_args__ = (
+        db.UniqueConstraint("company_id", "voucher_number",
+                            name="uq_stock_adjustment_vouchers_voucher_number"),
+    )
     id = db.Column(db.Integer, primary_key=True)
-    voucher_number = db.Column(db.String(50), unique=True, nullable=False)
+    company_id = db.Column(db.Integer, index=True)
+    voucher_number = db.Column(db.String(50), nullable=False)
     date = db.Column(db.DateTime, default=datetime.utcnow)
     reason = db.Column(db.Text)
     status = db.Column(db.String(20), default="unapproved")
@@ -82,6 +99,7 @@ class StockAdjustmentVoucher(db.Model):
 class StockAdjustmentItem(db.Model):
     __tablename__ = "stock_adjustment_items"
     id = db.Column(db.Integer, primary_key=True)
+    company_id = db.Column(db.Integer, index=True)
     voucher_id = db.Column(db.Integer, db.ForeignKey("stock_adjustment_vouchers.id"), nullable=False)
     product_id = db.Column(db.Integer, nullable=False)
     product_name = db.Column(db.String(200))
@@ -94,8 +112,13 @@ class StockAdjustmentItem(db.Model):
 
 class StockTake(db.Model):
     __tablename__ = "stock_takes"
+    __table_args__ = (
+        db.UniqueConstraint("company_id", "reference",
+                            name="uq_stock_takes_reference"),
+    )
     id = db.Column(db.Integer, primary_key=True)
-    reference = db.Column(db.String(50), unique=True, nullable=False)
+    company_id = db.Column(db.Integer, index=True)
+    reference = db.Column(db.String(50), nullable=False)
     date = db.Column(db.DateTime, default=datetime.utcnow)
     location = db.Column(db.String(100))
     status = db.Column(db.String(20), default="in_progress")
@@ -113,6 +136,7 @@ class StockTake(db.Model):
 class StockTakeItem(db.Model):
     __tablename__ = "stock_take_items"
     id = db.Column(db.Integer, primary_key=True)
+    company_id = db.Column(db.Integer, index=True)
     stock_take_id = db.Column(db.Integer, db.ForeignKey("stock_takes.id"), nullable=False)
     product_id = db.Column(db.Integer, nullable=False)
     product_name = db.Column(db.String(200))

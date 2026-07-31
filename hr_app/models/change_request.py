@@ -5,6 +5,7 @@ from shared.extensions import db
 class ChangeRequest(db.Model):
     __tablename__ = "change_requests"
     id = db.Column(db.Integer, primary_key=True)
+    company_id = db.Column(db.Integer, index=True)
     user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
     field_name = db.Column(db.String(100), nullable=False)
     old_value = db.Column(db.Text)

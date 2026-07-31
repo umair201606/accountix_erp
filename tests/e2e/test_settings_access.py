@@ -72,12 +72,14 @@ def test_employee_has_no_finance_or_admin_access(seeded):
 
 # ── Section visibility ──────────────────────────────────────────────────────
 
-def test_employee_sees_only_account_section(seeded):
+def test_employee_sees_account_and_invites_sections(seeded):
+    """Every user sees My Account + Invitations; only module-gated sections
+    are hidden from a plain employee."""
     from shared.models.base import User
     from shared.routes.settings import visible_sections
     with flask_app.app_context():
         u = User.query.filter(User.email.ilike("emp@solarkon.com")).first()
-        assert [s["key"] for s in visible_sections(u)] == ["account"]
+        assert [s["key"] for s in visible_sections(u)] == ["account", "invites"]
 
 
 def test_admin_sees_every_section(seeded):
@@ -109,17 +111,33 @@ def test_employee_cannot_rewrite_company_profile(employee):
         assert CompanyInfo.get().company_name == before
 
 
+def _company_id():
+    """The seeded default company (memberships/tenancy scoping)."""
+    from shared.models.company import Company
+    with flask_app.app_context():
+        return Company.query.filter_by(slug="default").first().id
+
+
+def _company_info_name():
+    """Read CompanyInfo inside the default company's context."""
+    from shared.models.company_settings import CompanyInfo
+    from shared.tenancy import set_current_company
+    with flask_app.app_context():
+        set_current_company(_company_id())
+        return CompanyInfo.get().company_name
+
+
 def test_admin_can_rewrite_company_profile(admin):
     from shared.extensions import db
     from shared.models.company_settings import CompanyInfo
-    with flask_app.app_context():
-        original = CompanyInfo.get().company_name
+    from shared.tenancy import set_current_company
+    original = _company_info_name()
     try:
         admin.post("/settings/company", data={"company_name": "Acme Solar Ltd"})
-        with flask_app.app_context():
-            assert CompanyInfo.get().company_name == "Acme Solar Ltd"
+        assert _company_info_name() == "Acme Solar Ltd"
     finally:
         with flask_app.app_context():
+            set_current_company(_company_id())
             CompanyInfo.get().company_name = original
             db.session.commit()
 

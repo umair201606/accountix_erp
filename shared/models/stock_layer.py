@@ -32,6 +32,7 @@ class StockLayer(db.Model):
     __tablename__ = "stock_layers"
 
     id = db.Column(db.Integer, primary_key=True)
+    company_id = db.Column(db.Integer, index=True)
     product_id = db.Column(db.Integer, nullable=False, index=True)
     # The IN row that opened this layer. Null for layers created by a
     # revaluation (a method switch collapses/carries value, it receives none).
@@ -66,6 +67,7 @@ class LayerConsumption(db.Model):
     __tablename__ = "layer_consumptions"
 
     id = db.Column(db.Integer, primary_key=True)
+    company_id = db.Column(db.Integer, index=True)
     layer_id = db.Column(db.Integer, db.ForeignKey("stock_layers.id"), nullable=False, index=True)
     out_ledger_id = db.Column(db.Integer, db.ForeignKey("stock_ledger.id"), nullable=False, index=True)
     product_id = db.Column(db.Integer, nullable=False, index=True)

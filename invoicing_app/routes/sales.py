@@ -2,6 +2,7 @@ from flask import Blueprint, render_template, redirect, url_for, flash, request,
 from flask_login import login_required, current_user
 from datetime import date, datetime
 from inventory_app.extensions import db
+from shared.tenancy import scoped_get, scoped_get_404
 from inventory_app.models.sales_order import InvSalesOrder, InvSalesOrderItem
 from inventory_app.models.customer import InvCustomer
 from inventory_app.models.product import InvProduct
@@ -26,7 +27,7 @@ def next_so_number():
 @inv_sale_bp.route("/<int:id>")
 @login_required
 def sale_form(id):
-    order = InvSalesOrder.query.get(id) if id else None
+    order = scoped_get(InvSalesOrder, id) if id else None
     customers = InvCustomer.query.filter_by(is_active=True).order_by(InvCustomer.name).all()
     products = InvProduct.query.filter_by(is_active=True).order_by(InvProduct.name).all()
     order_items = []
@@ -77,7 +78,7 @@ def save_sale():
         return denied
 
     if order_id:
-        order = InvSalesOrder.query.get_or_404(order_id)
+        order = scoped_get_404(InvSalesOrder, order_id)
         if order.status == "approved":
             return jsonify({"ok": False, "error": "Cannot modify approved order"}), 400
     else:
@@ -147,7 +148,7 @@ def unapprove_sale(id):
     denied = deny_json("sales_orders", "approve")
     if denied:
         return denied
-    order = InvSalesOrder.query.get_or_404(id)
+    order = scoped_get_404(InvSalesOrder, id)
     if order.status != "approved":
         return jsonify({"ok": False, "error": "Only approved orders can be unapproved"}), 400
     order.status = "unapproved"
@@ -163,7 +164,7 @@ def delete_sale(id):
     denied = deny_json("sales_orders", "delete")
     if denied:
         return denied
-    order = InvSalesOrder.query.get_or_404(id)
+    order = scoped_get_404(InvSalesOrder, id)
     if order.status == "approved":
         return jsonify({"ok": False, "error": "Cannot delete approved order. Unapprove first."}), 400
     try:
@@ -193,14 +194,14 @@ def list_sales():
 def deliver_sale(id):
     if deny_page("sales_orders", "approve"):
         return redirect(url_for("inv_sales.list_sales"))
-    so = InvSalesOrder.query.get_or_404(id)
+    so = scoped_get_404(InvSalesOrder, id)
     if so.status in ("delivered", "cancelled"):
         flash("Order already delivered or cancelled", "error")
         return redirect(url_for("inv_sales.list_sales"))
 
     insufficient = []
     for item in so.items.all():
-        prod = InvProduct.query.get(item.product_id)
+        prod = scoped_get(InvProduct, item.product_id)
         if prod and prod.current_stock < item.quantity:
             insufficient.append(f"{prod.name} (have {prod.current_stock}, need {item.quantity})")
 
@@ -209,7 +210,7 @@ def deliver_sale(id):
         return redirect(url_for("inv_sales.list_sales"))
 
     for item in so.items.all():
-        prod = InvProduct.query.get(item.product_id)
+        prod = scoped_get(InvProduct, item.product_id)
         if prod:
             prod.current_stock -= item.quantity
             db.session.add(InvStockMovement(
@@ -247,7 +248,7 @@ def deliver_sale(id):
 def cancel_sale(id):
     if deny_page("sales_orders", "edit"):
         return redirect(url_for("inv_sales.list_sales"))
-    order = InvSalesOrder.query.get_or_404(id)
+    order = scoped_get_404(InvSalesOrder, id)
     order.status = "cancelled"
     db.session.commit()
     flash(f"SO {order.so_number} cancelled", "warning")

@@ -2,6 +2,7 @@ from datetime import date, datetime, timedelta
 from flask import Blueprint, render_template, request, redirect, url_for, flash
 from flask_login import login_required, current_user
 from shared.extensions import db
+from shared.tenancy import scoped_get, scoped_get_404
 from shared.ledger_utils import (post_journal_entry, reverse_journal_entry,
                                  posting_account, create_fixed_asset_accounts)
 from ..models.asset import FixedAsset, AssetDepreciation
@@ -123,7 +124,7 @@ def reverse_asset_depreciation(dep_entry, created_by=1):
     what removes them from every total, so the audit trail survives and the
     period the charge covered simply becomes due again.
     """
-    asset = FixedAsset.query.get(dep_entry.asset_id)
+    asset = scoped_get(FixedAsset, dep_entry.asset_id)
     reverse_journal_entry("FA-DEP", dep_entry.id, created_by=created_by)
     if asset:
         asset.recalculate()
@@ -158,7 +159,7 @@ def post_depreciation():
     posted = 0
     errors = []
     for aid in asset_ids:
-        asset = FixedAsset.query.get(int(aid))
+        asset = scoped_get(FixedAsset, int(aid))
         if not asset or asset.status != "active":
             continue
         try:
@@ -181,7 +182,7 @@ def post_depreciation():
 def reverse_entry(dep_id):
     if not current_user.module_access("fixed_assets"):
         return render_template("access_denied.html")
-    dep_entry = AssetDepreciation.query.get_or_404(dep_id)
+    dep_entry = scoped_get_404(AssetDepreciation, dep_id)
     if not dep_entry.is_live:
         flash("That depreciation charge is already reversed.", "error")
         return redirect(url_for("fa_assets.view_asset", asset_id=dep_entry.asset_id))

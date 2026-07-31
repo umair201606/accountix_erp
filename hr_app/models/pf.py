@@ -5,6 +5,7 @@ from ..extensions import db
 class ProvidentFundConfig(db.Model):
     __tablename__ = "pf_config"
     id = db.Column(db.Integer, primary_key=True)
+    company_id = db.Column(db.Integer, index=True)
     employee_contribution_pct = db.Column(db.Float, default=5.0)
     employer_contribution_pct = db.Column(db.Float, default=5.0)
     max_loan_percentage = db.Column(db.Float, default=50.0)
@@ -17,6 +18,7 @@ class ProvidentFundConfig(db.Model):
 class PFContribution(db.Model):
     __tablename__ = "pf_contributions"
     id = db.Column(db.Integer, primary_key=True)
+    company_id = db.Column(db.Integer, index=True)
     user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
     month = db.Column(db.Integer, nullable=False)
     year = db.Column(db.Integer, nullable=False)
@@ -27,12 +29,15 @@ class PFContribution(db.Model):
 
     user = db.relationship("User", backref="pf_contributions")
 
-    __table_args__ = (db.UniqueConstraint("user_id", "month", "year", name="uq_pf_contribution"),)
+    __table_args__ = (db.UniqueConstraint("company_id", "user_id", "month",
+                                          "year",
+                                          name="uq_pf_contribution_company"),)
 
 
 class PFLedger(db.Model):
     __tablename__ = "pf_ledger"
     id = db.Column(db.Integer, primary_key=True)
+    company_id = db.Column(db.Integer, index=True)
     user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
     transaction_date = db.Column(db.Date, default=date.today, nullable=False)
     transaction_type = db.Column(db.String(30), nullable=False)
@@ -49,6 +54,7 @@ class PFLedger(db.Model):
 class PFWithdrawalRequest(db.Model):
     __tablename__ = "pf_withdrawal_requests"
     id = db.Column(db.Integer, primary_key=True)
+    company_id = db.Column(db.Integer, index=True)
     user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
     amount = db.Column(db.Float, nullable=False)
     reason = db.Column(db.Text, nullable=False)
@@ -65,6 +71,7 @@ class PFWithdrawalRequest(db.Model):
 class PFLoanRequest(db.Model):
     __tablename__ = "pf_loan_requests"
     id = db.Column(db.Integer, primary_key=True)
+    company_id = db.Column(db.Integer, index=True)
     user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
     amount = db.Column(db.Float, nullable=False)
     installment_months = db.Column(db.Integer, default=12)

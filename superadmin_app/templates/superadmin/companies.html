@@ -1,0 +1,72 @@
+{% extends "superadmin/base.html" %}
+{% block title %}Companies - Super Admin{% endblock %}
+{% block content %}
+<h2 style="margin:0 0 16px;font-size:20px;">Companies</h2>
+
+<div class="sa-card" style="margin-bottom:20px;">
+  <h3>Create Company</h3>
+  <p class="hint">Creates the company and makes the given email its admin. If the user does not exist yet they are created; the password is shown once in the confirmation.</p>
+  <form method="POST" action="{{ url_for('superadmin.companies') }}">
+    <div class="fgrid">
+      <div class="fgroup">
+        <label class="lbl">Company Name</label>
+        <input type="text" name="name" class="inp" required>
+      </div>
+      <div class="fgroup">
+        <label class="lbl">Slug</label>
+        <input type="text" name="slug" class="inp" required placeholder="acme-corp">
+      </div>
+      <div class="fgroup">
+        <label class="lbl">Plan</label>
+        <input type="text" name="plan_name" class="inp" value="free">
+      </div>
+      <div class="fgroup">
+        <label class="lbl">Admin User Email</label>
+        <input type="email" name="admin_email" class="inp" required>
+      </div>
+      <div class="fgroup">
+        <label class="lbl">Admin Full Name</label>
+        <input type="text" name="admin_name" class="inp" placeholder="only when creating a new user">
+      </div>
+      <div class="fgroup">
+        <label class="lbl">Admin Password</label>
+        <input type="text" name="password" class="inp" placeholder="only when creating a new user - random if blank">
+      </div>
+    </div>
+    <div class="sa-actions">
+      <button type="submit" class="btn btn-p">Create Company</button>
+    </div>
+  </form>
+</div>
+
+<div class="sa-card">
+  <h3>All Companies</h3>
+  <div class="tbl-scroll">
+    <table class="sa-tbl">
+      <thead>
+        <tr>
+          <th>Name</th><th>Slug</th><th>Plan</th><th>Active Members</th>
+          <th>Status</th><th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for c, mc in companies %}
+        <tr>
+          <td>{{ c.name }}</td>
+          <td><code>{{ c.slug }}</code></td>
+          <td>{{ c.plan_name or 'free' }}</td>
+          <td>{{ mc }}</td>
+          <td>
+            {% if c.is_active %}<span class="pill pill-on">active</span>
+            {% else %}<span class="pill pill-off">inactive</span>{% endif %}
+          </td>
+          <td><a class="btn btn-sm" href="{{ url_for('superadmin.company_edit', company_id=c.id) }}">Edit</a></td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6" style="text-align:center;color:#94a3b8;padding:24px;">No companies yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

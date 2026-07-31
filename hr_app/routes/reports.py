@@ -6,6 +6,7 @@ from flask_login import login_required, current_user
 from sqlalchemy import func, extract, case
 from sqlalchemy import text
 from ..extensions import db
+from shared.tenancy import get_member
 from ..models.user import User
 from ..models.attendance import Attendance
 from ..models.leave import LeaveRequest, LeaveType, LeaveQuota
@@ -26,7 +27,7 @@ def _require_admin():
 
 def _get_scope_users(scope, user_id=None, department=None):
     if scope == "individual" and user_id:
-        return [User.query.get(user_id)]
+        return [get_member(user_id)]
     elif scope == "department" and department:
         return User.employees().filter_by(department=department, is_active=True).all()
     else:
@@ -107,7 +108,7 @@ def query():
     columns = data.get("columns", ["employee", "total_hours", "leaves", "sick_days"])
     users = _get_scope_users(scope, user_id, department)
     if scope == "individual" and current_user.is_manager() and user_id:
-        emp = User.query.get(user_id)
+        emp = get_member(user_id)
         if emp and emp.manager_id != current_user.id and not current_user.is_admin():
             return jsonify({"error": "Not authorized for this employee"}), 403
     results = []

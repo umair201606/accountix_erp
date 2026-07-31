@@ -1,0 +1,29 @@
+{% extends "superadmin/base.html" %}
+{% block title %}Dashboard - Super Admin{% endblock %}
+{% block content %}
+<div class="sa-stats">
+  <div class="sa-stat"><div class="v">{{ company_count }}</div><div class="l">Companies</div></div>
+  <div class="sa-stat"><div class="v">{{ user_count }}</div><div class="l">Users</div></div>
+  <div class="sa-stat"><div class="v">{{ membership_count }}</div><div class="l">Memberships</div></div>
+</div>
+
+<div class="sa-card">
+  <h3>Global Limits</h3>
+  <p class="hint">Defaults applied to every company. A company's own max-members override wins for that company.</p>
+  <form method="POST" action="{{ url_for('superadmin.index') }}">
+    <div class="fgrid">
+      <div class="fgroup">
+        <label class="lbl">Max Companies Per User</label>
+        <input type="number" name="max_companies_per_user" class="inp" min="1" value="{{ limits.max_companies_per_user }}">
+      </div>
+      <div class="fgroup">
+        <label class="lbl">Default Max Members</label>
+        <input type="number" name="default_max_members" class="inp" min="1" value="{{ limits.default_max_members }}">
+      </div>
+    </div>
+    <div class="sa-actions">
+      <button type="submit" class="btn btn-p">Save Limits</button>
+    </div>
+  </form>
+</div>
+{% endblock %}

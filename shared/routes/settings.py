@@ -19,11 +19,13 @@ import re
 from datetime import date, datetime
 
 from flask import (Blueprint, render_template, request, redirect, url_for,
-                   flash, abort)
+                   flash, abort, session)
 from flask_login import login_required, current_user
 
 from shared.extensions import db
-from shared.models.base import User, UserPermission
+from shared.models.base import User, UserPermission, Role
+from shared.models.company import (Company, CompanyMembership,
+                                   CompanyInvitation, GlobalLimits)
 from shared.models.company_settings import (CompanyInfo, AccountingPeriod,
                                             FiscalYearRule, ReportSettings,
                                             PL_SECTIONS)
@@ -35,6 +37,7 @@ from shared.models.invoice_template import (
     sample_context, _STRING_OPTIONS, DISPLAY_CHOICES)
 from shared.models.ledger import ChartOfAccount
 from shared.permissions import MODULES, ACTIONS
+from shared.tenancy import current_company_id
 
 settings_bp = Blueprint("settings", __name__, url_prefix="/settings")
 
@@ -54,6 +57,8 @@ SECTIONS = [
     ("invoicing", "Invoice Defaults",  "&#128207;", lambda u: u.module_access("invoicing")),
     ("templates", "Invoice Templates", "&#128196;", lambda u: u.module_access("invoicing")),
     ("rights",    "Rights & Access",   "&#128273;", lambda u: u.is_admin()),
+    ("members",   "Members & Roles",   "&#128101;", lambda u: u.is_admin()),
+    ("invites",   "Invitations",       "&#9993;",   lambda u: True),
 ]
 _PREDICATE = {key: pred for key, _l, _i, pred in SECTIONS}
 
@@ -155,6 +160,10 @@ def index():
         ctx["modules"] = MODULES
         ctx["configured"] = {uid for (uid,) in
                              db.session.query(UserPermission.user_id).distinct()}
+    elif tab == "members":
+        ctx.update(_members_ctx())
+    elif tab == "invites":
+        ctx.update(_invites_ctx())
     return render_template("settings/index.html", **ctx)
 
 
@@ -810,3 +819,288 @@ def toggle_active(uid):
     db.session.commit()
     flash(f"{u.full_name} {'activated' if u.is_active else 'deactivated'}.", "success")
     return redirect(url_for("settings.index", tab="rights"))
+
+
+# ── Members & roles (company admin only) ────────────────────────────────────
+
+
+def _active_company():
+    cid = current_company_id()
+    return Company.query.get(cid) if cid else None
+
+
+def _member_roles():
+    return Role.query.filter(
+        Role.name.in_([Role.ADMIN, Role.MANAGER, Role.EMPLOYEE])
+    ).order_by(Role.id).all()
+
+
+def _role_names_by_id(role_ids):
+    names = {}
+    if role_ids:
+        for r in Role.query.filter(Role.id.in_(role_ids)).all():
+            names[r.id] = r.name
+    return names
+
+
+def _members_ctx():
+    cid = current_company_id()
+    company = _active_company()
+    if company is None:
+        return {"company": None, "members": [], "active_count": 0,
+                "member_limit": 0, "active_admins": 0, "admin_role_id": None,
+                "created_by_user_id": None, "member_roles": [],
+                "invitations": [], "inviter_names": {},
+                "inv_role_names": {}}
+    members = [(m, User.query.get(m.user_id))
+               for m in CompanyMembership.query
+               .filter_by(company_id=cid)
+               .order_by(CompanyMembership.status,
+                         CompanyMembership.joined_at).all()]
+    members.sort(key=lambda t: (t[0].status,
+                                (t[1].full_name if t[1] else "")))
+    admin_role = Role.query.filter_by(name=Role.ADMIN).first()
+    active_count = CompanyMembership.query.filter_by(
+        company_id=cid, status=CompanyMembership.ACTIVE).count()
+    active_admins = (CompanyMembership.query.filter_by(
+        company_id=cid, status=CompanyMembership.ACTIVE,
+        role_id=admin_role.id).count() if admin_role else 0)
+    invitations = CompanyInvitation.query.filter_by(
+        company_id=cid).order_by(CompanyInvitation.created_at.desc()).all()
+    inviter_names = {}
+    inviter_ids = {i.invited_by for i in invitations if i.invited_by}
+    if inviter_ids:
+        for u in User.query.filter(User.id.in_(inviter_ids)).all():
+            inviter_names[u.id] = u.full_name
+    return {"company": company, "members": members,
+            "active_count": active_count,
+            "member_limit": GlobalLimits.get().member_limit_for(company),
+            "active_admins": active_admins,
+            "admin_role_id": admin_role.id if admin_role else None,
+            "created_by_user_id": company.created_by,
+            "member_roles": _member_roles(),
+            "invitations": invitations,
+            "inviter_names": inviter_names,
+            "inv_role_names": _role_names_by_id(
+                {i.role_id for i in invitations})}
+
+
+@settings_bp.route("/members/")
+@login_required
+def members():
+    if not current_user.is_admin():
+        abort(403)
+    ctx = {"tab": "members", "sections": visible_sections(current_user),
+           "module_key": "settings"}
+    ctx.update(_members_ctx())
+    return render_template("settings/index.html", **ctx)
+
+
+@settings_bp.route("/members/<int:membership_id>/role", methods=["POST"])
+@login_required
+def member_role(membership_id):
+    if not current_user.is_admin():
+        abort(403)
+    back = redirect(url_for("settings.members"))
+    m = CompanyMembership.query.get_or_404(membership_id)
+    if m.company_id != current_company_id():
+        abort(404)
+    company = _active_company()
+    if m.status != CompanyMembership.ACTIVE:
+        flash("Only active members can have their role changed.", "error")
+        return back
+    if company is not None and m.user_id == company.created_by:
+        flash("The company owner's role is fixed and cannot be changed.", "error")
+        return back
+    if m.user_id == current_user.id:
+        flash("You cannot change your own role.", "error")
+        return back
+    role = Role.query.filter_by(name=request.form.get("role", "")).first()
+    if role is None or role.name not in (Role.ADMIN, Role.MANAGER,
+                                         Role.EMPLOYEE):
+        flash("Pick a valid role.", "error")
+        return back
+    u = User.query.get(m.user_id)
+    m.role_id = role.id
+    db.session.commit()
+    flash(f"Role of {u.full_name if u else 'member'} changed to "
+          f"{role.name.title()}.", "success")
+    return back
+
+
+@settings_bp.route("/members/<int:membership_id>/remove", methods=["POST"])
+@login_required
+def member_remove(membership_id):
+    if not current_user.is_admin():
+        abort(403)
+    back = redirect(url_for("settings.members"))
+    m = CompanyMembership.query.get_or_404(membership_id)
+    if m.company_id != current_company_id():
+        abort(404)
+    company = _active_company()
+    if company is not None and m.user_id == company.created_by:
+        flash("The company owner cannot be removed.", "error")
+        return back
+    admin_role = Role.query.filter_by(name=Role.ADMIN).first()
+    if m.status == CompanyMembership.ACTIVE and admin_role is not None:
+        active_admins = CompanyMembership.query.filter_by(
+            company_id=m.company_id, status=CompanyMembership.ACTIVE,
+            role_id=admin_role.id).count()
+        if m.role_id == admin_role.id and active_admins <= 1:
+            flash("Cannot remove the last active admin of the company.", "error")
+            return back
+    u = User.query.get(m.user_id)
+    m.status = CompanyMembership.REMOVED
+    db.session.commit()
+    flash(f"{u.full_name if u else 'Member'} removed from the company.",
+          "success")
+    return back
+
+
+@settings_bp.route("/members/<int:membership_id>/restore", methods=["POST"])
+@login_required
+def member_restore(membership_id):
+    if not current_user.is_admin():
+        abort(403)
+    back = redirect(url_for("settings.members"))
+    m = CompanyMembership.query.get_or_404(membership_id)
+    if m.company_id != current_company_id():
+        abort(404)
+    u = User.query.get(m.user_id)
+    db.session.delete(m)
+    db.session.commit()
+    flash(f"Removed membership of {u.full_name if u else 'member'} "
+          f"discarded.", "success")
+    return back
+
+
+@settings_bp.route("/invite", methods=["POST"])
+@login_required
+def invite():
+    if not current_user.is_admin():
+        abort(403)
+    back = redirect(url_for("settings.members"))
+    company = _active_company()
+    if company is None:
+        flash("No active company to invite into.", "error")
+        return back
+    email = request.form.get("email", "").strip().lower()
+    user = User.query.filter_by(email=email).first() if email else None
+    if user is None:
+        flash("No registered user has that email address.", "error")
+        return back
+    role = Role.query.filter_by(name=request.form.get("role", "")).first()
+    if role is None or role.name not in (Role.ADMIN, Role.MANAGER,
+                                         Role.EMPLOYEE):
+        flash("Pick a valid role.", "error")
+        return back
+    if CompanyMembership.query.filter_by(
+            company_id=company.id, user_id=user.id).first():
+        flash(f"{user.full_name} is already a member of this company.",
+              "error")
+        return back
+    active_count = CompanyMembership.query.filter_by(
+        company_id=company.id, status=CompanyMembership.ACTIVE).count()
+    limit = GlobalLimits.get().member_limit_for(company)
+    if active_count >= limit:
+        flash(f"Member limit reached ({limit} active members) — no more "
+              f"invitations can be sent.", "error")
+        return back
+    if CompanyInvitation.query.filter_by(
+            company_id=company.id, email=email,
+            status=CompanyInvitation.SENT).first():
+        flash("An invitation to that email is already pending.", "error")
+        return back
+    db.session.add(CompanyInvitation(
+        company_id=company.id, email=email, role_id=role.id,
+        invited_by=current_user.id, status=CompanyInvitation.SENT))
+    db.session.commit()
+    flash(f"Invitation sent to {email} — they accept it from their "
+          f"Settings \u2192 Invitations.", "success")
+    return back
+
+
+@settings_bp.route("/invite/<int:invitation_id>/revoke", methods=["POST"])
+@login_required
+def revoke_invite(invitation_id):
+    if not current_user.is_admin():
+        abort(403)
+    inv = CompanyInvitation.query.get_or_404(invitation_id)
+    if inv.company_id != current_company_id():
+        abort(404)
+    inv.status = CompanyInvitation.REVOKED
+    db.session.commit()
+    flash(f"Invitation to {inv.email} revoked.", "success")
+    return redirect(url_for("settings.members"))
+
+
+# ── Invitations (accept flow — any logged-in user) ──────────────────────────
+
+
+def _invites_ctx():
+    invites = CompanyInvitation.query.filter_by(
+        email=current_user.email, status=CompanyInvitation.SENT
+    ).order_by(CompanyInvitation.created_at.desc()).all()
+    return {"invites": invites,
+            "inv_role_names": _role_names_by_id(
+                {i.role_id for i in invites})}
+
+
+@settings_bp.route("/invitations/")
+@login_required
+def invitations():
+    ctx = {"tab": "invites", "sections": visible_sections(current_user),
+           "module_key": "settings"}
+    ctx.update(_invites_ctx())
+    return render_template("settings/index.html", **ctx)
+
+
+@settings_bp.route("/invitations/<int:invitation_id>/accept", methods=["POST"])
+@login_required
+def accept_invitation(invitation_id):
+    back = redirect(url_for("settings.invitations"))
+    inv = CompanyInvitation.query.get_or_404(invitation_id)
+    if inv.email != current_user.email:
+        abort(404)
+    if inv.status != CompanyInvitation.SENT:
+        flash("That invitation is no longer valid.", "error")
+        return back
+    company = inv.company
+    if company is None or not company.is_active:
+        flash("That company is no longer accepting members.", "error")
+        return back
+    if CompanyMembership.query.filter_by(
+            company_id=company.id, user_id=current_user.id).first():
+        flash("You are already a member of that company.", "error")
+        return back
+    active_count = CompanyMembership.query.filter_by(
+        company_id=company.id, status=CompanyMembership.ACTIVE).count()
+    limit = GlobalLimits.get().member_limit_for(company)
+    if active_count >= limit:
+        flash(f"Cannot join {company.name}: it has reached its member "
+              f"limit ({limit}).", "error")
+        return back
+    inv.status = CompanyInvitation.ACCEPTED
+    db.session.add(CompanyMembership(
+        company_id=company.id, user_id=current_user.id,
+        role_id=inv.role_id, status=CompanyMembership.ACTIVE))
+    db.session.commit()
+    session["company_id"] = company.id
+    flash(f"Welcome to {company.name}.", "success")
+    return redirect(url_for("dashboard.hub"))
+
+
+@settings_bp.route("/invitations/<int:invitation_id>/decline", methods=["POST"])
+@login_required
+def decline_invitation(invitation_id):
+    back = redirect(url_for("settings.invitations"))
+    inv = CompanyInvitation.query.get_or_404(invitation_id)
+    if inv.email != current_user.email:
+        abort(404)
+    if inv.status != CompanyInvitation.SENT:
+        flash("That invitation is no longer valid.", "error")
+        return back
+    inv.status = CompanyInvitation.REVOKED
+    db.session.commit()
+    flash("Invitation declined.", "success")
+    return back

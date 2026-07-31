@@ -13,8 +13,14 @@ class ChartOfAccount(db.Model):
     __tablename__ = "chart_of_accounts"
     POSTING_LEVEL = 5
 
+    __table_args__ = (
+        db.UniqueConstraint("company_id", "code",
+                            name="uq_chart_of_accounts_code"),
+    )
+
     id = db.Column(db.Integer, primary_key=True)
-    code = db.Column(db.String(30), unique=True, nullable=False)
+    company_id = db.Column(db.Integer, index=True)
+    code = db.Column(db.String(30), nullable=False)
     name = db.Column(db.String(200), nullable=False)
     type = db.Column(db.String(50), nullable=False)
     parent_id = db.Column(db.Integer, db.ForeignKey("chart_of_accounts.id"), nullable=True)
@@ -71,6 +77,7 @@ class ChartOfAccount(db.Model):
 class JournalEntry(db.Model):
     __tablename__ = "journal_entries"
     id = db.Column(db.Integer, primary_key=True)
+    company_id = db.Column(db.Integer, index=True)
     voucher_type = db.Column(db.String(50), nullable=False)
     voucher_id = db.Column(db.Integer, nullable=False)
     voucher_number = db.Column(db.String(50), nullable=False, index=True)
@@ -87,6 +94,7 @@ class JournalEntry(db.Model):
 class JournalLine(db.Model):
     __tablename__ = "journal_lines"
     id = db.Column(db.Integer, primary_key=True)
+    company_id = db.Column(db.Integer, index=True)
     journal_entry_id = db.Column(db.Integer, db.ForeignKey("journal_entries.id"), nullable=False)
     account_id = db.Column(db.Integer, db.ForeignKey("chart_of_accounts.id"), nullable=False)
     debit = db.Column(db.Numeric(16, 4), default=Decimal("0.0000"))

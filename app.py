@@ -5,7 +5,7 @@ import traceback as _tb
 sys.path.insert(0, os.path.dirname(__file__))
 
 from flask import Flask, redirect, url_for, request
-from flask_login import current_user
+from flask_login import current_user, login_required
 from werkzeug.exceptions import HTTPException
 
 
@@ -13,6 +13,7 @@ def _create_app():
     from shared.config import Config
     from shared.extensions import db, login_manager
     from shared.models.base import User, Role, Permission, load_user
+    import shared.models.company  # noqa: F401  (tenancy tables: register before create_all)
 
     app = Flask(
         __name__,
@@ -33,12 +34,18 @@ def _create_app():
             os.path.join(os.path.dirname(__file__), "finance_app", "templates"),
             os.path.join(os.path.dirname(__file__), "fbr_app", "templates"),
             os.path.join(os.path.dirname(__file__), "fixed_assets_app", "templates"),
+            os.path.join(os.path.dirname(__file__), "superadmin_app", "templates"),
         ]),
     ])
     app.jinja_loader = my_loader
 
     db.init_app(app)
     login_manager.init_app(app)
+
+    # Multi-company tenancy: registers the do_orm_execute scoping listener.
+    # Must come after db.init_app — before_request (_set_company_context)
+    # feeds it the active company per request.
+    import shared.tenancy  # noqa: F401
 
     from shared.routes.dashboard import dashboard_bp
     app.register_blueprint(dashboard_bp)
@@ -64,6 +71,9 @@ def _create_app():
     from fixed_assets_app.app import register_fixed_assets_blueprints
     register_fixed_assets_blueprints(app)
 
+    from superadmin_app.routes import superadmin_bp
+    app.register_blueprint(superadmin_bp)
+
     @app.context_processor
     def inject_now():
         return {"now": __import__("datetime").datetime.utcnow()}
@@ -72,6 +82,14 @@ def _create_app():
     def inject_company():
         # Company letterhead info for print headers on invoices/vouchers/forms.
         try:
+            from shared.tenancy import current_company_id
+            from shared.models.company import Company
+            cid = current_company_id()
+            if cid is not None:
+                c = Company.query.get(cid)
+                if c is not None:
+                    return {"company": c}
+            # Legacy single-company fallback.
             from shared.models.company_settings import CompanyInfo
             return {"company": CompanyInfo.get()}
         except Exception:
@@ -112,48 +130,9 @@ def _create_app():
 
     # ── Number formatting helpers ──────────────────────────────────────────
 
-    def _format_amount(value, decimal_places=2):
-        """Format a number per company.number_format (en = western, hi = Indian)."""
-        if value is None:
-            value = 0
-        try:
-            from shared.models.company_settings import CompanyInfo
-            fmt = CompanyInfo.get().number_format or "en"
-        except Exception:
-            fmt = "en"
-
-        if decimal_places < 0:
-            decimal_places = 0
-
-        if fmt == "hi":
-            return _format_indian(value, decimal_places)
-        return f"{value:,.{decimal_places}f}"
-
-    def _format_indian(value, decimal_places):
-        """Indian numbering: 12,34,567.89 (first 3 digits, then groups of 2)."""
-        negative = value < 0
-        value = abs(value)
-        rounded = round(value, decimal_places)
-        int_part = int(rounded)
-        dec_part = int(round((rounded - int_part) * 10 ** decimal_places))
-
-        int_str = str(int_part)
-        if len(int_str) <= 3:
-            formatted_int = int_str
-        else:
-            last_three = int_str[-3:]
-            rest = int_str[:-3]
-            groups = []
-            while len(rest) > 0:
-                groups.append(rest[-2:])
-                rest = rest[:-2]
-            groups.reverse()
-            formatted_int = ",".join(groups) + "," + last_three
-
-        sign = "-" if negative else ""
-        if decimal_places > 0:
-            return f"{sign}{formatted_int}.{str(dec_part).zfill(decimal_places)}"
-        return f"{sign}{formatted_int}"
+    # The screen, the PDF and the spreadsheet all format money through
+    # shared.formatting so a figure reads the same wherever it is seen.
+    from shared.formatting import format_amount as _format_amount
 
     app.add_template_filter(_format_amount, name="amount_format")
 
@@ -162,6 +141,27 @@ def _create_app():
         if current_user.is_authenticated:
             return redirect(url_for("dashboard.hub"))
         return redirect(url_for("auth.login"))
+
+    # Company switcher: sets the session key _set_company_context reads, so the
+    # next request runs scoped to that company. Only valid for an ACTIVE
+    # membership of the target company — otherwise _set_company_context would
+    # silently fall back, which is a confusing "switch" for the user.
+    @app.route("/company/switch/<int:company_id>")
+    @login_required
+    def company_switch(company_id):
+        from flask import session as _session, flash
+        from shared.models.company import CompanyMembership
+        m = CompanyMembership.query.filter_by(
+            company_id=company_id, user_id=current_user.id,
+            status=CompanyMembership.ACTIVE).first()
+        if m is None:
+            flash("You don't have access to that company.", "error")
+            return redirect(url_for("dashboard.hub"))
+        _session["company_id"] = company_id
+        nxt = request.args.get("next")
+        if nxt and nxt.startswith("/") and not nxt.startswith("//"):
+            return redirect(nxt)
+        return redirect(url_for("dashboard.hub"))
 
     # DB init (lazy — runs on first request, not at import)
     @app.before_request
@@ -174,6 +174,41 @@ def _create_app():
             except Exception as e:
                 print("DB INIT ERROR:", e)
                 _tb.print_exc()
+
+    # Active company for the request (multi-company). Runs after _init_db_once
+    # and after flask-login has loaded current_user. Super admin may also
+    # browse any company via session["company_id"]; with none chosen, they
+    # operate outside a company (portal), and tenancy fails closed for scoped
+    # tables.
+    @app.before_request
+    def _set_company_context():
+        from flask import session as _session
+        from shared.models.company import CompanyMembership
+        from shared.tenancy import set_current_company
+        if not current_user.is_authenticated:
+            set_current_company(None)
+            return
+        cid = _session.get("company_id")
+        try:
+            cid = int(cid) if cid is not None else None
+        except (TypeError, ValueError):
+            cid = None
+        if cid is not None:
+            m = CompanyMembership.query.filter_by(
+                company_id=cid, user_id=current_user.id,
+                status=CompanyMembership.ACTIVE).first()
+            if m is not None:
+                set_current_company(cid)
+                return
+        m = (CompanyMembership.query
+             .filter_by(user_id=current_user.id,
+                        status=CompanyMembership.ACTIVE)
+             .order_by(CompanyMembership.joined_at).first())
+        if m is not None:
+            _session["company_id"] = m.company_id
+            set_current_company(m.company_id)
+        else:
+            set_current_company(None)
 
     def _friendly_error_page(code, title, message):
         return f"""<!doctype html><html><head><meta charset='utf-8'>
@@ -273,6 +308,7 @@ def _migrate_schema(db):
         ("users", "has_fbr_access", bool_false),
         ("users", "has_fixed_assets_access", bool_false),
         ("users", "login_id", "VARCHAR(120)"),
+        ("users", "is_super_admin", bool_false),
         ("consumption_vouchers", "charge_account_id", "INTEGER"),
         ("scrap_vouchers", "charge_account_id", "INTEGER"),
         ("stock_ledger", "valuation_method", "VARCHAR(20)"),
@@ -553,15 +589,18 @@ def _migrate_schema(db):
     except Exception as e:
         print("MIGRATION SKIP order charge cleanup:", e)
 
-    # Unique index for invoice voucher numbers (best-effort).
+    # Legacy GLOBAL unique index on inv_invoices.voucher_number. It predates
+    # the composite (company_id, voucher_number) constraint and must go — with
+    # it in place company 2's first invoice collides with company 1's. On
+    # SQLite the constraint-rebuild phase below drops it with the table; this
+    # is the belt-and-braces drop for DBs already past the rebuild (best
+    # effort — it may not exist).
     try:
         with engine.begin() as conn:
             conn.execute(db.text(
-                "CREATE UNIQUE INDEX IF NOT EXISTS ix_inv_invoices_voucher_number "
-                "ON inv_invoices(voucher_number)"
-            ))
+                "DROP INDEX IF EXISTS ix_inv_invoices_voucher_number"))
     except Exception as e:
-        print("MIGRATION SKIP ix_inv_invoices_voucher_number:", e)
+        print("MIGRATION SKIP drop ix_inv_invoices_voucher_number:", e)
 
     # Create additional_charges table if not exists
     # Create invoice_settings table if not exists
@@ -620,6 +659,356 @@ def _migrate_schema(db):
     except Exception as e:
         print("MIGRATION SKIP additional_charges table:", e)
 
+    # ── Multi-company: company_id column + index on every scoped table ─────
+    # Generic over the model registry so a new scoped model needs no entry
+    # here. Same best-effort per-statement pattern as the rest of this
+    # function. Backfill happens in _seed_all_data AFTER this runs.
+    from shared.tenancy import scoped_model_classes, _reset_registry
+    _reset_registry()
+    for table, _cls in scoped_model_classes().items():
+        if table not in existing_tables:
+            continue
+        cols = {c["name"] for c in inspector.get_columns(table)}
+        if "company_id" not in cols:
+            try:
+                with engine.begin() as conn:
+                    conn.execute(db.text(
+                        f"ALTER TABLE {table} ADD COLUMN company_id INTEGER"))
+            except Exception as e:
+                print(f"MIGRATION SKIP {table}.company_id: {e}")
+        try:
+            with engine.begin() as conn:
+                conn.execute(db.text(
+                    f"CREATE INDEX IF NOT EXISTS ix_{table}_company_id "
+                    f"ON {table}(company_id)"))
+        except Exception as e:
+            print(f"MIGRATION SKIP ix_{table}_company_id: {e}")
+
+    # ── Multi-company: rebuild GLOBAL unique constraints as composite
+    # (company_id, ...) on every tenant-scoped table ─────────────────────────
+    # Every unique on a scoped table used to be global, so company 2's INSERT
+    # collided with company 1's rows (voucher_numbers.prefix, chart_of_accounts
+    # .code, inv_invoices.invoice_number, ...). The models now declare the
+    # composite form; this phase makes EXISTING databases match.
+    #
+    # SQLite cannot ALTER a constraint, so the table is rebuilt from the
+    # current model schema (CREATE <t>_new + INSERT SELECT + DROP + RENAME).
+    # Postgres gets DROP CONSTRAINT + ADD CONSTRAINT. Idempotent: when the
+    # composite constraint is already present the phase is a no-op, so a
+    # second boot does nothing.
+    #
+    # (table, [(new_constraint_name, (cols, ...)), ...],
+    #  (old constraint/index names to drop on Postgres, ...))
+    constraint_rebuilds = [
+        ("chart_of_accounts",
+         [("uq_chart_of_accounts_code", ("company_id", "code"))],
+         ("uq_chart_of_accounts_code", "chart_of_accounts_code_key")),
+        ("voucher_numbers",
+         [("uq_voucher_numbers_prefix", ("company_id", "prefix"))],
+         ("uq_voucher_numbers_prefix", "voucher_numbers_prefix_key")),
+        ("consumption_vouchers",
+         [("uq_consumption_vouchers_voucher_number",
+           ("company_id", "voucher_number"))],
+         ("uq_consumption_vouchers_voucher_number",
+          "consumption_vouchers_voucher_number_key")),
+        ("scrap_vouchers",
+         [("uq_scrap_vouchers_voucher_number",
+           ("company_id", "voucher_number"))],
+         ("uq_scrap_vouchers_voucher_number",
+          "scrap_vouchers_voucher_number_key")),
+        ("stock_adjustment_vouchers",
+         [("uq_stock_adjustment_vouchers_voucher_number",
+           ("company_id", "voucher_number"))],
+         ("uq_stock_adjustment_vouchers_voucher_number",
+          "stock_adjustment_vouchers_voucher_number_key")),
+        ("stock_takes",
+         [("uq_stock_takes_reference", ("company_id", "reference"))],
+         ("uq_stock_takes_reference", "stock_takes_reference_key")),
+        ("accounting_vouchers",
+         [("uq_accounting_vouchers_voucher_number",
+           ("company_id", "voucher_number"))],
+         ("uq_accounting_vouchers_voucher_number",
+          "accounting_vouchers_voucher_number_key")),
+        ("asset_transfers",
+         [("uq_asset_transfers_voucher_number",
+           ("company_id", "voucher_number"))],
+         ("uq_asset_transfers_voucher_number",
+          "asset_transfers_voucher_number_key")),
+        ("charge_ledger_defaults",
+         [("uq_charge_ledger_defaults_account_id",
+           ("company_id", "account_id"))],
+         ("uq_charge_ledger_defaults_account_id",
+          "charge_ledger_defaults_account_id_key")),
+        ("category_revenue_accounts",
+         [("uq_category_revenue_accounts_category_id",
+           ("company_id", "category_id"))],
+         ("uq_category_revenue_accounts_category_id",
+          "category_revenue_accounts_category_id_key")),
+        ("tax_rate_accounts",
+         [("uq_tax_rate_accounts_rate_pct", ("company_id", "rate_pct"))],
+         ("uq_tax_rate_accounts_rate_pct", "tax_rate_accounts_rate_pct_key")),
+        ("inv_products",
+         [("uq_inv_products_sku", ("company_id", "sku"))],
+         ("uq_inv_products_sku", "inv_products_sku_key")),
+        ("inv_units",
+         [("uq_inv_units_name", ("company_id", "name")),
+          ("uq_inv_units_abbreviation", ("company_id", "abbreviation"))],
+         ("uq_inv_units_name", "inv_units_name_key",
+          "uq_inv_units_abbreviation", "inv_units_abbreviation_key")),
+        ("inv_invoices",
+         [("uq_inv_invoices_invoice_number", ("company_id", "invoice_number")),
+          ("uq_inv_invoices_voucher_number", ("company_id", "voucher_number"))],
+         ("uq_inv_invoices_invoice_number", "inv_invoices_invoice_number_key",
+          "uq_inv_invoices_voucher_number", "inv_invoices_voucher_number_key",
+          "ix_inv_invoices_voucher_number")),
+        ("inv_purchase_invoices",
+         [("uq_inv_purchase_invoices_invoice_number",
+           ("company_id", "invoice_number")),
+          ("uq_inv_purchase_invoices_voucher_number",
+           ("company_id", "voucher_number"))],
+         ("uq_inv_purchase_invoices_invoice_number",
+          "inv_purchase_invoices_invoice_number_key",
+          "uq_inv_purchase_invoices_voucher_number",
+          "inv_purchase_invoices_voucher_number_key")),
+        ("inv_purchase_orders",
+         [("uq_inv_purchase_orders_po_number", ("company_id", "po_number"))],
+         ("uq_inv_purchase_orders_po_number",
+          "inv_purchase_orders_po_number_key")),
+        ("inv_sales_orders",
+         [("uq_inv_sales_orders_so_number", ("company_id", "so_number"))],
+         ("uq_inv_sales_orders_so_number", "inv_sales_orders_so_number_key")),
+        ("inv_purchase_returns",
+         [("uq_inv_purchase_returns_return_number",
+           ("company_id", "return_number"))],
+         ("uq_inv_purchase_returns_return_number",
+          "inv_purchase_returns_return_number_key")),
+        ("inv_sales_returns",
+         [("uq_inv_sales_returns_return_number",
+           ("company_id", "return_number"))],
+         ("uq_inv_sales_returns_return_number",
+          "inv_sales_returns_return_number_key")),
+        ("leave_types",
+         [("uq_leave_types_name", ("company_id", "name")),
+          ("uq_leave_types_code", ("company_id", "code"))],
+         ("uq_leave_types_name", "leave_types_name_key",
+          "uq_leave_types_code", "leave_types_code_key")),
+        ("projects",
+         [("uq_projects_code", ("company_id", "code"))],
+         ("uq_projects_code", "projects_code_key")),
+        ("file_categories",
+         [("uq_file_categories_name", ("company_id", "name"))],
+         ("uq_file_categories_name", "file_categories_name_key")),
+        ("payroll_profiles",
+         [("uq_payroll_profiles_user_id", ("company_id", "user_id"))],
+         ("uq_payroll_profiles_user_id", "payroll_profiles_user_id_key")),
+        ("fa_categories",
+         [("uq_fa_categories_name", ("company_id", "name"))],
+         ("uq_fa_categories_name", "fa_categories_name_key")),
+        ("fixed_assets",
+         [("uq_fixed_assets_asset_code", ("company_id", "asset_code"))],
+         ("uq_fixed_assets_asset_code", "fixed_assets_asset_code_key")),
+        ("attendance",
+         [("uq_attendance_company_date", ("company_id", "user_id", "date"))],
+         ("uq_attendance_company_date", "uq_attendance_date")),
+        ("timesheet_weeks",
+         [("uq_ts_week_company", ("company_id", "user_id", "week_start"))],
+         ("uq_ts_week_company", "uq_ts_week")),
+        ("leave_quotas",
+         [("uq_leave_quota_company",
+           ("company_id", "user_id", "leave_type_id", "year"))],
+         ("uq_leave_quota_company", "uq_leave_quota")),
+        ("pf_contributions",
+         [("uq_pf_contribution_company",
+           ("company_id", "user_id", "month", "year"))],
+         ("uq_pf_contribution_company", "uq_pf_contribution")),
+        ("company_holidays",
+         [("uq_holiday_date_dept_company",
+           ("company_id", "holiday_date", "department"))],
+         ("uq_holiday_date_dept_company", "uq_holiday_date_dept")),
+        ("overtime_accounts",
+         [("uq_overtime_date_company", ("company_id", "user_id", "date"))],
+         ("uq_overtime_date_company", "uq_overtime_date")),
+        ("button_permissions",
+         [("uq_button_perm_company", ("company_id", "role_id", "button_code"))],
+         ("uq_button_perm_company", "uq_button_perm")),
+        ("payroll_runs",
+         [("uq_payroll_run_company", ("company_id", "month", "year"))],
+         ("uq_payroll_run_company", "uq_payroll_run")),
+        ("payroll_slips",
+         [("uq_payroll_slip_company",
+           ("company_id", "payroll_run_id", "user_id"))],
+         ("uq_payroll_slip_company", "uq_payroll_slip")),
+    ]
+
+    if is_pg:
+        for table, new_constrs, old_names in constraint_rebuilds:
+            if table not in existing_tables:
+                continue
+            try:
+                with engine.connect() as conn:
+                    have = {r[0] for r in conn.execute(db.text(
+                        "SELECT conname FROM pg_constraint "
+                        "WHERE conrelid = to_regclass(:t)"),
+                        {"t": table})}
+                if all(n in have for n, _c in new_constrs):
+                    continue
+                with engine.begin() as conn:
+                    for old in old_names:
+                        # Legacy entries are constraints OR the unique INDEX
+                        # ix_inv_invoices_voucher_number — try both shapes.
+                        try:
+                            conn.execute(db.text(
+                                f"ALTER TABLE {table} "
+                                f"DROP CONSTRAINT IF EXISTS {old}"))
+                        except Exception:
+                            pass
+                        try:
+                            conn.execute(db.text(
+                                f"DROP INDEX IF EXISTS {old}"))
+                        except Exception:
+                            pass
+                    for name, cols in new_constrs:
+                        if name in have:
+                            continue
+                        col_sql = ", ".join(cols)
+                        conn.execute(db.text(
+                            f"ALTER TABLE {table} ADD CONSTRAINT {name} "
+                            f"UNIQUE ({col_sql})"))
+                print(f"MIGRATION composite unique on {table}: "
+                      f"{[n for n, _c in new_constrs]}")
+            except Exception as e:
+                print(f"MIGRATION SKIP composite {table}: {e}")
+    else:
+        from sqlalchemy.schema import CreateIndex, CreateTable
+        for table, new_constrs, _old in constraint_rebuilds:
+            if table not in existing_tables:
+                continue
+            try:
+                with engine.connect() as conn:
+                    # SQLite never names the backing index of a table-level
+                    # UNIQUE constraint (it is always sqlite_autoindex_<t>_<n>),
+                    # so presence is detected in the table's own DDL text,
+                    # which keeps the CONSTRAINT name + columns verbatim.
+                    row = conn.execute(db.text(
+                        "SELECT sql FROM sqlite_master "
+                        "WHERE type = 'table' AND name = :t"),
+                        {"t": table}).fetchone()
+                ddl_now = (row[0] if row else "") or ""
+                if all(
+                        f"CONSTRAINT {n} UNIQUE ({', '.join(c)})" in ddl_now
+                        for n, c in new_constrs):
+                    continue
+                model_table = db.Model.metadata.tables.get(table)
+                if model_table is None:
+                    print(f"MIGRATION SKIP rebuild {table}: "
+                          "no model table in metadata")
+                    continue
+                legacy_cols = {c["name"]
+                               for c in inspector.get_columns(table)}
+                common = [c.name for c in model_table.columns
+                          if c.name in legacy_cols]
+                col_list = ", ".join(f'"{c}"' for c in common)
+                # CreateTable compiles the model's own table name; the staging
+                # table needs the _new name (FK targets resolve fine — they
+                # live in the same metadata).
+                ddl = str(CreateTable(model_table).compile(
+                    dialect=engine.dialect)).replace(
+                    f"CREATE TABLE {table}",
+                    f"CREATE TABLE {table}_new", 1)
+                with engine.begin() as conn:
+                    conn.execute(db.text(ddl))
+                    conn.execute(db.text(
+                        f'INSERT INTO "{table}_new" ({col_list}) '
+                        f'SELECT {col_list} FROM "{table}"'))
+                    conn.execute(db.text(f'DROP TABLE "{table}"'))
+                    conn.execute(db.text(
+                        f'ALTER TABLE "{table}_new" RENAME TO "{table}"'))
+                    for idx in model_table.indexes:
+                        conn.execute(db.text(str(
+                            CreateIndex(idx).compile(
+                                dialect=engine.dialect))))
+                print(f"MIGRATION rebuilt {table} with composite unique "
+                      f"{[n for n, _c in new_constrs]}")
+            except Exception as e:
+                # A failed INSERT SELECT (duplicate codes across companies in
+                # the data) leaves the staging table behind; clear it so the
+                # next boot retries cleanly instead of colliding with it.
+                try:
+                    with engine.begin() as conn:
+                        conn.execute(db.text(
+                            f'DROP TABLE IF EXISTS "{table}_new"'))
+                except Exception:
+                    pass
+                print(f"MIGRATION SKIP rebuild {table}: {e}")
+
+
+def _bootstrap_default_company(db):
+    """First boot / legacy-DB migration into multi-company mode.
+
+    1. Create the Default Company (idempotent).
+    2. Backfill company_id on every scoped table to it.
+    3. Migrate users -> active memberships (role + employee_code carried
+       over from the legacy global columns).
+    4. Mark SYSADMIN as super admin.
+    Then select the default company so the rest of seeding is scoped to it.
+    """
+    from shared.models.company import (Company, CompanyMembership,
+                                       GlobalLimits)
+    from shared.models.base import User, Role
+    from shared.tenancy import set_current_company, scoped_model_classes
+
+    company = Company.query.filter_by(slug="default").first()
+    if company is None:
+        company = Company(name="Default Company", slug="default",
+                          is_active=True, plan_name="free")
+        db.session.add(company)
+        db.session.commit()
+
+    # Backfill company_id = default company on every scoped table.
+    # The backfill writes through engine.begin() (raw SQL) — a DIFFERENT
+    # pooled connection than the session's. SQLite blocks that write for as
+    # long as the session still holds an open transaction from earlier
+    # seeding (its read lock never releases to the second connection), so
+    # commit any pending session work first. No-op when the session is clean
+    # (first bootstrap), and required at the second bootstrap, which runs
+    # after the bulk of _seed_all_data's uncommitted work.
+    db.session.commit()
+    for table, _cls in scoped_model_classes().items():
+        try:
+            with db.engine.begin() as conn:
+                conn.execute(db.text(
+                    f"UPDATE {table} SET company_id = :cid "
+                    f"WHERE company_id IS NULL OR company_id = 0"),
+                    {"cid": company.id})
+        except Exception as e:
+            print(f"BACKFILL SKIP {table}: {e}")
+
+    set_current_company(company.id)
+
+    # Legacy users -> memberships (idempotent).
+    for u in User.query.all():
+        if CompanyMembership.query.filter_by(
+                company_id=company.id, user_id=u.id).first():
+            continue
+        role_id = u.role_id if u.role_id else None
+        if role_id is None:
+            admin = Role.query.filter_by(name=Role.ADMIN).first()
+            role_id = admin.id if admin else None
+        if role_id is None:
+            continue
+        db.session.add(CompanyMembership(
+            company_id=company.id, user_id=u.id, role_id=role_id,
+            status=CompanyMembership.ACTIVE, employee_code=u.employee_code))
+
+    # SYSADMIN becomes the super admin.
+    sysadmin = User.query.filter_by(employee_code="SYSADMIN").first()
+    if sysadmin is not None:
+        sysadmin.is_super_admin = True
+
+    GlobalLimits.get()
+    db.session.commit()
+    return company
+
 
 def _seed_all_data(app):
     with app.app_context():
@@ -633,6 +1022,11 @@ def _seed_all_data(app):
         # Run schema migrations FIRST, before any ORM query, so model columns
         # added after the initial deploy are guaranteed to exist.
         _migrate_schema(db)
+
+        # Multi-company: default company + company_id backfill + memberships.
+        # Must run before the first scoped ORM query below, and it selects the
+        # default company so all subsequent seeding is scoped to it.
+        _bootstrap_default_company(db)
 
         Role.seed()
         admin_role = Role.query.filter_by(name=Role.ADMIN).first()
@@ -702,14 +1096,19 @@ def _seed_all_data(app):
             for u in User.query.all():
                 u.has_invoicing_access = bool(u.has_inventory_access)
 
+        # NOTE: uses u.role_id (legacy global role) rather than
+        # is_admin()/is_manager(): those route through the per-company
+        # membership chain, which is not guaranteed to exist mid-seed (and
+        # whose role_name() helper is broken while multi-company lands).
         if not User.query.filter_by(has_fbr_access=True).first():
             for u in User.query.all():
-                if u.is_admin():
+                if u.role_id == admin_role.id:
                     u.has_fbr_access = True
 
         if not User.query.filter_by(has_fixed_assets_access=True).first():
             for u in User.query.all():
-                u.has_fixed_assets_access = bool(u.is_admin() or u.is_manager())
+                u.has_fixed_assets_access = bool(
+                    u.role_id in (admin_role.id, mgr_role.id))
 
         seed_users = [
             # Built-in system administrator — always present, hidden from the HR
@@ -873,6 +1272,10 @@ def _seed_all_data(app):
         # Stock tracked before cost layers existed gets one layer at current
         # book value, so layer value == ledger running_cost from here on.
         backfill_layers(created_by=1)
+
+        # Second idempotent pass: fresh databases seed their users AFTER the
+        # early bootstrap, so memberships for those users are created here.
+        _bootstrap_default_company(db)
 
         db.session.commit()
         print("Seed data OK")

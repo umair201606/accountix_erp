@@ -3,6 +3,7 @@ from io import BytesIO
 from flask import Blueprint, render_template, redirect, url_for, flash, request, session, send_file
 from flask_login import login_required
 from inventory_app.extensions import db
+from shared.tenancy import scoped_get_404
 from inventory_app.models.customer import InvCustomer
 from shared.ledger_utils import create_entity_account
 from shared.permissions import deny_page
@@ -57,7 +58,7 @@ def create_customer():
 def edit_customer(id):
     if deny_page("customers", "edit"):
         return redirect(url_for("inv_customers.list_customers"))
-    c = InvCustomer.query.get_or_404(id)
+    c = scoped_get_404(InvCustomer, id)
     if request.method == "POST":
         c.name = request.form["name"]
         c.contact_person = request.form.get("contact_person", "")
@@ -82,7 +83,7 @@ def edit_customer(id):
 @inv_cust_bp.route("/delete/<int:id>")
 @login_required
 def delete_customer(id):
-    c = InvCustomer.query.get_or_404(id)
+    c = scoped_get_404(InvCustomer, id)
     if c.sales_orders.count() > 0 or c.invoices.count() > 0:
         flash("Cannot delete customer with sales history", "error")
     else:

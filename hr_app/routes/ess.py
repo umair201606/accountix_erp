@@ -3,6 +3,7 @@ from datetime import datetime, date
 from flask import Blueprint, render_template, request, jsonify, flash, redirect, url_for, send_file, current_app
 from flask_login import login_required, current_user
 from ..extensions import db
+from shared.tenancy import scoped_get_404, get_member, current_company_id
 from ..models.user import User
 from ..models.change_request import ChangeRequest
 from ..models.leave import LeaveRequest, LeaveQuota, LeaveType
@@ -65,6 +66,30 @@ def allowed_file(filename):
     return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
 
 
+def _avatar_dir():
+    """Per-company avatar folder: uploads/<company_id>/avatars/.
+
+    Isolated per company so one tenant can never address another's images;
+    the serve route falls back to the legacy flat uploads/avatars/ folder
+    for pre-multi-company files.
+    """
+    cid = current_company_id()
+    if cid is None:
+        raise RuntimeError("No active company for avatar upload")
+    d = os.path.join(current_app.config["UPLOAD_FOLDER"], str(cid), "avatars")
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
+def _avatar_candidates(filename):
+    """(new per-company path, legacy path) for an avatar filename."""
+    cid = current_company_id()
+    if cid:
+        yield os.path.join(current_app.config["UPLOAD_FOLDER"],
+                           str(cid), "avatars", filename)
+    yield os.path.join(current_app.config["UPLOAD_FOLDER"], "avatars", filename)
+
+
 @ess_bp.route("/upload-picture", methods=["POST"])
 @login_required
 def upload_picture():
@@ -77,14 +102,13 @@ def upload_picture():
         return redirect(url_for("ess.index"))
     ext = file.filename.rsplit(".", 1)[1].lower()
     filename = f"avatar_{current_user.id}_{int(datetime.utcnow().timestamp())}.{ext}"
-    upload_dir = os.path.join(current_app.config["UPLOAD_FOLDER"], "avatars")
-    os.makedirs(upload_dir, exist_ok=True)
+    upload_dir = _avatar_dir()
     file.save(os.path.join(upload_dir, filename))
-    # Delete old avatar from disk
+    # Delete old avatar from disk (per-company folder, then legacy folder)
     if current_user.profile_image:
-        old_path = os.path.join(upload_dir, current_user.profile_image)
-        if os.path.exists(old_path):
-            os.remove(old_path)
+        for old in _avatar_candidates(current_user.profile_image):
+            if os.path.exists(old):
+                os.remove(old)
     current_user.profile_image = filename
     db.session.commit()
     flash("Profile picture updated.", "success")
@@ -106,11 +130,11 @@ def change_requests():
 def review_change(cid):
     if not current_user.is_admin():
         return jsonify({"error": "Access denied"}), 403
-    cr = ChangeRequest.query.get_or_404(cid)
+    cr = scoped_get_404(ChangeRequest, cid)
     action = request.form.get("action")
     notes = request.form.get("notes", "")
     if action == "approve":
-        user = User.query.get(cr.user_id)
+        user = get_member(cr.user_id)
         setattr(user, cr.field_name, cr.new_value)
         cr.status = "approved"
     else:
@@ -164,14 +188,13 @@ def slips():
 @ess_bp.route("/avatar/<filename>")
 @login_required
 def avatar(filename):
-    upload_dir = os.path.join(current_app.config["UPLOAD_FOLDER"], "avatars")
-    path = os.path.join(upload_dir, filename)
-    if not os.path.isfile(path):
-        return "", 404
-    try:
-        return send_file(path)
-    except Exception:
-        return "", 404
+    for path in _avatar_candidates(filename):
+        if os.path.isfile(path):
+            try:
+                return send_file(path)
+            except Exception:
+                return "", 404
+    return "", 404
 
 
 @ess_bp.route("/performance")

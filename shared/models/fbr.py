@@ -5,6 +5,7 @@ from shared.extensions import db
 class FBRConfig(db.Model):
     __tablename__ = "fbr_config"
     id = db.Column(db.Integer, primary_key=True)
+    company_id = db.Column(db.Integer, index=True)
     environment = db.Column(db.String(20), default="sandbox")
     access_token = db.Column(db.String(500), default="")
     token_expiry = db.Column(db.DateTime)
@@ -46,6 +47,7 @@ class FBRConfig(db.Model):
 class FBRInvoiceRecord(db.Model):
     __tablename__ = "fbr_invoice_records"
     id = db.Column(db.Integer, primary_key=True)
+    company_id = db.Column(db.Integer, index=True)
     inv_invoice_id = db.Column(db.Integer, db.ForeignKey("inv_invoices.id"), nullable=False)
 
     fbr_invoice_number = db.Column(db.String(100), default="")

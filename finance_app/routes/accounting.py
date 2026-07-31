@@ -9,6 +9,7 @@ from shared.models.accounting_voucher import AccountingVoucher, AccountingVouche
 from shared.models.company_settings import AccountingPeriod
 from shared.ledger_utils import post_journal_entry, reverse_journal_entry
 from shared.permissions import VOUCHER_SECTION, deny_page
+from shared.tenancy import scoped_get, scoped_get_404
 
 acct_bp = Blueprint("accounting", __name__, url_prefix="/accounting",
                      template_folder="../../finance_app/templates")
@@ -45,7 +46,7 @@ def dashboard():
 @acct_bp.route("/vouchers/<int:id>", methods=["GET", "POST"])
 @login_required
 def voucher_form(id=None):
-    voucher = AccountingVoucher.query.get(id) if id else None
+    voucher = scoped_get(AccountingVoucher, id) if id else None
     is_approved = voucher and voucher.status == "approved"
     edit_mode = request.args.get("edit") == "1" if (voucher and not is_approved) else False
 
@@ -281,7 +282,7 @@ def _resolve_voucher_period():
     selected_period_id = period_id
 
     if filter_mode == "period" and period_id:
-        period = AccountingPeriod.query.get(period_id)
+        period = scoped_get(AccountingPeriod, period_id)
         if period:
             from_date = datetime.combine(period.start_date, datetime.min.time())
             to_date = datetime.combine(period.end_date, datetime.max.time())
@@ -338,7 +339,7 @@ def voucher_list():
 @acct_bp.route("/vouchers/<int:id>/approve", methods=["POST"])
 @login_required
 def approve_voucher(id):
-    v = AccountingVoucher.query.get_or_404(id)
+    v = scoped_get_404(AccountingVoucher, id)
     if deny_page(VOUCHER_SECTION.get(v.voucher_type, "journal_vouchers"), "approve"):
         return redirect(url_for("accounting.voucher_list"))
     if v.status == "approved":
@@ -357,7 +358,7 @@ def approve_voucher(id):
 @acct_bp.route("/vouchers/<int:id>/unapprove", methods=["POST"])
 @login_required
 def unapprove_voucher(id):
-    v = AccountingVoucher.query.get_or_404(id)
+    v = scoped_get_404(AccountingVoucher, id)
     if deny_page(VOUCHER_SECTION.get(v.voucher_type, "journal_vouchers"), "approve"):
         return redirect(url_for("accounting.voucher_list"))
     if v.status != "approved":
@@ -375,7 +376,7 @@ def unapprove_voucher(id):
 @acct_bp.route("/vouchers/<int:id>/preview")
 @login_required
 def voucher_preview(id):
-    v = AccountingVoucher.query.get_or_404(id)
+    v = scoped_get_404(AccountingVoucher, id)
     lines = v.lines.order_by(AccountingVoucherLine.line_no).all()
     total_debit = sum(float(l.debit) for l in lines)
     total_credit = sum(float(l.credit) for l in lines)
@@ -388,7 +389,7 @@ def voucher_preview(id):
 @login_required
 def voucher_export(id):
     fmt = request.args.get("fmt", "pdf")
-    v = AccountingVoucher.query.get_or_404(id)
+    v = scoped_get_404(AccountingVoucher, id)
     lines = v.lines.order_by(AccountingVoucherLine.line_no).all()
     total_debit = sum(float(l.debit) for l in lines)
     total_credit = sum(float(l.credit) for l in lines)
@@ -418,7 +419,7 @@ def voucher_export(id):
 @acct_bp.route("/vouchers/<int:id>/delete", methods=["POST"])
 @login_required
 def delete_voucher(id):
-    v = AccountingVoucher.query.get_or_404(id)
+    v = scoped_get_404(AccountingVoucher, id)
     if deny_page(VOUCHER_SECTION.get(v.voucher_type, "journal_vouchers"), "delete"):
         return redirect(url_for("accounting.voucher_list"))
     if v.status == "approved":

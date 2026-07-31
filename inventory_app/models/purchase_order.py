@@ -4,8 +4,13 @@ from ..extensions import db
 
 class InvPurchaseOrder(db.Model):
     __tablename__ = "inv_purchase_orders"
+    __table_args__ = (
+        db.UniqueConstraint("company_id", "po_number",
+                            name="uq_inv_purchase_orders_po_number"),
+    )
     id = db.Column(db.Integer, primary_key=True)
-    po_number = db.Column(db.String(50), unique=True, nullable=False)
+    company_id = db.Column(db.Integer, index=True)
+    po_number = db.Column(db.String(50), nullable=False)
     supplier_id = db.Column(db.Integer, db.ForeignKey("inv_suppliers.id"), nullable=False)
     party_account_id = db.Column(db.Integer, db.ForeignKey("chart_of_accounts.id"))
     order_date = db.Column(db.Date, default=datetime.utcnow)
@@ -39,6 +44,7 @@ class InvPurchaseOrder(db.Model):
 class InvPurchaseOrderItem(db.Model):
     __tablename__ = "inv_purchase_order_items"
     id = db.Column(db.Integer, primary_key=True)
+    company_id = db.Column(db.Integer, index=True)
     po_id = db.Column(db.Integer, db.ForeignKey("inv_purchase_orders.id"), nullable=False)
     product_id = db.Column(db.Integer, db.ForeignKey("inv_products.id"), nullable=False)
     description = db.Column(db.String(200), default="")

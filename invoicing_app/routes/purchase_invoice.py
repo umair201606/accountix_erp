@@ -3,6 +3,7 @@ from flask_login import login_required, current_user
 from datetime import datetime
 from decimal import Decimal
 from inventory_app.extensions import db
+from shared.tenancy import scoped_get, scoped_get_404
 from inventory_app.models.purchase_invoice import InvPurchaseInvoice, InvPurchaseInvoiceItem
 from inventory_app.models.purchase_order import InvPurchaseOrder
 from inventory_app.models.additional_charge import AdditionalCharge
@@ -17,6 +18,7 @@ from shared.models.invoice_settings import InvoiceSettings
 from shared.models.invoice_template import (
     InvoiceTemplate, render_invoice_template, build_totals_table,
     items_table_metrics)
+from shared.formatting import format_amount as _m
 from shared.permissions import deny_json, deny_page
 from shared.costing import record_in, reverse_voucher_stock
 
@@ -106,7 +108,7 @@ def next_voucher():
 @inv_pinv_bp.route("/<int:id>")
 @login_required
 def invoice_form(id):
-    invoice = InvPurchaseInvoice.query.get(id) if id else None
+    invoice = scoped_get(InvPurchaseInvoice, id) if id else None
     suppliers = InvSupplier.query.filter_by(is_active=True).order_by(InvSupplier.name).all()
     products = InvProduct.query.filter_by(is_active=True).order_by(InvProduct.name).all()
     invoice_items = []
@@ -167,7 +169,7 @@ def invoice_form(id):
     if invoice:
         tid = rs.purchase_template_id
         if tid:
-            invoice_template_obj = InvoiceTemplate.query.get(tid)
+            invoice_template_obj = scoped_get(InvoiceTemplate, tid)
         if not invoice_template_obj:
             invoice_template_obj = InvoiceTemplate.get_default("purchase")
 
@@ -237,21 +239,21 @@ def invoice_form(id):
                 f"<td class='inv-desc' style='{tds}white-space:normal;'>{it.description or ''}</td>"
                 f"<td style='{tdc}'>{it.quantity}</td>"
                 f"<td style='{tdc}'>{it.unit or ''}</td>"
-                f"<td style='{tdr}'>{it.unit_price:.2f}</td>")
+                f"<td style='{tdr}'>{_m(it.unit_price)}</td>")
             if show_disc_col:
                 cells += f"<td style='{tdr}'>{it.discount_pct:.1f}%</td>"
-                cells += f"<td style='{tdr}'>{da:.2f}</td>"
-            cells += f"<td style='{tdr}'>{amt_excl:.2f}</td>"
+                cells += f"<td style='{tdr}'>{_m(da)}</td>"
+            cells += f"<td style='{tdr}'>{_m(amt_excl)}</td>"
             if show_tax_col:
                 cells += f"<td style='{tdr}'>{tp:.1f}%</td>"
-                cells += f"<td style='{tdr}'>{tax_amt:.2f}</td>"
+                cells += f"<td style='{tdr}'>{_m(tax_amt)}</td>"
             if show_chg_col:
-                cells += f"<td style='{tdr}'>{it.commission:.2f}</td>"
-                cells += f"<td style='{tdr}'>{it.freight:.2f}</td>"
-                cells += f"<td style='{tdr}'>{it.loading_unloading:.2f}</td>"
-            cells += f"<td style='{tdr}'>{tax_amt:.2f}</td>"
-            cells += f"<td style='{tdr}'>{amt_incl:.2f}</td>"
-            cells += f"<td style='{tdr}'>{line_total:.2f}</td>"
+                cells += f"<td style='{tdr}'>{_m(it.commission)}</td>"
+                cells += f"<td style='{tdr}'>{_m(it.freight)}</td>"
+                cells += f"<td style='{tdr}'>{_m(it.loading_unloading)}</td>"
+            cells += f"<td style='{tdr}'>{_m(tax_amt)}</td>"
+            cells += f"<td style='{tdr}'>{_m(amt_incl)}</td>"
+            cells += f"<td style='{tdr}'>{_m(line_total)}</td>"
             items_rows += "<tr>" + cells + "</tr>"
 
         tds_b = (f"padding:{m['pad']};border:1px solid #e2e8f0;font-weight:700;"
@@ -266,18 +268,18 @@ def invoice_form(id):
             f"<td style='{tdr_b}'></td>")
         if show_disc_col:
             foot += f"<td style='{tdr_b}'></td>"
-            foot += f"<td style='{tdr_b}'>{tot_disc_amt:.2f}</td>"
-        foot += f"<td style='{tdr_b}'>{tot_excl:.2f}</td>"
+            foot += f"<td style='{tdr_b}'>{_m(tot_disc_amt)}</td>"
+        foot += f"<td style='{tdr_b}'>{_m(tot_excl)}</td>"
         if show_tax_col:
             foot += f"<td style='{tdr_b}'></td>"
-            foot += f"<td style='{tdr_b}'>{tot_tax_amt:.2f}</td>"
+            foot += f"<td style='{tdr_b}'>{_m(tot_tax_amt)}</td>"
         if show_chg_col:
-            foot += f"<td style='{tdr_b}'>{tot_comm:.2f}</td>"
-            foot += f"<td style='{tdr_b}'>{tot_freight:.2f}</td>"
-            foot += f"<td style='{tdr_b}'>{tot_ld:.2f}</td>"
-        foot += f"<td style='{tdr_b}'>{tot_tax_amt:.2f}</td>"
-        foot += f"<td style='{tdr_b}'>{tot_incl:.2f}</td>"
-        foot += f"<td style='{tdr_b}'>{tot_line:.2f}</td>"
+            foot += f"<td style='{tdr_b}'>{_m(tot_comm)}</td>"
+            foot += f"<td style='{tdr_b}'>{_m(tot_freight)}</td>"
+            foot += f"<td style='{tdr_b}'>{_m(tot_ld)}</td>"
+        foot += f"<td style='{tdr_b}'>{_m(tot_tax_amt)}</td>"
+        foot += f"<td style='{tdr_b}'>{_m(tot_incl)}</td>"
+        foot += f"<td style='{tdr_b}'>{_m(tot_line)}</td>"
 
         # One style for every header: centred in the cell both ways.
         hd = (f"padding:{m['pad']};border:1px solid #1e293b;white-space:normal;"
@@ -337,16 +339,16 @@ def invoice_form(id):
             "party_tax_id": party.tax_id if party and party.tax_id else "",
             "items_table": items_table,
             "totals_table": "",
-            "subtotal": f"{invoice.subtotal:.2f}" if invoice.subtotal else "0.00",
-            "discount": f"{invoice.total_discount:.2f}" if invoice.total_discount else "0.00",
-            "tax": f"{invoice.total_tax:.2f}" if invoice.total_tax else "0.00",
-            "commission": "0.00",
-            "freight": "0.00",
-            "loading_unloading": f"{invoice.total_expenses:.2f}" if invoice.total_expenses else "0.00",
-            "withholding_tax": f"{invoice.total_withholding_tax:.2f}" if invoice.total_withholding_tax else "0.00",
-            "grand_total": "0.00",
-            "delivery_charges": "0.00",
-            "installation_charges": "0.00",
+            "subtotal": _m(invoice.subtotal),
+            "discount": _m(invoice.total_discount),
+            "tax": _m(invoice.total_tax),
+            "commission": _m(0),
+            "freight": _m(0),
+            "loading_unloading": _m(invoice.total_expenses),
+            "withholding_tax": _m(invoice.total_withholding_tax),
+            "grand_total": _m(0),
+            "delivery_charges": _m(0),
+            "installation_charges": _m(0),
             "notes": invoice.notes or "",
         }
         # Build totals table — respect invoice mode per section
@@ -368,7 +370,7 @@ def invoice_form(id):
         net = invoice.net_payable or (
             (invoice.subtotal or 0) - (invoice.total_discount or 0)
             + (invoice.total_tax or 0) - (invoice.total_withholding_tax or 0))
-        ctx["grand_total"] = f"{net:.2f}"
+        ctx["grand_total"] = _m(net)
         rendered_template = render_invoice_template(invoice_template_obj.body_html, ctx)
 
     return render_template("purchase_invoice/form_inv.html",
@@ -414,7 +416,7 @@ def save_invoice():
         return denied
 
     if inv_id:
-        inv = InvPurchaseInvoice.query.get_or_404(inv_id)
+        inv = scoped_get_404(InvPurchaseInvoice, inv_id)
         if inv.status == "approved":
             return jsonify({"ok": False, "error": "Cannot modify approved invoice"}), 400
     else:
@@ -565,7 +567,7 @@ def save_invoice():
         for idx, item in enumerate(cost_rows):
             if not item.product_id:
                 continue
-            prod = InvProduct.query.get(item.product_id)
+            prod = scoped_get(InvProduct, item.product_id)
             if not prod:
                 continue
             db.session.add(InvStockMovement(
@@ -697,7 +699,7 @@ def unapprove_invoice(id):
     denied = deny_json("purchase_invoices", "approve")
     if denied:
         return denied
-    inv = InvPurchaseInvoice.query.get_or_404(id)
+    inv = scoped_get_404(InvPurchaseInvoice, id)
     if inv.status != "approved":
         return jsonify({"ok": False, "error": "Only approved invoices can be unapproved"}), 400
 
@@ -753,7 +755,7 @@ def unapprove_invoice(id):
     message = "Invoice has been unapproved and unlocked for editing"
     if variances:
         total = sum(variances.values())
-        message += (f". {abs(total):,.2f} was booked to Inventory Cost Variance: "
+        message += (f". {_m(abs(total))} was booked to Inventory Cost Variance: "
                     f"stock from this invoice had already been issued at a cost "
                     f"that is already posted and cannot be changed")
     return jsonify({"ok": True, "status": "unapproved", "message": message,
@@ -766,7 +768,7 @@ def delete_invoice(id):
     denied = deny_json("purchase_invoices", "delete")
     if denied:
         return denied
-    inv = InvPurchaseInvoice.query.get_or_404(id)
+    inv = scoped_get_404(InvPurchaseInvoice, id)
     if inv.status == "approved":
         return jsonify({"ok": False, "error": "Cannot delete an approved invoice. Unapprove it first."}), 400
     try:
@@ -784,7 +786,7 @@ def delete_invoice(id):
 def pay_invoice(id):
     if deny_page("purchase_invoices", "edit"):
         return redirect(url_for("inv_purchase_invoice.list_invoices"))
-    inv = InvPurchaseInvoice.query.get_or_404(id)
+    inv = scoped_get_404(InvPurchaseInvoice, id)
     amount = request.form.get("amount", 0, type=float)
     if amount <= 0:
         flash("Invalid payment amount", "error")

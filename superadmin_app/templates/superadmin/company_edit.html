@@ -1,0 +1,107 @@
+{% extends "superadmin/base.html" %}
+{% block title %}Edit {{ company.name }} - Super Admin{% endblock %}
+{% block content %}
+<a href="{{ url_for('superadmin.companies') }}" class="btn btn-sm" style="margin-bottom:12px;">&larr; All companies</a>
+
+<form method="POST" action="{{ url_for('superadmin.company_edit', company_id=company.id) }}">
+  <div class="sa-card">
+    <h3>{{ company.name }}</h3>
+    <p class="hint">Quota and profile. Leave max members blank to fall back to the global default ({{ limits.default_max_members }}).</p>
+    <div class="fgrid">
+      <div class="fgroup">
+        <label class="lbl">Company Name</label>
+        <input type="text" name="name" class="inp" value="{{ company.name }}" required>
+      </div>
+      <div class="fgroup">
+        <label class="lbl">Plan</label>
+        <input type="text" name="plan_name" class="inp" value="{{ company.plan_name or 'free' }}">
+      </div>
+      <div class="fgroup">
+        <label class="lbl">Max Members (override)</label>
+        <input type="number" name="max_members" class="inp" min="1" value="{{ company.max_members or '' }}">
+      </div>
+      <div class="fgroup">
+        <label class="lbl">Status</label>
+        <label class="sa-stog" title="Active / inactive">
+          <input type="checkbox" name="is_active" {{ 'checked' if company.is_active }}>
+          <span class="sl"></span>
+        </label>
+      </div>
+      <div class="fgroup">
+        <label class="lbl">City</label>
+        <input type="text" name="city" class="inp" value="{{ company.city or '' }}">
+      </div>
+      <div class="fgroup">
+        <label class="lbl">Country</label>
+        <input type="text" name="country" class="inp" value="{{ company.country or 'Pakistan' }}">
+      </div>
+      <div class="fgroup">
+        <label class="lbl">Currency Code</label>
+        <input type="text" name="currency" class="inp" value="{{ company.currency or 'PKR' }}">
+      </div>
+      <div class="fgroup">
+        <label class="lbl">Currency Symbol</label>
+        <input type="text" name="currency_symbol" class="inp" value="{{ company.currency_symbol or 'Rs.' }}">
+      </div>
+      <div class="fgroup">
+        <label class="lbl">Email</label>
+        <input type="email" name="email" class="inp" value="{{ company.email or '' }}">
+      </div>
+      <div class="fgroup">
+        <label class="lbl">Phone</label>
+        <input type="text" name="phone" class="inp" value="{{ company.phone or '' }}">
+      </div>
+      <div class="fgroup">
+        <label class="lbl">Tax ID / NTN</label>
+        <input type="text" name="tax_id" class="inp" value="{{ company.tax_id or '' }}">
+      </div>
+      <div class="fgroup">
+        <label class="lbl">Registration Number</label>
+        <input type="text" name="registration_number" class="inp" value="{{ company.registration_number or '' }}">
+      </div>
+      <div class="fgroup">
+        <label class="lbl">Website</label>
+        <input type="text" name="website" class="inp" value="{{ company.website or '' }}">
+      </div>
+      <div class="fgroup">
+        <label class="lbl">Logo URL</label>
+        <input type="text" name="logo_url" class="inp" value="{{ company.logo_url or '' }}">
+      </div>
+    </div>
+    <div class="fgroup">
+      <label class="lbl">Address</label>
+      <textarea name="address" class="inp" rows="2">{{ company.address or '' }}</textarea>
+    </div>
+    <div class="sa-actions">
+      <button type="submit" class="btn btn-p">Save Company</button>
+    </div>
+  </div>
+</form>
+
+<div class="sa-card" style="margin-top:20px;">
+  <h3>Members ({{ active_members }} active)</h3>
+  <div class="tbl-scroll">
+    <table class="sa-tbl">
+      <thead>
+        <tr><th>Name</th><th>Email</th><th>Role</th><th>Status</th></tr>
+      </thead>
+      <tbody>
+        {% for m, u in members %}
+        <tr>
+          <td>{{ u.full_name if u else '—' }}</td>
+          <td>{{ u.email if u else '—' }}</td>
+          <td>{{ m.role_name() }}</td>
+          <td>
+            {% if m.status == 'active' %}<span class="pill pill-on">active</span>
+            {% elif m.status == 'pending' %}<span class="pill pill-off">pending</span>
+            {% else %}<span class="pill pill-off">{{ m.status }}</span>{% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="4" style="text-align:center;color:#94a3b8;padding:24px;">No memberships yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

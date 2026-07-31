@@ -1,6 +1,7 @@
 from flask import Blueprint, render_template, redirect, url_for, flash, request
 from flask_login import login_required
 from ..extensions import db
+from shared.tenancy import scoped_get_404
 from ..models.category import InvCategory
 
 inv_cat_bp = Blueprint("inv_categories", __name__, url_prefix="/inventory/categories")
@@ -33,7 +34,7 @@ def create_category():
 @inv_cat_bp.route("/edit/<int:id>", methods=["GET", "POST"])
 @login_required
 def edit_category(id):
-    cat = InvCategory.query.get_or_404(id)
+    cat = scoped_get_404(InvCategory, id)
     if request.method == "POST":
         cat.name = request.form["name"]
         cat.description = request.form.get("description", "")
@@ -49,7 +50,7 @@ def edit_category(id):
 @inv_cat_bp.route("/delete/<int:id>")
 @login_required
 def delete_category(id):
-    cat = InvCategory.query.get_or_404(id)
+    cat = scoped_get_404(InvCategory, id)
     if cat.products.count() > 0:
         flash("Cannot delete category with products", "error")
     else:

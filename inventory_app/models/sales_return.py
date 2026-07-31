@@ -12,8 +12,13 @@ class InvSalesReturn(db.Model):
     """
 
     __tablename__ = "inv_sales_returns"
+    __table_args__ = (
+        db.UniqueConstraint("company_id", "return_number",
+                            name="uq_inv_sales_returns_return_number"),
+    )
     id = db.Column(db.Integer, primary_key=True)
-    return_number = db.Column(db.String(50), unique=True, nullable=False)
+    company_id = db.Column(db.Integer, index=True)
+    return_number = db.Column(db.String(50), nullable=False)
     original_invoice_id = db.Column(db.Integer, db.ForeignKey("inv_invoices.id"), nullable=False)
     customer_id = db.Column(db.Integer, db.ForeignKey("inv_customers.id"), nullable=False)
     # Mirrors the invoice: when settings allow an arbitrary counterparty, the
@@ -50,6 +55,7 @@ class InvSalesReturn(db.Model):
 class InvSalesReturnItem(db.Model):
     __tablename__ = "inv_sales_return_items"
     id = db.Column(db.Integer, primary_key=True)
+    company_id = db.Column(db.Integer, index=True)
     return_id = db.Column(db.Integer, db.ForeignKey("inv_sales_returns.id"), nullable=False)
     product_id = db.Column(db.Integer, db.ForeignKey("inv_products.id"))
     description = db.Column(db.String(300))

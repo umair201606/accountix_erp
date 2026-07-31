@@ -19,6 +19,7 @@ from shared.models.ledger import ChartOfAccount, JournalEntry, JournalLine
 from shared.models.base import User
 from shared.models.company_settings import AccountingPeriod, ReportSettings
 from shared.ledger_utils import posting_account
+from shared.tenancy import scoped_get
 
 finance_bp = Blueprint("finance", __name__, url_prefix="/finance")
 
@@ -96,7 +97,7 @@ def _resolve_period():
         AccountingPeriod.id.in_(comp_period_ids)).order_by(AccountingPeriod.start_date.asc()).all() if comp_period_ids else []
 
     if filter_mode in ("period", "comparative") and period_id:
-        period = AccountingPeriod.query.get(period_id)
+        period = scoped_get(AccountingPeriod, period_id)
         if period:
             from_date = period.start_date
             to_date = period.end_date
@@ -812,7 +813,7 @@ def _get_ledger_sections(account_ids, from_date, to_date):
     closing balance labelled Dr/Cr."""
     sections = []
     for aid in account_ids:
-        account = ChartOfAccount.query.get(aid)
+        account = scoped_get(ChartOfAccount, aid)
         if not account:
             continue
         opening = Decimal("0")
@@ -1426,14 +1427,14 @@ def balance_sheet():
     comp_totals = []
     all_periods = []
     if comp_mode and comp_periods:
-        base_period = AccountingPeriod.query.get(selected_period_id) if selected_period_id else None
+        base_period = scoped_get(AccountingPeriod, selected_period_id) if selected_period_id else None
         all_periods = ([base_period] if base_period else []) + list(comp_periods)
         for cp in comp_periods:
             ca, cl, ce, cta, ctl, cte, cni = _bs_data(cp.end_date)
             comp_items_list.append({"assets": ca, "liabilities": cl, "equity": ce})
             comp_totals.append({"total_assets": float(cta), "total_liabilities": float(ctl), "total_equity": float(cte)})
     else:
-        base_period = AccountingPeriod.query.get(selected_period_id) if selected_period_id else None
+        base_period = scoped_get(AccountingPeriod, selected_period_id) if selected_period_id else None
         if base_period:
             all_periods = [base_period]
 

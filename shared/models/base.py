@@ -35,12 +35,13 @@ class Permission(db.Model):
 class UserPermission(db.Model):
     """Per-user fine-grained rights, managed by admin in the Settings module.
 
-    One row per (user, resource/section). A user with NO row for a resource
-    keeps full access (backward compatible); once admin saves that user's
-    rights, every section is stored explicitly and the flags govern.
+    One row per (company, user, resource/section). A user with NO row for a
+    resource keeps full access (backward compatible); once admin saves that
+    user's rights, every section is stored explicitly and the flags govern.
     """
     __tablename__ = "user_permissions"
     id = db.Column(db.Integer, primary_key=True)
+    company_id = db.Column(db.Integer, index=True)  # tenant-scoped
     user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, index=True)
     resource = db.Column(db.String(100), nullable=False)
     can_view = db.Column(db.Boolean, default=True)
@@ -49,7 +50,8 @@ class UserPermission(db.Model):
     can_approve = db.Column(db.Boolean, default=False)
     can_delete = db.Column(db.Boolean, default=False)
 
-    __table_args__ = (db.UniqueConstraint("user_id", "resource", name="uq_user_perm"),)
+    __table_args__ = (db.UniqueConstraint("company_id", "user_id", "resource",
+                                          name="uq_user_perm_company"),)
 
 
 class User(UserMixin, db.Model):
@@ -85,23 +87,82 @@ class User(UserMixin, db.Model):
     has_accounting_access = db.Column(db.Boolean, default=False)
     has_fbr_access = db.Column(db.Boolean, default=False)
     has_fixed_assets_access = db.Column(db.Boolean, default=False)
+    is_super_admin = db.Column(db.Boolean, default=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     manager = db.relationship("User", remote_side=[id], backref="direct_reports")
+    memberships = db.relationship("CompanyMembership", backref="user",
+                                  lazy="dynamic", cascade="all, delete-orphan")
+
+    # ── Membership helpers (multi-company) ───────────────────────────────
+
+    def membership_in(self, company_id, statuses=("active",)):
+        """This user's membership row in a company (active by default)."""
+        from shared.models.company import CompanyMembership
+        return CompanyMembership.query.filter_by(
+            company_id=company_id, user_id=self.id).filter(
+            CompanyMembership.status.in_(statuses)).first()
+
+    def role_in(self, company_id):
+        """Role name ('admin'/'manager'/'employee') in a company, or ''."""
+        m = self.membership_in(company_id)
+        if m:
+            return m.role_name()
+        # Legacy fallback: pre-multi-company role column.
+        return self.get_role_name()
+
+    def active_companies(self):
+        """Companies this user is an active member of."""
+        from shared.models.company import CompanyMembership
+        from shared.models.company import Company
+        return (Company.query
+                .join(CompanyMembership,
+                      CompanyMembership.company_id == Company.id)
+                .filter(CompanyMembership.user_id == self.id,
+                        CompanyMembership.status == "active",
+                        Company.is_active == True).all())  # noqa: E712
+
+    def owns_company_count(self):
+        """Companies this user created (the 'companies you own' quota)."""
+        from shared.models.company import Company
+        return Company.query.filter_by(created_by=self.id).count()
+
+    def company_role_id(self, company_id):
+        m = self.membership_in(company_id)
+        return m.role_id if m else self.role_id
+
+    @property
+    def active_company_id(self):
+        """The current request's active company (session/g-driven)."""
+        from shared.tenancy import current_company_id
+        return current_company_id()
+
+    def is_company_admin(self):
+        return self.role_in(self.active_company_id) == Role.ADMIN
+
+    def is_company_manager(self):
+        return self.role_in(self.active_company_id) == Role.MANAGER
 
     @classmethod
     def employees(cls):
-        """Query for users visible inside the HR module.
+        """Query for users visible inside the HR module of the ACTIVE company.
 
         Admin accounts are regulators, not employees — they must never appear
         in HR lists, payroll, attendance or team views. Admin is managed only
-        from the ERP hub Settings.
+        from the ERP hub Settings. Scoped to active members of the current
+        company (multi-company).
         """
+        from shared.tenancy import current_company_id
+        from shared.models.company import CompanyMembership
+        cid = current_company_id()
         admin_role = Role.query.filter_by(name=Role.ADMIN).first()
-        q = cls.query
+        q = cls.query.join(CompanyMembership, db.and_(
+            CompanyMembership.user_id == cls.id,
+            CompanyMembership.company_id == cid,
+            CompanyMembership.status == "active"))
         if admin_role:
-            q = q.filter(cls.role_id != admin_role.id)
+            q = q.filter(CompanyMembership.role_id != admin_role.id)
         return q
 
     def set_password(self, password):
@@ -138,25 +199,47 @@ class User(UserMixin, db.Model):
         return bool(flags.get(module_key))
 
     def can(self, resource, action="view"):
-        """Per-user section rights (view/create/edit/approve/delete).
+        """Per-user section rights (view/create/edit/approve/delete),
+        scoped to the active company.
 
         No UserPermission row for the resource means unrestricted — admin
         restricts users explicitly via the Settings module.
         """
         if self.is_admin():
             return True
-        perm = UserPermission.query.filter_by(user_id=self.id, resource=resource).first()
+        from shared.tenancy import current_company_id
+        q = UserPermission.query.filter_by(user_id=self.id,
+                                           resource=resource)
+        cid = current_company_id()
+        if cid is not None:
+            q = q.filter_by(company_id=cid)
+        perm = q.first()
         if perm is None:
             return True
         return bool(getattr(perm, f"can_{action}", False))
 
     def is_admin(self):
+        """Admin of the ACTIVE company, or a super admin, or (legacy) global
+        admin role when no company context exists yet."""
+        if self.is_super_admin:
+            return True
+        cid = self.active_company_id
+        if cid is not None:
+            return self.role_in(cid) == Role.ADMIN
         return self.role_obj and self.role_obj.name == Role.ADMIN
 
     def is_manager(self):
+        if self.is_super_admin:
+            return True
+        cid = self.active_company_id
+        if cid is not None:
+            return self.role_in(cid) == Role.MANAGER
         return self.role_obj and self.role_obj.name == Role.MANAGER
 
     def is_employee(self):
+        cid = self.active_company_id
+        if cid is not None:
+            return self.role_in(cid) == Role.EMPLOYEE
         return self.role_obj and self.role_obj.name == Role.EMPLOYEE
 
     def get_role_name(self):

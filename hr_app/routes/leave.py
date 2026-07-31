@@ -3,6 +3,7 @@ from flask import Blueprint, render_template, request, jsonify, flash, redirect,
 from flask_login import login_required, current_user
 from sqlalchemy import extract
 from ..extensions import db
+from shared.tenancy import scoped_get, scoped_get_404
 from ..models.leave import LeaveType, LeaveQuota, LeaveRequest, LeaveApproval
 from ..models.holiday import CompanyHoliday, ApprovalWorkflow
 from ..models.communication import Notification, NotificationRecipient
@@ -128,7 +129,7 @@ def apply():
         if start_date > end_date:
             flash("Start date must be before end date.", "danger")
             return render_template("leaves/apply.html", leave_types=leave_types)
-        lt = LeaveType.query.get(leave_type_id)
+        lt = scoped_get(LeaveType, leave_type_id)
         if not lt:
             flash("Invalid leave type.", "danger")
             return render_template("leaves/apply.html", leave_types=leave_types)
@@ -183,7 +184,7 @@ def approvals():
 @leave_bp.route("/review/<int:aid>", methods=["POST"])
 @login_required
 def review(aid):
-    approval = LeaveApproval.query.get_or_404(aid)
+    approval = scoped_get_404(LeaveApproval, aid)
     if approval.approver_id != current_user.id:
         return jsonify({"error": "Not authorized"}), 403
     action = request.form.get("action")

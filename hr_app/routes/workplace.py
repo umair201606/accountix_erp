@@ -2,6 +2,7 @@ from datetime import datetime, date
 from flask import Blueprint, render_template, request, jsonify, flash, redirect, url_for
 from flask_login import login_required, current_user
 from ..extensions import db
+from shared.tenancy import scoped_get_404
 from ..models.workplace import Announcement, TeamEvent, KanbanBoard, KanbanTask
 
 workplace_bp = Blueprint("workplace", __name__, url_prefix="/workplace")
@@ -96,7 +97,7 @@ def create_board():
 @workplace_bp.route("/kanban/<int:bid>/add-task", methods=["POST"])
 @login_required
 def add_task(bid):
-    board = KanbanBoard.query.get_or_404(bid)
+    board = scoped_get_404(KanbanBoard, bid)
     title = request.form.get("title", "").strip()
     assignee_id = request.form.get("assignee_id", type=int)
     if not title:
@@ -121,7 +122,7 @@ def board_tasks(bid):
 @workplace_bp.route("/kanban/update-task/<int:tid>", methods=["POST"])
 @login_required
 def update_task(tid):
-    task = KanbanTask.query.get_or_404(tid)
+    task = scoped_get_404(KanbanTask, tid)
     data = request.get_json()
     if "status" in data:
         task.status = data["status"]
@@ -134,7 +135,7 @@ def update_task(tid):
 @workplace_bp.route("/kanban/delete-task/<int:tid>", methods=["POST"])
 @login_required
 def delete_task(tid):
-    task = KanbanTask.query.get_or_404(tid)
+    task = scoped_get_404(KanbanTask, tid)
     db.session.delete(task)
     db.session.commit()
     return jsonify({"success": True})

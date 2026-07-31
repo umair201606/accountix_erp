@@ -3,10 +3,11 @@ import io
 import os
 import csv
 from datetime import datetime, date, timedelta
-from flask import Blueprint, render_template, request, jsonify, flash, redirect, url_for, send_file
+from flask import Blueprint, render_template, request, jsonify, flash, redirect, url_for, send_file, abort
 from flask_login import login_required, current_user
 from sqlalchemy import extract, func
 from ..extensions import db
+from shared.tenancy import scoped_get_404, get_member, current_company_id
 from ..models.compensation import PayrollProfile, PayrollComponent, PayrollRun, PayrollSlip, SalaryRevision
 from ..models.user import User
 from ..models.attendance import Attendance
@@ -15,6 +16,7 @@ from ..models.pf import ProvidentFundConfig, PFContribution, PFLedger
 from ..models.communication import Notification, NotificationRecipient
 from ..models.tax import IncomeTaxSlab
 from ..models.loan import LoanAdvanceRequest, LoanRepayment
+from shared.formatting import format_amount as _m
 from ..config import Config
 
 comp_bp = Blueprint("compensation", __name__, url_prefix="/compensation")
@@ -53,7 +55,7 @@ def tax_settings():
             db.session.add(slab)
             flash("Tax slab added.", "success")
         elif action == "delete":
-            slab = IncomeTaxSlab.query.get_or_404(int(request.form["slab_id"]))
+            slab = scoped_get_404(IncomeTaxSlab, int(request.form["slab_id"]))
             db.session.delete(slab)
             flash("Tax slab deleted.", "success")
         elif action == "seed_defaults":
@@ -107,7 +109,7 @@ def create_profile():
                                     is_taxable=True if cname != "Medical Allowance" else False)
             db.session.add(comp)
         db.session.commit()
-        flash(f"Profile created for {User.query.get(uid).full_name}.", "success")
+        flash(f"Profile created for {get_member(uid).full_name}.", "success")
         return redirect(url_for("compensation.edit_profile", uid=uid))
     return render_template("compensation/create_profile.html", employees=employees)
 
@@ -121,7 +123,7 @@ def edit_profile(uid):
         flash("Access denied.", "danger")
         return redirect(url_for("dashboard"))
     profile = PayrollProfile.query.filter_by(user_id=uid).first()
-    emp = User.query.get_or_404(uid)
+    emp = get_member(uid) or abort(404)
     if request.method == "POST":
         if not profile:
             profile = PayrollProfile(user_id=uid, basic_salary=0, effective_from=date.today())
@@ -513,7 +515,12 @@ def upload_bulk_data():
             return jsonify({"error": "No file uploaded"}), 400
         ext = os.path.splitext(f.filename)[1].lower()
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-        path = os.path.join(Config.UPLOAD_FOLDER, f"payroll_bulk_{ts}{ext}")
+        cid = current_company_id()
+        if cid is None:
+            return jsonify({"error": "No active company"}), 400
+        bulk_dir = os.path.join(Config.UPLOAD_FOLDER, str(cid), "bulk")
+        os.makedirs(bulk_dir, exist_ok=True)
+        path = os.path.join(bulk_dir, f"payroll_bulk_{ts}{ext}")
         f.save(path)
         rows = []
         try:
@@ -581,7 +588,7 @@ def upload_bulk_data():
 @comp_bp.route("/slip/<int:sid>")
 @login_required
 def view_slip(sid):
-    slip = PayrollSlip.query.get_or_404(sid)
+    slip = scoped_get_404(PayrollSlip, sid)
     if slip.user_id != current_user.id and not current_user.is_admin():
         flash("Access denied.", "danger")
         return redirect(url_for("dashboard"))
@@ -592,7 +599,7 @@ def view_slip(sid):
 @comp_bp.route("/slip/<int:sid>/pdf")
 @login_required
 def download_slip_pdf(sid):
-    slip = PayrollSlip.query.get_or_404(sid)
+    slip = scoped_get_404(PayrollSlip, sid)
     if slip.user_id != current_user.id and not current_user.is_admin():
         flash("Access denied.", "danger")
         return redirect(url_for("dashboard"))
@@ -665,11 +672,11 @@ def download_slip_pdf(sid):
         if i < len(earnings):
             label, val = earnings[i]
             c.drawString(margin + 3, y, str(label))
-            c.drawRightString(col_mid - 10, y, f"Rs. {val:,.2f}")
+            c.drawRightString(col_mid - 10, y, f"Rs. {_m(val)}")
         if i < len(deductions_list):
             label, val = deductions_list[i]
             c.drawString(col_mid + 10, y, str(label))
-            c.drawRightString(pw - margin, y, f"Rs. {val:,.2f}")
+            c.drawRightString(pw - margin, y, f"Rs. {_m(val)}")
         y -= 14
     y -= 6
 
@@ -679,9 +686,9 @@ def download_slip_pdf(sid):
     c.line(margin, y, pw - margin, y)
     c.setFont("Helvetica-Bold", 10)
     c.drawString(margin, y - 14, "Total Earnings")
-    c.drawRightString(col_mid - 10, y - 14, f"Rs. {slip.gross_pay:,.2f}")
+    c.drawRightString(col_mid - 10, y - 14, f"Rs. {_m(slip.gross_pay)}")
     c.drawString(col_mid + 10, y - 14, "Total Deductions")
-    c.drawRightString(pw - margin, y - 14, f"Rs. {slip.total_deductions:,.2f}")
+    c.drawRightString(pw - margin, y - 14, f"Rs. {_m(slip.total_deductions)}")
     y -= 24
 
     # ── Net Pay Box ──
@@ -692,7 +699,8 @@ def download_slip_pdf(sid):
     c.roundRect(margin, box_y, pw - 2 * margin, 48, 6, fill=1, stroke=1)
     c.setFont("Helvetica-Bold", 14)
     c.setFillColor(colors.HexColor("#1b5e20"))
-    c.drawString(margin + 12, box_y + 16, f"Net Payable: Rs. {int(slip.net_pay):,}")
+    c.drawString(margin + 12, box_y + 16,
+                 f"Net Payable: Rs. {_m(slip.net_pay, decimal_places=0)}")
     # Amount in words (wrapped if too long)
     words = _num_to_words(int(slip.net_pay))
     c.setFont("Helvetica", 9)
@@ -765,7 +773,7 @@ def _notify(user_id, title, message, ntype="info", module="compensation", ref_id
 def export_bank_ledger(rid):
     if not current_user.is_admin():
         return jsonify({"error": "Access denied"}), 403
-    run = PayrollRun.query.get_or_404(rid)
+    run = scoped_get_404(PayrollRun, rid)
     try:
         import openpyxl
         from openpyxl.styles import Font, PatternFill, Alignment

@@ -5,6 +5,7 @@ from ..extensions import db
 class Attendance(db.Model):
     __tablename__ = "attendance"
     id = db.Column(db.Integer, primary_key=True)
+    company_id = db.Column(db.Integer, index=True)
     user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
     date = db.Column(db.Date, nullable=False, default=date.today)
     clock_in = db.Column(db.DateTime)
@@ -20,12 +21,14 @@ class Attendance(db.Model):
 
     user = db.relationship("User", backref="attendances")
 
-    __table_args__ = (db.UniqueConstraint("user_id", "date", name="uq_attendance_date"),)
+    __table_args__ = (db.UniqueConstraint("company_id", "user_id", "date",
+                                          name="uq_attendance_company_date"),)
 
 
 class AttendanceLog(db.Model):
     __tablename__ = "attendance_logs"
     id = db.Column(db.Integer, primary_key=True)
+    company_id = db.Column(db.Integer, index=True)
     attendance_id = db.Column(db.Integer, db.ForeignKey("attendance.id"), nullable=False)
     event = db.Column(db.String(20), nullable=False)
     timestamp = db.Column(db.DateTime, default=datetime.utcnow)

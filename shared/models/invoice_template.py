@@ -21,6 +21,7 @@ import json
 from datetime import datetime
 
 from shared.extensions import db
+from shared.formatting import format_amount as _m
 
 
 # ── Placeholders ────────────────────────────────────────────────────────────
@@ -1004,25 +1005,25 @@ def _sample_items_table(doc_type="sales", opts=None):
             f"<td class='inv-desc' style='{tds}white-space:normal;'>{desc}</td>"
             f"<td style='{tdc}'>{qty}</td>"
             f"<td style='{tdc}'>{unit}</td>"
-            f"<td style='{tdr}'>{price:,.2f}</td>")
+            f"<td style='{tdr}'>{_m(price)}</td>")
         if show_disc_col:
             cells += f"<td style='{tdr}'>{dp:.1f}%</td>"
-            cells += f"<td style='{tdr}'>{da:,.2f}</td>"
-        cells += f"<td style='{tdr}'>{amt_excl:,.2f}</td>"
+            cells += f"<td style='{tdr}'>{_m(da)}</td>"
+        cells += f"<td style='{tdr}'>{_m(amt_excl)}</td>"
         if show_tax_col:
             cells += f"<td style='{tdr}'>{tp:.1f}%</td>"
-            cells += f"<td style='{tdr}'>{tax_amt:,.2f}</td>"
+            cells += f"<td style='{tdr}'>{_m(tax_amt)}</td>"
         if show_chg_col:
             if doc_type == "sales":
-                cells += f"<td style='{tdr}'>{c1:,.2f}</td>"
-                cells += f"<td style='{tdr}'>{c2:,.2f}</td>"
+                cells += f"<td style='{tdr}'>{_m(c1)}</td>"
+                cells += f"<td style='{tdr}'>{_m(c2)}</td>"
             else:
-                cells += f"<td style='{tdr}'>{c1:,.2f}</td>"
-                cells += f"<td style='{tdr}'>{c2:,.2f}</td>"
-                cells += f"<td style='{tdr}'>{c3:,.2f}</td>"
-        cells += f"<td style='{tdr}'>{tax_amt:,.2f}</td>"
-        cells += f"<td style='{tdr}'>{amt_incl:,.2f}</td>"
-        cells += f"<td style='{tdr}'>{line_total:,.2f}</td>"
+                cells += f"<td style='{tdr}'>{_m(c1)}</td>"
+                cells += f"<td style='{tdr}'>{_m(c2)}</td>"
+                cells += f"<td style='{tdr}'>{_m(c3)}</td>"
+        cells += f"<td style='{tdr}'>{_m(tax_amt)}</td>"
+        cells += f"<td style='{tdr}'>{_m(amt_incl)}</td>"
+        cells += f"<td style='{tdr}'>{_m(line_total)}</td>"
         body += "<tr>" + cells + "</tr>"
 
     # ── Totals footer row ────────────────────────────────────────────
@@ -1038,22 +1039,22 @@ def _sample_items_table(doc_type="sales", opts=None):
         f"<td style='{tdr_b}'></td>")
     if show_disc_col:
         foot_cells += f"<td style='{tdr_b}'></td>"
-        foot_cells += f"<td style='{tdr_b}'>{tot_disc_amt:,.2f}</td>"
-    foot_cells += f"<td style='{tdr_b}'>{tot_excl:,.2f}</td>"
+        foot_cells += f"<td style='{tdr_b}'>{_m(tot_disc_amt)}</td>"
+    foot_cells += f"<td style='{tdr_b}'>{_m(tot_excl)}</td>"
     if show_tax_col:
         foot_cells += f"<td style='{tdr_b}'></td>"
-        foot_cells += f"<td style='{tdr_b}'>{tot_tax_amt:,.2f}</td>"
+        foot_cells += f"<td style='{tdr_b}'>{_m(tot_tax_amt)}</td>"
     if show_chg_col:
         if doc_type == "sales":
-            foot_cells += f"<td style='{tdr_b}'>{tot_chg1:,.2f}</td>"
-            foot_cells += f"<td style='{tdr_b}'>{tot_chg2:,.2f}</td>"
+            foot_cells += f"<td style='{tdr_b}'>{_m(tot_chg1)}</td>"
+            foot_cells += f"<td style='{tdr_b}'>{_m(tot_chg2)}</td>"
         else:
-            foot_cells += f"<td style='{tdr_b}'>{tot_chg1:,.2f}</td>"
-            foot_cells += f"<td style='{tdr_b}'>{tot_chg2:,.2f}</td>"
-            foot_cells += f"<td style='{tdr_b}'>{tot_chg3:,.2f}</td>"
-    foot_cells += f"<td style='{tdr_b}'>{tot_tax_amt:,.2f}</td>"
-    foot_cells += f"<td style='{tdr_b}'>{tot_incl:,.2f}</td>"
-    foot_cells += f"<td style='{tdr_b}'>{tot_line:,.2f}</td>"
+            foot_cells += f"<td style='{tdr_b}'>{_m(tot_chg1)}</td>"
+            foot_cells += f"<td style='{tdr_b}'>{_m(tot_chg2)}</td>"
+            foot_cells += f"<td style='{tdr_b}'>{_m(tot_chg3)}</td>"
+    foot_cells += f"<td style='{tdr_b}'>{_m(tot_tax_amt)}</td>"
+    foot_cells += f"<td style='{tdr_b}'>{_m(tot_incl)}</td>"
+    foot_cells += f"<td style='{tdr_b}'>{_m(tot_line)}</td>"
 
     # ── Header ───────────────────────────────────────────────────────
     # One style for every header: centred in the cell both ways.
@@ -1143,16 +1144,18 @@ def sample_context(doc_type, company=None, opts=None):
         "party_tax_id": party["tax"],
         "items_table": _sample_items_table(doc_type, opts),
         "totals_table": build_totals_table(doc_type, opts or default_options(doc_type), "#0f766e"),
-        "subtotal": "760,000.00",
-        "discount": "38,000.00",
-        "tax": "122,760.00",
-        "delivery_charges": "12,000.00",
-        "installation_charges": "25,000.00",
-        "commission": "8,500.00",
-        "freight": "14,000.00",
-        "loading_unloading": "4,200.00",
-        "withholding_tax": "7,600.00",
-        "grand_total": "881,760.00",
+        # Formatted through the shared formatter, so the design preview shows
+        # the company's own number convention rather than a western sample.
+        "subtotal": _m(760000),
+        "discount": _m(38000),
+        "tax": _m(122760),
+        "delivery_charges": _m(12000),
+        "installation_charges": _m(25000),
+        "commission": _m(8500),
+        "freight": _m(14000),
+        "loading_unloading": _m(4200),
+        "withholding_tax": _m(7600),
+        "grand_total": _m(881760),
         "notes": "Payment due within 30 days. Goods remain the property of the "
                  "seller until paid in full.",
     }
@@ -1185,6 +1188,7 @@ def render_invoice_template(body_html, ctx):
 class InvoiceTemplate(db.Model):
     __tablename__ = "invoice_templates"
     id = db.Column(db.Integer, primary_key=True)
+    company_id = db.Column(db.Integer, index=True)
     name = db.Column(db.String(100), nullable=False)
     type = db.Column(db.String(10), nullable=False)  # "sales" or "purchase"
     body_html = db.Column(db.Text, nullable=False)

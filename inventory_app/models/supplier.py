@@ -5,6 +5,7 @@ from ..extensions import db
 class InvSupplier(db.Model):
     __tablename__ = "inv_suppliers"
     id = db.Column(db.Integer, primary_key=True)
+    company_id = db.Column(db.Integer, index=True)
     name = db.Column(db.String(200), nullable=False)
     contact_person = db.Column(db.String(100))
     email = db.Column(db.String(120))

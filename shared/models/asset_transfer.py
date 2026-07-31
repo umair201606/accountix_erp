@@ -4,8 +4,13 @@ from shared.extensions import db
 
 class AssetTransfer(db.Model):
     __tablename__ = "asset_transfers"
+    __table_args__ = (
+        db.UniqueConstraint("company_id", "voucher_number",
+                            name="uq_asset_transfers_voucher_number"),
+    )
     id = db.Column(db.Integer, primary_key=True)
-    voucher_number = db.Column(db.String(50), unique=True, nullable=False)
+    company_id = db.Column(db.Integer, index=True)
+    voucher_number = db.Column(db.String(50), nullable=False)
     direction = db.Column(db.String(20), nullable=False)
     asset_id = db.Column(db.Integer, db.ForeignKey("fixed_assets.id"), nullable=False)
     product_id = db.Column(db.Integer, nullable=True)

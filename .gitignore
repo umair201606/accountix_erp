@@ -16,3 +16,6 @@ hr_app/uploads/
 .env.local
 *.xlsx
 test_pl*
+
+# Secrets — super admin credentials, never push
+user_password.txt

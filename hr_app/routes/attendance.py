@@ -3,6 +3,7 @@ from flask import Blueprint, render_template, request, jsonify, flash, redirect,
 from flask_login import login_required, current_user
 from sqlalchemy import func, extract
 from ..extensions import db, csrf
+from shared.tenancy import scoped_get_404
 from ..models.attendance import Attendance, AttendanceLog
 from ..models.holiday import BreakLog, TimePolicy, AttendanceCorrection, OvertimeAccount
 from ..models.communication import Notification, NotificationRecipient
@@ -213,7 +214,7 @@ def correct():
     reason = request.form.get("reason", "").strip()
     if not att_id or not field or not new_value or not reason:
         return jsonify({"error": "All fields required"}), 400
-    att = Attendance.query.get_or_404(att_id)
+    att = scoped_get_404(Attendance, att_id)
     old_value = str(getattr(att, field, ""))
     setattr(att, field, new_value)
     db.session.add(AttendanceCorrection(

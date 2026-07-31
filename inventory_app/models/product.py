@@ -4,8 +4,13 @@ from ..extensions import db
 
 class InvProduct(db.Model):
     __tablename__ = "inv_products"
+    __table_args__ = (
+        db.UniqueConstraint("company_id", "sku",
+                            name="uq_inv_products_sku"),
+    )
     id = db.Column(db.Integer, primary_key=True)
-    sku = db.Column(db.String(50), unique=True, nullable=False)
+    company_id = db.Column(db.Integer, index=True)
+    sku = db.Column(db.String(50), nullable=False)
     name = db.Column(db.String(200), nullable=False)
     description = db.Column(db.Text)
     category_id = db.Column(db.Integer, db.ForeignKey("inv_categories.id"))

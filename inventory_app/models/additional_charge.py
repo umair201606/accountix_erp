@@ -5,6 +5,7 @@ from ..extensions import db
 class AdditionalCharge(db.Model):
     __tablename__ = "additional_charges"
     id = db.Column(db.Integer, primary_key=True)
+    company_id = db.Column(db.Integer, index=True)
     # Polymorphic owner — any document type (SI, SO, PI, PO)
     doc_type = db.Column(db.String(10), nullable=False)
     doc_id = db.Column(db.Integer, nullable=False)

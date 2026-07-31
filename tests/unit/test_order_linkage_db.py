@@ -13,6 +13,7 @@ import pytest
 from flask import Flask
 
 from shared.extensions import db
+import shared.tenancy  # noqa: F401  (registers the scoping listener)
 
 
 @pytest.fixture
@@ -25,13 +26,24 @@ def linkage_app():
     # Imported for their side effect: registering tables on the metadata that
     # create_all() reads.
     import shared.models.ledger  # noqa: F401  (chart_of_accounts: FK target)
+    import shared.models.company  # noqa: F401  (companies + memberships: FK targets)
     import inventory_app.models.product  # noqa: F401
     import inventory_app.models.customer  # noqa: F401
     import inventory_app.models.sales_order  # noqa: F401
     import inventory_app.models.invoice  # noqa: F401
 
+    shared.tenancy._reset_registry()
+
     with application.app_context():
         db.create_all()
+        from shared.models.company import Company
+        from shared.tenancy import set_current_company, unscoped
+        with unscoped():
+            default = Company(name="Unit Test Co", slug="unit-default",
+                              is_active=True)
+            db.session.add(default)
+            db.session.commit()
+        set_current_company(default.id)
         yield application
         db.session.remove()
         db.drop_all()

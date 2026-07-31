@@ -3,6 +3,7 @@ from io import BytesIO
 from flask import Blueprint, render_template, redirect, url_for, flash, request, session, send_file
 from flask_login import login_required
 from inventory_app.extensions import db
+from shared.tenancy import scoped_get_404
 from inventory_app.models.supplier import InvSupplier
 from shared.ledger_utils import create_entity_account
 from shared.permissions import deny_page
@@ -56,7 +57,7 @@ def create_supplier():
 def edit_supplier(id):
     if deny_page("suppliers", "edit"):
         return redirect(url_for("inv_suppliers.list_suppliers"))
-    s = InvSupplier.query.get_or_404(id)
+    s = scoped_get_404(InvSupplier, id)
     if request.method == "POST":
         s.name = request.form["name"]
         s.contact_person = request.form.get("contact_person", "")
@@ -82,7 +83,7 @@ def edit_supplier(id):
 def delete_supplier(id):
     if deny_page("suppliers", "delete"):
         return redirect(url_for("inv_suppliers.list_suppliers"))
-    s = InvSupplier.query.get_or_404(id)
+    s = scoped_get_404(InvSupplier, id)
     if s.purchase_orders.count() > 0:
         flash("Cannot delete supplier with purchase orders", "error")
     else:

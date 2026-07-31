@@ -5,6 +5,7 @@ from ..extensions import db
 class CompanyHoliday(db.Model):
     __tablename__ = "company_holidays"
     id = db.Column(db.Integer, primary_key=True)
+    company_id = db.Column(db.Integer, index=True)
     name = db.Column(db.String(200), nullable=False)
     holiday_date = db.Column(db.Date, nullable=False)
     is_recurring = db.Column(db.Boolean, default=False)
@@ -13,12 +14,15 @@ class CompanyHoliday(db.Model):
     is_active = db.Column(db.Boolean, default=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
-    __table_args__ = (db.UniqueConstraint("holiday_date", "department", name="uq_holiday_date_dept"),)
+    __table_args__ = (db.UniqueConstraint("company_id", "holiday_date",
+                                          "department",
+                                          name="uq_holiday_date_dept_company"),)
 
 
 class ApprovalWorkflow(db.Model):
     __tablename__ = "approval_workflows"
     id = db.Column(db.Integer, primary_key=True)
+    company_id = db.Column(db.Integer, index=True)
     name = db.Column(db.String(100), nullable=False)
     module = db.Column(db.String(50), nullable=False)
     leave_type_id = db.Column(db.Integer, db.ForeignKey("leave_types.id"))
@@ -34,6 +38,7 @@ class ApprovalWorkflow(db.Model):
 class OvertimeAccount(db.Model):
     __tablename__ = "overtime_accounts"
     id = db.Column(db.Integer, primary_key=True)
+    company_id = db.Column(db.Integer, index=True)
     user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
     date = db.Column(db.Date, nullable=False)
     regular_hours = db.Column(db.Float, default=0.0)
@@ -45,12 +50,14 @@ class OvertimeAccount(db.Model):
 
     user = db.relationship("User", backref="overtime_accounts")
 
-    __table_args__ = (db.UniqueConstraint("user_id", "date", name="uq_overtime_date"),)
+    __table_args__ = (db.UniqueConstraint("company_id", "user_id", "date",
+                                          name="uq_overtime_date_company"),)
 
 
 class TimePolicy(db.Model):
     __tablename__ = "time_policies"
     id = db.Column(db.Integer, primary_key=True)
+    company_id = db.Column(db.Integer, index=True)
     name = db.Column(db.String(100), nullable=False)
     department = db.Column(db.String(100))
     shift_start = db.Column(db.Time, nullable=False)
@@ -68,6 +75,7 @@ class TimePolicy(db.Model):
 class AttendanceCorrection(db.Model):
     __tablename__ = "attendance_corrections"
     id = db.Column(db.Integer, primary_key=True)
+    company_id = db.Column(db.Integer, index=True)
     attendance_id = db.Column(db.Integer, db.ForeignKey("attendance.id"), nullable=False)
     corrected_by = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
     field = db.Column(db.String(50), nullable=False)
@@ -83,6 +91,7 @@ class AttendanceCorrection(db.Model):
 class BreakLog(db.Model):
     __tablename__ = "break_logs"
     id = db.Column(db.Integer, primary_key=True)
+    company_id = db.Column(db.Integer, index=True)
     attendance_id = db.Column(db.Integer, db.ForeignKey("attendance.id"), nullable=False)
     break_start = db.Column(db.DateTime, nullable=False)
     break_end = db.Column(db.DateTime)
@@ -96,6 +105,7 @@ class BreakLog(db.Model):
 class PayrollAuditLog(db.Model):
     __tablename__ = "payroll_audit_logs"
     id = db.Column(db.Integer, primary_key=True)
+    company_id = db.Column(db.Integer, index=True)
     payroll_run_id = db.Column(db.Integer, db.ForeignKey("payroll_runs.id"))
     action = db.Column(db.String(50), nullable=False)
     performed_by = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
@@ -110,6 +120,7 @@ class PayrollAuditLog(db.Model):
 class ButtonPermission(db.Model):
     __tablename__ = "button_permissions"
     id = db.Column(db.Integer, primary_key=True)
+    company_id = db.Column(db.Integer, index=True)
     role_id = db.Column(db.Integer, db.ForeignKey("roles.id"), nullable=False)
     button_code = db.Column(db.String(100), nullable=False)
     is_granted = db.Column(db.Boolean, default=False)
@@ -118,12 +129,15 @@ class ButtonPermission(db.Model):
 
     role = db.relationship("Role", backref="button_permissions")
 
-    __table_args__ = (db.UniqueConstraint("role_id", "button_code", name="uq_button_perm"),)
+    __table_args__ = (db.UniqueConstraint("company_id", "role_id",
+                                          "button_code",
+                                          name="uq_button_perm_company"),)
 
 
 class PFProfitDistribution(db.Model):
     __tablename__ = "pf_profit_distributions"
     id = db.Column(db.Integer, primary_key=True)
+    company_id = db.Column(db.Integer, index=True)
     month = db.Column(db.Integer, nullable=False)
     year = db.Column(db.Integer, nullable=False)
     total_profit = db.Column(db.Float, nullable=False)
@@ -137,6 +151,7 @@ class PFProfitDistribution(db.Model):
 class PFSettlement(db.Model):
     __tablename__ = "pf_settlements"
     id = db.Column(db.Integer, primary_key=True)
+    company_id = db.Column(db.Integer, index=True)
     user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
     total_employee_contrib = db.Column(db.Float, default=0.0)
     total_employer_contrib = db.Column(db.Float, default=0.0)

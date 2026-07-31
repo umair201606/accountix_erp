@@ -2,6 +2,7 @@ from datetime import date, datetime
 from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify
 from flask_login import login_required, current_user
 from shared.extensions import db
+from shared.tenancy import scoped_get, scoped_get_404
 from shared.models.ledger import ChartOfAccount
 from shared.ledger_utils import (post_journal_entry, reverse_journal_entry,
                                  posting_account, create_fixed_asset_accounts)
@@ -87,7 +88,7 @@ def create_asset():
             flash("Asset name is required.", "error")
             return render_template("fixed_assets/assets/form.html", asset=None, categories=categories, accounts=accounts)
         category_id = int(request.form.get("category_id", 0))
-        category = AssetCategory.query.get(category_id)
+        category = scoped_get(AssetCategory, category_id)
         purchase_cost = float(request.form.get("purchase_cost", 0))
         useful_life = int(request.form.get("useful_life", category.default_useful_life if category else 5))
         salvage_value = float(request.form.get("salvage_value", 0))
@@ -138,7 +139,7 @@ def create_asset():
 def view_asset(asset_id):
     if not current_user.module_access("fixed_assets"):
         return render_template("access_denied.html")
-    asset = FixedAsset.query.get_or_404(asset_id)
+    asset = scoped_get_404(FixedAsset, asset_id)
     # Fresh query, not the relationship: its own order_by is appended to, so
     # .desc() through it silently yields ascending order.
     depreciation_entries = (AssetDepreciation.query
@@ -159,7 +160,7 @@ def view_asset(asset_id):
 def edit_asset(asset_id):
     if not current_user.module_access("fixed_assets"):
         return render_template("access_denied.html")
-    asset = FixedAsset.query.get_or_404(asset_id)
+    asset = scoped_get_404(FixedAsset, asset_id)
     categories = AssetCategory.query.filter_by(is_active=True).all()
     accounts = ChartOfAccount.query.filter(
         ChartOfAccount.level >= ChartOfAccount.POSTING_LEVEL,
@@ -212,7 +213,7 @@ def edit_asset(asset_id):
 def record_depreciation(asset_id):
     if not current_user.module_access("fixed_assets"):
         return jsonify({"ok": False, "error": "Access denied"}), 403
-    asset = FixedAsset.query.get_or_404(asset_id)
+    asset = scoped_get_404(FixedAsset, asset_id)
     entry_date = datetime.strptime(request.form["entry_date"], "%Y-%m-%d").date()
     amount = float(request.form.get("amount", 0))
     if amount <= 0:
@@ -244,7 +245,7 @@ def record_depreciation(asset_id):
 def dispose_asset(asset_id):
     if not current_user.module_access("fixed_assets"):
         return render_template("access_denied.html")
-    asset = FixedAsset.query.get_or_404(asset_id)
+    asset = scoped_get_404(FixedAsset, asset_id)
     if not asset.fixed_asset_account_id:
         fa_acct, _ = create_fixed_asset_accounts(asset, asset.name)
         asset.fixed_asset_account_id = fa_acct.id
@@ -329,7 +330,7 @@ def undo_disposal(asset_id):
     """
     if not current_user.module_access("fixed_assets"):
         return render_template("access_denied.html")
-    asset = FixedAsset.query.get_or_404(asset_id)
+    asset = scoped_get_404(FixedAsset, asset_id)
     if asset.status != "disposed":
         flash("This asset is not disposed.", "error")
         return redirect(url_for("fa_assets.view_asset", asset_id=asset.id))

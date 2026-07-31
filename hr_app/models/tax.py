@@ -4,6 +4,7 @@ from ..extensions import db
 class IncomeTaxSlab(db.Model):
     __tablename__ = "income_tax_slabs"
     id = db.Column(db.Integer, primary_key=True)
+    company_id = db.Column(db.Integer, index=True)
     min_income = db.Column(db.Float, nullable=False, default=0)
     max_income = db.Column(db.Float, nullable=False, default=999999999)
     rate_pct = db.Column(db.Float, nullable=False, default=0)

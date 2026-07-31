@@ -4,8 +4,13 @@ from ..extensions import db
 
 class PayrollProfile(db.Model):
     __tablename__ = "payroll_profiles"
+    __table_args__ = (
+        db.UniqueConstraint("company_id", "user_id",
+                            name="uq_payroll_profiles_user_id"),
+    )
     id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), unique=True, nullable=False)
+    company_id = db.Column(db.Integer, index=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
     basic_salary = db.Column(db.Float, default=0.0)
     effective_from = db.Column(db.Date, nullable=False)
     payment_method = db.Column(db.String(50), default="bank_transfer")
@@ -19,6 +24,7 @@ class PayrollProfile(db.Model):
 class PayrollComponent(db.Model):
     __tablename__ = "payroll_components"
     id = db.Column(db.Integer, primary_key=True)
+    company_id = db.Column(db.Integer, index=True)
     profile_id = db.Column(db.Integer, db.ForeignKey("payroll_profiles.id"), nullable=False)
     name = db.Column(db.String(100), nullable=False)
     type = db.Column(db.String(20), nullable=False)
@@ -30,6 +36,7 @@ class PayrollComponent(db.Model):
 class PayrollRun(db.Model):
     __tablename__ = "payroll_runs"
     id = db.Column(db.Integer, primary_key=True)
+    company_id = db.Column(db.Integer, index=True)
     month = db.Column(db.Integer, nullable=False)
     year = db.Column(db.Integer, nullable=False)
     run_date = db.Column(db.DateTime, default=datetime.utcnow)
@@ -47,12 +54,14 @@ class PayrollRun(db.Model):
     approver = db.relationship("User", foreign_keys=[approved_by])
     slips = db.relationship("PayrollSlip", backref="payroll_run", lazy="dynamic")
 
-    __table_args__ = (db.UniqueConstraint("month", "year", name="uq_payroll_run"),)
+    __table_args__ = (db.UniqueConstraint("company_id", "month", "year",
+                                          name="uq_payroll_run_company"),)
 
 
 class PayrollSlip(db.Model):
     __tablename__ = "payroll_slips"
     id = db.Column(db.Integer, primary_key=True)
+    company_id = db.Column(db.Integer, index=True)
     payroll_run_id = db.Column(db.Integer, db.ForeignKey("payroll_runs.id"), nullable=False)
     user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
     basic_salary = db.Column(db.Float, default=0.0)
@@ -67,12 +76,15 @@ class PayrollSlip(db.Model):
 
     user = db.relationship("User", backref="payroll_slips")
 
-    __table_args__ = (db.UniqueConstraint("payroll_run_id", "user_id", name="uq_payroll_slip"),)
+    __table_args__ = (db.UniqueConstraint("company_id", "payroll_run_id",
+                                          "user_id",
+                                          name="uq_payroll_slip_company"),)
 
 
 class SalaryRevision(db.Model):
     __tablename__ = "salary_revisions"
     id = db.Column(db.Integer, primary_key=True)
+    company_id = db.Column(db.Integer, index=True)
     user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
     previous_basic = db.Column(db.Float)
     new_basic = db.Column(db.Float, nullable=False)

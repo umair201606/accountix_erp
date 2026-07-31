@@ -6,6 +6,7 @@ from shared.extensions import db
 class CompanyInfo(db.Model):
     __tablename__ = "company_info"
     id = db.Column(db.Integer, primary_key=True)
+    company_id = db.Column(db.Integer, index=True)
     company_name = db.Column(db.String(200), default="My Company")
     address = db.Column(db.Text)
     city = db.Column(db.String(100))
@@ -34,9 +35,15 @@ class CompanyInfo(db.Model):
 
     @classmethod
     def get(cls):
-        c = cls.query.first()
+        from shared.tenancy import current_company_id
+        cid = current_company_id()
+        if cid is None:
+            # No active company (login page, boot): return an unsaved default
+            # rather than querying a tenant-scoped table (which fails closed).
+            return cls()
+        c = cls.query.filter_by(company_id=cid).first()
         if not c:
-            c = cls(company_name="SolarKon Energy Solutions")
+            c = cls(company_id=cid, company_name="SolarKon Energy Solutions")
             db.session.add(c)
             db.session.commit()
         return c
@@ -71,6 +78,7 @@ PL_SECTIONS = ["sales", "sales_returns", "other_income", "cost_of_sales",
 class ReportSettings(db.Model):
     __tablename__ = "report_settings"
     id = db.Column(db.Integer, primary_key=True)
+    company_id = db.Column(db.Integer, index=True)
     pl_structure_json = db.Column(db.Text)  # JSON list; null -> DEFAULT_PL_STRUCTURE
     # Accounts listed per P&L section before collapsing the rest into "Others".
     pl_detail_rows = db.Column(db.Integer, default=10)
@@ -91,9 +99,15 @@ class ReportSettings(db.Model):
 
     @classmethod
     def get(cls):
-        s = cls.query.first()
+        from shared.tenancy import current_company_id
+        cid = current_company_id()
+        if cid is None:
+            # No active company (login page, boot): return an unsaved default
+            # rather than querying a tenant-scoped table (which fails closed).
+            return cls()
+        s = cls.query.filter_by(company_id=cid).first()
         if not s:
-            s = cls()
+            s = cls(company_id=cid)
             db.session.add(s)
             db.session.commit()
         return s
@@ -128,6 +142,7 @@ class ReportSettings(db.Model):
 class FiscalYearRule(db.Model):
     __tablename__ = "fiscal_year_rule"
     id = db.Column(db.Integer, primary_key=True)
+    company_id = db.Column(db.Integer, index=True)
     start_month = db.Column(db.Integer, nullable=False, default=1)
     start_day = db.Column(db.Integer, nullable=False, default=1)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
@@ -135,9 +150,15 @@ class FiscalYearRule(db.Model):
 
     @classmethod
     def get(cls):
-        r = cls.query.first()
+        from shared.tenancy import current_company_id
+        cid = current_company_id()
+        if cid is None:
+            # No active company (login page, boot): return an unsaved default
+            # rather than querying a tenant-scoped table (which fails closed).
+            return cls()
+        r = cls.query.filter_by(company_id=cid).first()
         if not r:
-            r = cls(start_month=1, start_day=1)
+            r = cls(company_id=cid, start_month=1, start_day=1)
             db.session.add(r)
             db.session.commit()
         return r
@@ -183,6 +204,7 @@ class FiscalYearRule(db.Model):
 class AccountingPeriod(db.Model):
     __tablename__ = "accounting_periods"
     id = db.Column(db.Integer, primary_key=True)
+    company_id = db.Column(db.Integer, index=True)
     fiscal_year = db.Column(db.String(10), nullable=False, index=True)
     period_name = db.Column(db.String(50), nullable=False)
     start_date = db.Column(db.Date, nullable=False)

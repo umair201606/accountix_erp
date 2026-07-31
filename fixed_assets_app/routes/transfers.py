@@ -2,6 +2,7 @@ from datetime import date, datetime
 from flask import Blueprint, render_template, request, redirect, url_for, flash
 from flask_login import login_required, current_user
 from shared.extensions import db
+from shared.tenancy import scoped_get, scoped_get_404
 from shared.models.ledger import ChartOfAccount
 from shared.models.stock_ledger import VoucherNumber
 from shared.models.asset_transfer import AssetTransfer
@@ -23,7 +24,7 @@ def _capitalise_from_stock(transfer, product, qty, created_by):
 
     No FA-ACQ is posted for these assets: this journal IS the acquisition.
     """
-    asset = FixedAsset.query.get(transfer.asset_id)
+    asset = scoped_get(FixedAsset, transfer.asset_id)
     unit_cost, total_cost = costing.record_out(
         product_id=product.id, voucher_type="FA-CAP", voucher_id=transfer.id,
         voucher_number=transfer.voucher_number, qty=qty,
@@ -143,11 +144,11 @@ def capitalise_from_stock():
     categories = AssetCategory.query.filter_by(is_active=True).order_by(AssetCategory.name).all()
     if request.method == "POST":
         product_id = request.form.get("source_product_id", type=int)
-        product = InvProduct.query.get(product_id) if product_id else None
+        product = scoped_get(InvProduct, product_id) if product_id else None
         qty = request.form.get("quantity", type=float) or 1
         name = request.form.get("name", "").strip()
         category_id = request.form.get("category_id", type=int)
-        category = AssetCategory.query.get(category_id) if category_id else None
+        category = scoped_get(AssetCategory, category_id) if category_id else None
         if not product or not name or not category:
             flash("Pick a stock item, an asset name and a category.", "error")
             return render_template("fixed_assets/transfers/capitalise.html",
@@ -201,11 +202,11 @@ def capitalise_from_stock():
 def unapprove_capitalisation(id):
     if not current_user.module_access("fixed_assets"):
         return render_template("access_denied.html")
-    transfer = AssetTransfer.query.get_or_404(id)
+    transfer = scoped_get_404(AssetTransfer, id)
     if transfer.status != "approved" or transfer.direction != "to_fixed_asset":
         flash("Not an approved capitalisation.", "error")
         return redirect(url_for("fa_transfers.list_transfers"))
-    asset = FixedAsset.query.get(transfer.asset_id)
+    asset = scoped_get(FixedAsset, transfer.asset_id)
     if asset and asset.live_depreciation_query().count():
         flash("Reverse this asset's depreciation charges first.", "error")
         return redirect(url_for("fa_transfers.list_transfers"))
@@ -236,7 +237,7 @@ def create_transfer():
     if not current_user.module_access("fixed_assets"):
         return render_template("access_denied.html")
     asset_id = request.args.get("asset_id", type=int)
-    asset = FixedAsset.query.get(asset_id) if asset_id else None
+    asset = scoped_get(FixedAsset, asset_id) if asset_id else None
     if not asset or asset.status != "active":
         flash("Select an active asset to transfer.", "error")
         return redirect(url_for("fa_assets.list_assets"))
@@ -254,7 +255,7 @@ def create_transfer():
         if product_id:
             try:
                 from inventory_app.models.product import InvProduct
-                prod = InvProduct.query.get(product_id)
+                prod = scoped_get(InvProduct, product_id)
                 if prod:
                     acct = create_entity_account("product", prod.id, prod.name)
                     stock_account_id = acct.id
@@ -315,11 +316,11 @@ def create_transfer():
 def edit_transfer(id):
     if not current_user.module_access("fixed_assets"):
         return render_template("access_denied.html")
-    transfer = AssetTransfer.query.get_or_404(id)
+    transfer = scoped_get_404(AssetTransfer, id)
     if transfer.status == "approved":
         flash("Cannot edit an approved transfer.", "error")
         return redirect(url_for("fa_transfers.list_transfers"))
-    asset = FixedAsset.query.get(transfer.asset_id)
+    asset = scoped_get(FixedAsset, transfer.asset_id)
     products = []
     try:
         from inventory_app.models.product import InvProduct
@@ -338,7 +339,7 @@ def edit_transfer(id):
             if product_id:
                 try:
                     from inventory_app.models.product import InvProduct
-                    prod = InvProduct.query.get(product_id)
+                    prod = scoped_get(InvProduct, product_id)
                     if prod:
                         acct = create_entity_account("product", prod.id, prod.name)
                         stock_account_id = acct.id
@@ -380,11 +381,11 @@ def edit_transfer(id):
 def unapprove_transfer(id):
     if not current_user.module_access("fixed_assets"):
         return render_template("access_denied.html")
-    transfer = AssetTransfer.query.get_or_404(id)
+    transfer = scoped_get_404(AssetTransfer, id)
     if transfer.status != "approved":
         flash("Transfer is not approved.", "error")
         return redirect(url_for("fa_transfers.list_transfers"))
-    asset = FixedAsset.query.get(transfer.asset_id)
+    asset = scoped_get(FixedAsset, transfer.asset_id)
     # Withdraw the stock first: if that transferred unit has already been sold
     # or consumed, the costing engine refuses (ConsumedLayerError) and nothing
     # else has been touched yet, so the voucher stays consistently approved.
@@ -413,7 +414,7 @@ def unapprove_transfer(id):
 def delete_transfer(id):
     if not current_user.module_access("fixed_assets"):
         return render_template("access_denied.html")
-    transfer = AssetTransfer.query.get_or_404(id)
+    transfer = scoped_get_404(AssetTransfer, id)
     if transfer.status == "approved":
         flash("Cannot delete an approved transfer. Unapprove it first.", "error")
         return redirect(url_for("fa_transfers.list_transfers"))

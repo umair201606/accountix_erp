@@ -4,9 +4,16 @@ from ..extensions import db
 
 class LeaveType(db.Model):
     __tablename__ = "leave_types"
+    __table_args__ = (
+        db.UniqueConstraint("company_id", "name",
+                            name="uq_leave_types_name"),
+        db.UniqueConstraint("company_id", "code",
+                            name="uq_leave_types_code"),
+    )
     id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(50), unique=True, nullable=False)
-    code = db.Column(db.String(10), unique=True, nullable=False)
+    company_id = db.Column(db.Integer, index=True)
+    name = db.Column(db.String(50), nullable=False)
+    code = db.Column(db.String(10), nullable=False)
     description = db.Column(db.Text)
     default_quota = db.Column(db.Integer, default=0)
     is_paid = db.Column(db.Boolean, default=True)
@@ -18,6 +25,7 @@ class LeaveType(db.Model):
 class LeaveQuota(db.Model):
     __tablename__ = "leave_quotas"
     id = db.Column(db.Integer, primary_key=True)
+    company_id = db.Column(db.Integer, index=True)
     user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
     leave_type_id = db.Column(db.Integer, db.ForeignKey("leave_types.id"), nullable=False)
     year = db.Column(db.Integer, nullable=False)
@@ -29,12 +37,16 @@ class LeaveQuota(db.Model):
     user = db.relationship("User", backref="leave_quotas")
     leave_type = db.relationship("LeaveType")
 
-    __table_args__ = (db.UniqueConstraint("user_id", "leave_type_id", "year", name="uq_leave_quota"),)
+    __table_args__ = (
+        db.UniqueConstraint("company_id", "user_id", "leave_type_id", "year",
+                            name="uq_leave_quota_company"),
+    )
 
 
 class LeaveRequest(db.Model):
     __tablename__ = "leave_requests"
     id = db.Column(db.Integer, primary_key=True)
+    company_id = db.Column(db.Integer, index=True)
     user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
     leave_type_id = db.Column(db.Integer, db.ForeignKey("leave_types.id"), nullable=False)
     start_date = db.Column(db.Date, nullable=False)
@@ -54,6 +66,7 @@ class LeaveRequest(db.Model):
 class LeaveApproval(db.Model):
     __tablename__ = "leave_approvals"
     id = db.Column(db.Integer, primary_key=True)
+    company_id = db.Column(db.Integer, index=True)
     leave_request_id = db.Column(db.Integer, db.ForeignKey("leave_requests.id"), nullable=False)
     approver_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
     level = db.Column(db.Integer, default=1)

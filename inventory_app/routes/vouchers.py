@@ -3,6 +3,7 @@ from decimal import Decimal
 from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify
 from flask_login import login_required, current_user
 from shared.extensions import db
+from shared.tenancy import scoped_get, scoped_get_404
 from shared.models.stock_ledger import StockLedger, VoucherNumber
 from shared.stock_utils import dependency_check, validate_no_dependents
 from shared.ledger_utils import post_journal_entry, get_or_create_account
@@ -21,7 +22,7 @@ inv_vouchers_bp = Blueprint("inv_vouchers", __name__, url_prefix="/inventory/vou
 
 def _resolve_product(pid):
     from ..models.product import InvProduct
-    return InvProduct.query.get(pid)
+    return scoped_get(InvProduct, pid)
 
 
 def _cost_from_ledger(pid):
@@ -58,7 +59,7 @@ def _post_voucher_journal(vtype, v, lines):
 @inv_vouchers_bp.route("/consumption/<int:id>", methods=["GET", "POST"])
 @login_required
 def consumption_form(id=None):
-    voucher = ConsumptionVoucher.query.get(id) if id else None
+    voucher = scoped_get(ConsumptionVoucher, id) if id else None
     if request.method == "POST":
         is_new = voucher is None
         if is_new:
@@ -151,7 +152,7 @@ def consumption_list():
 @inv_vouchers_bp.route("/consumption/<int:id>/delete")
 @login_required
 def consumption_delete(id):
-    v = ConsumptionVoucher.query.get_or_404(id)
+    v = scoped_get_404(ConsumptionVoucher, id)
     if v.status == "approved":
         flash("Cannot delete an approved voucher. Unapprove it first.", "error")
         return redirect(url_for("inv_vouchers.consumption_list"))
@@ -164,7 +165,7 @@ def consumption_delete(id):
 @inv_vouchers_bp.route("/consumption/<int:id>/unapprove")
 @login_required
 def consumption_unapprove(id):
-    v = ConsumptionVoucher.query.get_or_404(id)
+    v = scoped_get_404(ConsumptionVoucher, id)
     if v.status != "approved":
         flash("Voucher is not approved.", "error")
         return redirect(url_for("inv_vouchers.consumption_list"))
@@ -187,7 +188,7 @@ def consumption_unapprove(id):
 @inv_vouchers_bp.route("/scrap/<int:id>", methods=["GET", "POST"])
 @login_required
 def scrap_form(id=None):
-    voucher = ScrapVoucher.query.get(id) if id else None
+    voucher = scoped_get(ScrapVoucher, id) if id else None
     if request.method == "POST":
         is_new = voucher is None
         if is_new:
@@ -278,7 +279,7 @@ def scrap_list():
 @inv_vouchers_bp.route("/scrap/<int:id>/delete")
 @login_required
 def scrap_delete(id):
-    v = ScrapVoucher.query.get_or_404(id)
+    v = scoped_get_404(ScrapVoucher, id)
     if v.status == "approved":
         flash("Cannot delete an approved voucher. Unapprove it first.", "error")
         return redirect(url_for("inv_vouchers.scrap_list"))
@@ -291,7 +292,7 @@ def scrap_delete(id):
 @inv_vouchers_bp.route("/scrap/<int:id>/unapprove")
 @login_required
 def scrap_unapprove(id):
-    v = ScrapVoucher.query.get_or_404(id)
+    v = scoped_get_404(ScrapVoucher, id)
     if v.status != "approved":
         flash("Voucher is not approved.", "error")
         return redirect(url_for("inv_vouchers.scrap_list"))
@@ -314,7 +315,7 @@ def scrap_unapprove(id):
 @inv_vouchers_bp.route("/adjustment/<int:id>", methods=["GET", "POST"])
 @login_required
 def adjustment_form(id=None):
-    voucher = StockAdjustmentVoucher.query.get(id) if id else None
+    voucher = scoped_get(StockAdjustmentVoucher, id) if id else None
     if request.method == "POST":
         is_new = voucher is None
         if is_new:
@@ -417,7 +418,7 @@ def adjustment_list():
 @inv_vouchers_bp.route("/adjustment/<int:id>/delete")
 @login_required
 def adjustment_delete(id):
-    v = StockAdjustmentVoucher.query.get_or_404(id)
+    v = scoped_get_404(StockAdjustmentVoucher, id)
     if v.status == "approved":
         flash("Cannot delete an approved voucher. Unapprove it first.", "error")
         return redirect(url_for("inv_vouchers.adjustment_list"))
@@ -430,7 +431,7 @@ def adjustment_delete(id):
 @inv_vouchers_bp.route("/adjustment/<int:id>/unapprove")
 @login_required
 def adjustment_unapprove(id):
-    v = StockAdjustmentVoucher.query.get_or_404(id)
+    v = scoped_get_404(StockAdjustmentVoucher, id)
     if v.status != "approved":
         flash("Voucher is not approved.", "error")
         return redirect(url_for("inv_vouchers.adjustment_list"))
@@ -453,7 +454,7 @@ def adjustment_unapprove(id):
 @inv_vouchers_bp.route("/stock-take/<int:id>", methods=["GET", "POST"])
 @login_required
 def stock_take_form(id=None):
-    st = StockTake.query.get(id) if id else None
+    st = scoped_get(StockTake, id) if id else None
     if request.method == "POST":
         is_new = st is None
         if is_new:
@@ -577,7 +578,7 @@ def stock_take_list():
 @inv_vouchers_bp.route("/stock-take/<int:id>/delete")
 @login_required
 def stock_take_delete(id):
-    st = StockTake.query.get_or_404(id)
+    st = scoped_get_404(StockTake, id)
     if st.status == "approved":
         flash("Cannot delete an approved stock take.", "error")
         return redirect(url_for("inv_vouchers.stock_take_list"))
@@ -600,7 +601,7 @@ def product_ledger():
     product = None
     entries = []
     if product_id:
-        product = InvProduct.query.get(product_id)
+        product = scoped_get(InvProduct, product_id)
         entries = StockLedger.query.filter_by(product_id=product_id).order_by(StockLedger.id).all()
     return render_template("vouchers/product_ledger.html",
                            products=products, product=product,
@@ -639,7 +640,7 @@ def voucher_preview(vtype, vid):
 
     if vtype == "CONS":
         from shared.models.vouchers import ConsumptionVoucher
-        voucher = ConsumptionVoucher.query.get_or_404(vid)
+        voucher = scoped_get_404(ConsumptionVoucher, vid)
         title = "Consumption Voucher"
         for it in voucher.items:
             normalized_items.append({
@@ -650,7 +651,7 @@ def voucher_preview(vtype, vid):
 
     elif vtype == "SCRAP":
         from shared.models.vouchers import ScrapVoucher
-        voucher = ScrapVoucher.query.get_or_404(vid)
+        voucher = scoped_get_404(ScrapVoucher, vid)
         title = "Scrap Voucher"
         for it in voucher.items:
             normalized_items.append({
@@ -661,7 +662,7 @@ def voucher_preview(vtype, vid):
 
     elif vtype == "ADJ":
         from shared.models.vouchers import StockAdjustmentVoucher
-        voucher = StockAdjustmentVoucher.query.get_or_404(vid)
+        voucher = scoped_get_404(StockAdjustmentVoucher, vid)
         title = "Stock Adjustment Voucher"
         for it in voucher.items:
             normalized_items.append({
@@ -673,7 +674,7 @@ def voucher_preview(vtype, vid):
 
     elif vtype == "PI":
         from ..models.purchase_invoice import InvPurchaseInvoice
-        voucher = InvPurchaseInvoice.query.get_or_404(vid)
+        voucher = scoped_get_404(InvPurchaseInvoice, vid)
         title = "Purchase Invoice"
         for it in voucher.items:
             normalized_items.append({
@@ -686,7 +687,7 @@ def voucher_preview(vtype, vid):
 
     elif vtype == "PR":
         from ..models.purchase_return import InvPurchaseReturn
-        voucher = InvPurchaseReturn.query.get_or_404(vid)
+        voucher = scoped_get_404(InvPurchaseReturn, vid)
         title = "Purchase Return"
         for it in voucher.items:
             normalized_items.append({

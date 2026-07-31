@@ -2,6 +2,7 @@ from datetime import date, datetime
 from flask import Blueprint, render_template, request, redirect, url_for, flash
 from flask_login import login_required, current_user
 from shared.extensions import db
+from shared.tenancy import scoped_get, scoped_get_404
 from shared.models.ledger import ChartOfAccount
 from shared.models.stock_ledger import VoucherNumber
 from shared.models.asset_transfer import AssetTransfer
@@ -51,7 +52,7 @@ def create_transfer():
             return render_template("transfers/form.html", products=products, categories=categories)
         try:
             from inventory_app.models.product import InvProduct
-            prod = InvProduct.query.get(product_id)
+            prod = scoped_get(InvProduct, product_id)
             if not prod:
                 flash("Product not found.", "error")
                 return render_template("transfers/form.html", products=products, categories=categories)
@@ -62,7 +63,7 @@ def create_transfer():
         purchase_cost = float(request.form.get("purchase_cost", 0) or (prod.cost_price or prod.unit_price or 0))
         category_id = int(request.form.get("category_id", 0))
         FixedAsset, AssetCategory = _assets()
-        category = AssetCategory.query.get(category_id)
+        category = scoped_get(AssetCategory, category_id)
         useful_life = int(request.form.get("useful_life", category.default_useful_life if category else 5))
         voucher_number = VoucherNumber.next("INV-FA")
         asset = FixedAsset(
@@ -128,12 +129,12 @@ def create_transfer():
 def edit_transfer(id):
     if not current_user.module_access("inventory"):
         return render_template("access_denied.html")
-    transfer = AssetTransfer.query.get_or_404(id)
+    transfer = scoped_get_404(AssetTransfer, id)
     if transfer.status == "approved":
         flash("Cannot edit an approved transfer.", "error")
         return redirect(url_for("inv_transfers.list_transfers"))
     FixedAsset, AssetCategory = _assets()
-    asset = FixedAsset.query.get(transfer.asset_id)
+    asset = scoped_get(FixedAsset, transfer.asset_id)
     products = []
     try:
         from inventory_app.models.product import InvProduct
@@ -148,7 +149,7 @@ def edit_transfer(id):
             product_id = request.form.get("product_id", type=int) or transfer.source_product_id
             try:
                 from inventory_app.models.product import InvProduct
-                prod = InvProduct.query.get(product_id)
+                prod = scoped_get(InvProduct, product_id)
             except Exception:
                 prod = None
             name = asset.name if asset else ""
@@ -190,12 +191,12 @@ def edit_transfer(id):
 def unapprove_transfer(id):
     if not current_user.module_access("inventory"):
         return render_template("access_denied.html")
-    transfer = AssetTransfer.query.get_or_404(id)
+    transfer = scoped_get_404(AssetTransfer, id)
     if transfer.status != "approved":
         flash("Transfer is not approved.", "error")
         return redirect(url_for("inv_transfers.list_transfers"))
     FixedAsset, _ = _assets()
-    asset = FixedAsset.query.get(transfer.asset_id)
+    asset = scoped_get(FixedAsset, transfer.asset_id)
     if asset:
         db.session.delete(asset)
     try:
@@ -216,12 +217,12 @@ def unapprove_transfer(id):
 def delete_transfer(id):
     if not current_user.module_access("inventory"):
         return render_template("access_denied.html")
-    transfer = AssetTransfer.query.get_or_404(id)
+    transfer = scoped_get_404(AssetTransfer, id)
     if transfer.status == "approved":
         flash("Cannot delete an approved transfer. Unapprove it first.", "error")
         return redirect(url_for("inv_transfers.list_transfers"))
     FixedAsset, _ = _assets()
-    asset = FixedAsset.query.get(transfer.asset_id)
+    asset = scoped_get(FixedAsset, transfer.asset_id)
     if asset:
         db.session.delete(asset)
     db.session.delete(transfer)

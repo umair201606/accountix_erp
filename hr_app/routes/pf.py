@@ -3,6 +3,7 @@ from flask import Blueprint, render_template, request, jsonify, flash, redirect,
 from flask_login import login_required, current_user
 from sqlalchemy import func
 from ..extensions import db
+from shared.tenancy import scoped_get_404
 from ..models.pf import ProvidentFundConfig, PFContribution, PFLedger, PFWithdrawalRequest, PFLoanRequest
 from ..models.holiday import PFProfitDistribution, PFSettlement, ButtonPermission
 from ..models.communication import Notification, NotificationRecipient
@@ -128,7 +129,7 @@ def request_loan():
 @pf_bp.route("/compliance-check/<int:lid>")
 @login_required
 def compliance_check(lid):
-    loan = PFLoanRequest.query.get_or_404(lid)
+    loan = scoped_get_404(PFLoanRequest, lid)
     balance = db.session.query(func.sum(PFLedger.credit) - func.sum(PFLedger.debit)).filter(
         PFLedger.user_id == loan.user_id).scalar() or 0
     config = ProvidentFundConfig.query.first()
@@ -146,7 +147,7 @@ def compliance_check(lid):
 def approve_withdrawal(wid):
     if not current_user.is_admin():
         return jsonify({"error": "Access denied"}), 403
-    wr = PFWithdrawalRequest.query.get_or_404(wid)
+    wr = scoped_get_404(PFWithdrawalRequest, wid)
     wr.status = "approved"
     wr.approved_by = current_user.id
     wr.approved_at = datetime.utcnow()
@@ -164,7 +165,7 @@ def approve_loan(lid):
         return jsonify({"error": "Access denied"}), 403
     if not _has_button_perm("BUTTON_APPROVE_PF_LOAN"):
         return jsonify({"error": "No permission to approve loans"}), 403
-    loan = PFLoanRequest.query.get_or_404(lid)
+    loan = scoped_get_404(PFLoanRequest, lid)
     loan.status = "approved"
     loan.approved_by = current_user.id
     loan.approved_at = datetime.utcnow()

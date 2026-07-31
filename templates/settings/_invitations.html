@@ -1,0 +1,52 @@
+<div class="set-card">
+  <h3>Invitations</h3>
+  <p class="hint">Companies have invited you to join as a member. Accepting switches your active company to theirs.</p>
+
+  {% if invites %}
+  <div class="tbl-scroll">
+    <table class="stbl inv-tbl">
+      <thead>
+        <tr><th>Company</th><th>Role</th><th>Invited</th><th></th></tr>
+      </thead>
+      <tbody>
+        {% for inv in invites %}
+        <tr>
+          <td class="m-cell-user">
+            <div class="r-name">{{ inv.company.name if inv.company else '&mdash;'|safe }}</div>
+            <div class="r-email">{{ inv.email }}</div>
+          </td>
+          <td data-label="Role"><span class="pill pill-off">{{ inv_role_names.get(inv.role_id, '')|title }}</span></td>
+          <td data-label="Invited">{{ inv.created_at.strftime('%Y-%m-%d') if inv.created_at else '&mdash;'|safe }}</td>
+          <td data-label="Actions">
+            <div class="m-acts">
+              <form method="POST" action="{{ url_for('settings.accept_invitation', invitation_id=inv.id) }}" style="display:inline;" onsubmit="return confirm('Join {{ inv.company.name }} as a member?');">
+                <button type="submit" class="btn btn-sm btn-primary">Accept</button>
+              </form>
+              <form method="POST" action="{{ url_for('settings.decline_invitation', invitation_id=inv.id) }}" style="display:inline;">
+                <button type="submit" class="btn btn-sm btn-outline">Decline</button>
+              </form>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p style="color:var(--muted);font-size:13px;padding:8px 0;">You have no pending invitations.</p>
+  {% endif %}
+</div>
+<style>
+  .m-acts { display: flex; flex-wrap: wrap; gap: 6px; }
+  .m-acts .btn { font-size: 11px; padding: 5px 10px; }
+  @media (max-width: 768px) {
+    .inv-tbl, .inv-tbl thead, .inv-tbl tbody, .inv-tbl tr, .inv-tbl th, .inv-tbl td { display: block; }
+    .inv-tbl thead { display: none; }
+    .inv-tbl tr { background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 12px; margin-bottom: 10px; }
+    .inv-tbl td { border: none !important; padding: 3px 0 !important; }
+    .inv-tbl td[data-label]:before { content: attr(data-label) ": "; font-weight: 700; font-size: 10.5px; text-transform: uppercase; letter-spacing: .4px; color: var(--muted); display: inline; margin-right: 4px; }
+    .m-cell-user { margin-bottom: 6px; }
+    .m-cell-user:before { display: none !important; }
+    .m-acts { margin-top: 8px; }
+  }
+</style>

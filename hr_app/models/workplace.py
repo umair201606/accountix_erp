@@ -5,6 +5,7 @@ from ..extensions import db
 class Announcement(db.Model):
     __tablename__ = "announcements"
     id = db.Column(db.Integer, primary_key=True)
+    company_id = db.Column(db.Integer, index=True)
     title = db.Column(db.String(200), nullable=False)
     content = db.Column(db.Text, nullable=False)
     priority = db.Column(db.String(20), default="normal")
@@ -20,6 +21,7 @@ class Announcement(db.Model):
 class TeamEvent(db.Model):
     __tablename__ = "team_events"
     id = db.Column(db.Integer, primary_key=True)
+    company_id = db.Column(db.Integer, index=True)
     title = db.Column(db.String(200), nullable=False)
     description = db.Column(db.Text)
     event_date = db.Column(db.Date, nullable=False)
@@ -36,6 +38,7 @@ class TeamEvent(db.Model):
 class KanbanBoard(db.Model):
     __tablename__ = "kanban_boards"
     id = db.Column(db.Integer, primary_key=True)
+    company_id = db.Column(db.Integer, index=True)
     title = db.Column(db.String(200), nullable=False)
     description = db.Column(db.Text)
     created_by = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
@@ -48,6 +51,7 @@ class KanbanBoard(db.Model):
 class KanbanTask(db.Model):
     __tablename__ = "kanban_tasks"
     id = db.Column(db.Integer, primary_key=True)
+    company_id = db.Column(db.Integer, index=True)
     board_id = db.Column(db.Integer, db.ForeignKey("kanban_boards.id"), nullable=False)
     title = db.Column(db.String(200), nullable=False)
     description = db.Column(db.Text)

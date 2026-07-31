@@ -1,7 +1,8 @@
 from datetime import datetime, date
-from flask import Blueprint, render_template, request, jsonify, flash, redirect, url_for
+from flask import Blueprint, render_template, request, jsonify, flash, redirect, url_for, abort
 from flask_login import login_required, current_user
 from ..extensions import db
+from shared.tenancy import scoped_get, scoped_get_404, get_member
 from ..models.user import User
 from ..models.leave import LeaveRequest, LeaveApproval, LeaveQuota, LeaveType
 from ..models.timesheet import TimesheetWeek, TimesheetApproval, TimesheetEntry
@@ -68,7 +69,7 @@ def approvals():
 @mss_bp.route("/approve-leave/<int:aid>", methods=["POST"])
 @login_required
 def approve_leave(aid):
-    approval = LeaveApproval.query.get_or_404(aid)
+    approval = scoped_get_404(LeaveApproval, aid)
     if approval.approver_id != current_user.id:
         return jsonify({"error": "Not authorized"}), 403
     action = request.form.get("action")
@@ -99,7 +100,7 @@ def approve_leave(aid):
 @mss_bp.route("/approve-timesheet/<int:aid>", methods=["POST"])
 @login_required
 def approve_timesheet(aid):
-    approval = TimesheetApproval.query.get_or_404(aid)
+    approval = scoped_get_404(TimesheetApproval, aid)
     if approval.approver_id != current_user.id:
         return jsonify({"error": "Not authorized"}), 403
     action = request.form.get("action")
@@ -122,7 +123,7 @@ def approve_timesheet(aid):
 @mss_bp.route("/approve-loan/<int:lid>", methods=["POST"])
 @login_required
 def approve_loan(lid):
-    loan = LoanAdvanceRequest.query.get_or_404(lid)
+    loan = scoped_get_404(LoanAdvanceRequest, lid)
     if loan.user.manager_id != current_user.id and not current_user.is_admin():
         return jsonify({"error": "Not authorized"}), 403
     action = request.form.get("action")
@@ -148,7 +149,7 @@ def approve_loan(lid):
 def bulk_approve_timesheets():
     ids = request.get_json().get("ids", [])
     for tid in ids:
-        approval = TimesheetApproval.query.get(tid)
+        approval = scoped_get(TimesheetApproval, tid)
         if approval and approval.approver_id == current_user.id and approval.status == "pending":
             approval.status = "approved"
             approval.week.status = "approved"
@@ -227,7 +228,7 @@ def team_calendar():
 def evaluate(uid):
     if not _require_manager():
         return redirect(url_for("dashboard"))
-    emp = User.query.get_or_404(uid)
+    emp = get_member(uid) or abort(404)
     if emp.manager_id != current_user.id and not current_user.is_admin():
         flash("Not your direct report.", "danger")
         return redirect(url_for("mss.index"))

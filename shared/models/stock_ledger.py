@@ -1,11 +1,13 @@
 from datetime import datetime
 from decimal import Decimal
+from sqlalchemy.exc import IntegrityError
 from shared.extensions import db
 
 
 class StockLedger(db.Model):
     __tablename__ = "stock_ledger"
     id = db.Column(db.Integer, primary_key=True)
+    company_id = db.Column(db.Integer, index=True)
     product_id = db.Column(db.Integer, nullable=False, index=True)
     voucher_type = db.Column(db.String(50), nullable=False)
     voucher_id = db.Column(db.Integer, nullable=False)
@@ -34,17 +36,37 @@ class StockLedger(db.Model):
 
 class VoucherNumber(db.Model):
     __tablename__ = "voucher_numbers"
+    __table_args__ = (
+        db.UniqueConstraint("company_id", "prefix",
+                            name="uq_voucher_numbers_prefix"),
+    )
     id = db.Column(db.Integer, primary_key=True)
-    prefix = db.Column(db.String(20), nullable=False, unique=True)
+    company_id = db.Column(db.Integer, index=True)
+    prefix = db.Column(db.String(20), nullable=False)
     next_number = db.Column(db.Integer, nullable=False, default=1)
 
     @classmethod
     def next(cls, prefix):
+        """Allocate the next number for ``prefix`` in the ACTIVE company.
+
+        The lookup and the insert are both tenant-scoped (ORM + the tenancy
+        engine's before_flush stamping), so every company has its own
+        independent sequence. The create races with concurrent allocations
+        (and with rows written by other sessions), so a unique-violation on
+        insert is retried against the scoped sequence instead of crashing —
+        the loser simply reads the winner's row and continues.
+        """
         v = cls.query.filter_by(prefix=prefix).first()
         if not v:
             v = cls(prefix=prefix, next_number=1)
             db.session.add(v)
-            db.session.commit()
+            try:
+                db.session.commit()
+            except IntegrityError:
+                db.session.rollback()
+                v = cls.query.filter_by(prefix=prefix).first()
+                if not v:
+                    raise
         num = v.next_number
         v.next_number += 1
         db.session.commit()

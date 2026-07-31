@@ -1,6 +1,7 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash
 from flask_login import login_required, current_user
 from shared.extensions import db
+from shared.tenancy import scoped_get_404
 from ..models.asset import AssetCategory
 
 fa_categories_bp = Blueprint("fa_categories", __name__, url_prefix="/fixed-assets/categories")
@@ -48,7 +49,7 @@ def create_category():
 def edit_category(category_id):
     if not current_user.module_access("fixed_assets"):
         return render_template("access_denied.html")
-    category = AssetCategory.query.get_or_404(category_id)
+    category = scoped_get_404(AssetCategory, category_id)
     if request.method == "POST":
         name = request.form.get("name", "").strip()
         if not name:

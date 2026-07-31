@@ -5,6 +5,7 @@ from ..extensions import db
 class Notification(db.Model):
     __tablename__ = "notifications"
     id = db.Column(db.Integer, primary_key=True)
+    company_id = db.Column(db.Integer, index=True)
     title = db.Column(db.String(200), nullable=False)
     message = db.Column(db.Text, nullable=False)
     notification_type = db.Column(db.String(50), default="info")
@@ -20,6 +21,7 @@ class Notification(db.Model):
 class NotificationRecipient(db.Model):
     __tablename__ = "notification_recipients"
     id = db.Column(db.Integer, primary_key=True)
+    company_id = db.Column(db.Integer, index=True)
     notification_id = db.Column(db.Integer, db.ForeignKey("notifications.id"), nullable=False)
     user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
     is_read = db.Column(db.Boolean, default=False)
@@ -31,6 +33,7 @@ class NotificationRecipient(db.Model):
 class EmailLog(db.Model):
     __tablename__ = "email_logs"
     id = db.Column(db.Integer, primary_key=True)
+    company_id = db.Column(db.Integer, index=True)
     recipient = db.Column(db.String(120), nullable=False)
     subject = db.Column(db.String(200), nullable=False)
     body = db.Column(db.Text)

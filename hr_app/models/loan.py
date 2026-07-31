@@ -5,6 +5,7 @@ from ..extensions import db
 class LoanAdvanceRequest(db.Model):
     __tablename__ = "loan_advance_requests"
     id = db.Column(db.Integer, primary_key=True)
+    company_id = db.Column(db.Integer, index=True)
     user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
     request_type = db.Column(db.String(20), nullable=False)
     amount = db.Column(db.Float, nullable=False)
@@ -27,6 +28,7 @@ class LoanAdvanceRequest(db.Model):
 class LoanRepayment(db.Model):
     __tablename__ = "loan_repayments"
     id = db.Column(db.Integer, primary_key=True)
+    company_id = db.Column(db.Integer, index=True)
     loan_id = db.Column(db.Integer, db.ForeignKey("loan_advance_requests.id"), nullable=False)
     amount = db.Column(db.Float, nullable=False)
     paid_at = db.Column(db.DateTime, default=datetime.utcnow)

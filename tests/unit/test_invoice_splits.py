@@ -11,6 +11,7 @@ import pytest
 from flask import Flask
 
 from shared.extensions import db
+import shared.tenancy  # noqa: F401  (registers the scoping listener)
 from shared.invoice_totals import _allocate, revenue_splits, output_tax_splits
 
 
@@ -53,6 +54,7 @@ def app():
     db.init_app(application)
 
     import shared.models.ledger  # noqa: F401  (chart_of_accounts: FK target)
+    import shared.models.company  # noqa: F401  (companies + memberships: FK targets)
     import shared.models.invoice_settings  # noqa: F401
     import inventory_app.models.category  # noqa: F401
     import inventory_app.models.product  # noqa: F401
@@ -60,8 +62,18 @@ def app():
     import inventory_app.models.invoice  # noqa: F401
     import inventory_app.models.additional_charge  # noqa: F401
 
+    shared.tenancy._reset_registry()
+
     with application.app_context():
         db.create_all()
+        from shared.models.company import Company
+        from shared.tenancy import set_current_company, unscoped
+        with unscoped():
+            default = Company(name="Unit Test Co", slug="unit-default",
+                              is_active=True)
+            db.session.add(default)
+            db.session.commit()
+        set_current_company(default.id)
         yield application
         db.session.remove()
         db.drop_all()

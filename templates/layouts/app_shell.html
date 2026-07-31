@@ -50,6 +50,31 @@
     .sidebar.collapsed .mod-switch { display: none; }
     .page-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
     .page-actions:empty { display: none; }
+    /* Company switcher (multi-company): compact pill + dropdown in the topbar. */
+    .company-switch { position: relative; }
+    .company-switch-btn { display: flex; align-items: center; gap: 6px; background: #fff;
+                          border: 1px solid var(--line); color: var(--ink); border-radius: 6px;
+                          padding: 5px 10px; font: inherit; font-size: 12px; font-weight: 600;
+                          cursor: pointer; max-width: 190px; }
+    .company-switch-btn:hover { background: var(--paper); }
+    .company-switch-dot { width: 16px; height: 16px; border-radius: 4px; background: #1d4ed8;
+                          color: #fff; font-size: 9px; font-weight: 700; display: inline-flex;
+                          align-items: center; justify-content: center; flex: none; }
+    .company-switch-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .company-switch-menu { display: none; position: absolute; top: 100%; right: 0; z-index: 90;
+                           min-width: 210px; max-width: 270px; margin-top: 6px; background: #fff;
+                           border: 1px solid var(--line); border-radius: 8px;
+                           box-shadow: 0 10px 30px rgba(0,0,0,.16); overflow: hidden; }
+    .company-switch-menu.show { display: block; }
+    .company-switch-menu a { display: flex; align-items: center; gap: 8px; padding: 8px 12px;
+                             font-size: 12.5px; color: var(--ink); text-decoration: none; }
+    .company-switch-menu a:hover { background: #f1f5f9; }
+    .company-switch-menu a.active { background: #eff6ff; color: #1d4ed8; font-weight: 600; }
+    .company-switch-menu .check { margin-left: auto; color: #1d4ed8; font-weight: 700; }
+    @media (max-width: 768px) {
+      .company-switch-name { display: none; }
+      .company-switch-btn { max-width: none; }
+    }
     /* Never let a page force horizontal scroll on small screens. */
     .content-area { max-width: 100%; }
     @media (max-width: 768px) {
@@ -157,6 +182,28 @@
           {% block page_title %}{% block heading %}{{ meta.label }}{% endblock %}{% endblock %}
         </h2>
         <div class="topbar-right">
+          <div class="company-switch" id="company-switch">
+            <button type="button" class="company-switch-btn" id="company-switch-btn" aria-haspopup="true" aria-expanded="false" title="Switch company">
+              <span class="company-switch-dot">&#9632;</span>
+              <span class="company-switch-name">{{ company.name if company else 'No company' }}</span>
+              <span class="chev">&#9662;</span>
+            </button>
+            <div class="company-switch-menu" id="company-switch-menu" role="menu">
+              {% for c in current_user.active_companies() %}
+              <a href="{{ url_for('company_switch', company_id=c.id, next=request.path) }}" role="menuitem" class="{{ 'active' if company and company.id == c.id }}">
+                <span class="company-switch-dot">&#9632;</span>
+                <span>{{ c.name }}</span>
+                {% if company and company.id == c.id %}<span class="check">&#10003;</span>{% endif %}
+              </a>
+              {% endfor %}
+              {% if current_user.is_super_admin %}
+              <a href="{{ url_for('superadmin.index') }}" role="menuitem">
+                <span class="company-switch-dot" style="background:#7c3aed;">&#9733;</span>
+                <span>Super Admin</span>
+              </a>
+              {% endif %}
+            </div>
+          </div>
           <span class="mod-badge" style="font-size:11px;background:{{ meta.badge_bg }};color:{{ meta.badge_fg }};padding:2px 8px;border-radius:4px;font-weight:600;">{{ meta.badge }}</span>
           {% if unread_count is defined %}
           <div class="notif-dropdown" id="notif-dropdown">
@@ -250,6 +297,23 @@
     (function () {
       var btn = document.getElementById('mod-switch-btn');
       var menu = document.getElementById('mod-menu');
+      if (!btn || !menu) return;
+      btn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        var open = menu.classList.toggle('show');
+        btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+      });
+      document.addEventListener('click', function () {
+        menu.classList.remove('show');
+        btn.setAttribute('aria-expanded', 'false');
+      });
+    })();
+  </script>
+  <script>
+    // Company switcher dropdown (shell-local; everything else is in app.js).
+    (function () {
+      var btn = document.getElementById('company-switch-btn');
+      var menu = document.getElementById('company-switch-menu');
       if (!btn || !menu) return;
       btn.addEventListener('click', function (e) {
         e.stopPropagation();
