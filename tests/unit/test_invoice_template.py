@@ -10,9 +10,10 @@ import re
 import pytest
 
 from shared.models.invoice_template import (
-    DESIGNS, DESIGN_KEYS, ACCENT_PRESETS, PLACEHOLDER_HELP,
-    build_body, default_options, normalise_options, option_groups,
-    render_invoice_template, sample_context, InvoiceTemplate)
+    DESIGNS, DESIGN_KEYS, ACCENT_PRESETS, PLACEHOLDER_HELP, SHEET_MARKER,
+    build_body, build_totals_table, default_options, items_table_metrics,
+    normalise_options, option_groups, render_invoice_template, sample_context,
+    InvoiceTemplate)
 
 
 DOC_TYPES = ("sales", "purchase")
@@ -236,6 +237,216 @@ def test_sample_context_prefers_the_real_company_profile():
     ctx = sample_context("sales", FakeCompany())
     assert ctx["company_name"] == "Acme Solar"
     assert ctx["company_address"], "a blank profile field still needs a stand-in"
+
+
+# ─────────────────────────────────────────────
+# The printed page is A4
+# ─────────────────────────────────────────────
+
+@pytest.mark.parametrize("doc_type", DOC_TYPES)
+@pytest.mark.parametrize("design", DESIGN_KEYS)
+def test_every_design_is_an_a4_sheet(design, doc_type):
+    """Sales and purchase, every design: one page geometry, no exceptions."""
+    out = rendered(design, doc_type)
+    assert "@page{size:A4;margin:14mm}" in out
+    assert "width:210mm;min-height:297mm" in out
+    assert f'class="inv-sheet {SHEET_MARKER}"' in out
+
+
+@pytest.mark.parametrize("doc_type", DOC_TYPES)
+def test_the_items_table_never_uses_a_fixed_layout(doc_type):
+    """A fixed layout apportions width by column count instead of by content,
+    which is what clipped values and split numbers across two lines."""
+    for mode in ("combined", "per_line"):
+        out = rendered("classic", doc_type, discount_display=mode,
+                       tax_display=mode, charges_display=mode)
+        assert "table-layout:fixed" not in out
+
+
+@pytest.mark.parametrize("doc_type", DOC_TYPES)
+def test_only_the_description_column_may_wrap(doc_type):
+    """Everything else is nowrap, so an amount never breaks across two lines."""
+    out = rendered("classic", doc_type)
+    body = out[out.index('<div class="inv-sheet'):]
+    table = re.search(r'<table class="inv-items".*?</table>', body, re.S).group(0)
+    header = re.search(r"<thead>.*?</thead>", table, re.S).group(0)
+    # Exactly one marked description cell in every row: the header, each item,
+    # and the totals row. Any row that missed it would wrap its numbers.
+    assert header.count("inv-desc") == 1
+    assert table.count("inv-desc") == len(re.findall(r"<tr[ >]", table))
+
+
+@pytest.mark.parametrize("doc_type", DOC_TYPES)
+def test_extra_columns_shrink_the_type_rather_than_overflow(doc_type):
+    """Per-line mode adds six or seven columns; they have to be made to fit."""
+    combined = rendered("classic", doc_type, discount_display="combined",
+                        tax_display="combined", charges_display="combined")
+    perline = rendered("classic", doc_type, discount_display="per_line",
+                       tax_display="per_line", charges_display="per_line")
+
+    def size(html):
+        table = re.search(r'<table class="inv-items" style="([^"]+)"', html).group(1)
+        return float(re.search(r"font-size:([\d.]+)px", table).group(1))
+
+    assert size(perline) < size(combined)
+
+
+def test_the_type_scale_is_monotonic_in_the_column_count():
+    sizes = [items_table_metrics(n)["font"] for n in range(10, 20)]
+    assert sizes == sorted(sizes, reverse=True)
+    assert sizes[0] == 11.0, "a plain invoice is not shrunk at all"
+    assert min(sizes) >= 7.0, "the starting size stays legible; auto-fit takes it further"
+
+
+@pytest.mark.parametrize("doc_type", DOC_TYPES)
+def test_the_totals_block_stands_up_without_the_sheet_stylesheet(doc_type):
+    """A hand-written template gets {{totals_table}} substituted into HTML that
+    carries none of the sheet's CSS. If the layout lives only in those classes
+    the table shrinks to its contents and the summary drops to the left."""
+    html = build_totals_table(doc_type, default_options(doc_type), "#0f766e")
+    outer = html[:html.index(">") + 1]
+    assert "width:100%" in outer, "outer table must set its own width"
+    assert "border-collapse:collapse" in outer
+    box = html[html.index('class="inv-totals-box"'):]
+    assert box[:120].count("width:72mm") == 1, "summary keeps its width inline"
+
+
+@pytest.mark.parametrize("doc_type", DOC_TYPES)
+def test_the_items_table_stands_up_without_the_sheet_stylesheet(doc_type):
+    out = rendered("classic", doc_type)
+    body = out[out.index('<div class="inv-sheet'):]
+    table = re.search(r'<table class="inv-items" style="([^"]+)"', body).group(1)
+    assert "width:100%" in table
+    assert "border-collapse:collapse" in table
+    # Numbers must not wrap even with no stylesheet backing the table.
+    row = re.search(r"<tbody>.*?</tr>", body, re.S).group(0)
+    money = re.findall(r"<td style='([^']*)'>[\d,]+\.\d\d</td>", row)
+    assert money, "expected money cells"
+    assert all("white-space:nowrap" in c for c in money)
+
+
+@pytest.mark.parametrize("doc_type", DOC_TYPES)
+def test_the_summary_is_pinned_to_the_right_at_a_fixed_width(doc_type):
+    """Adding item columns must not move the totals block."""
+    narrow = rendered("classic", doc_type)
+    wide = rendered("classic", doc_type, discount_display="per_line",
+                    tax_display="per_line", charges_display="per_line")
+    for out in (narrow, wide):
+        body = out[out.index('<div class="inv-sheet'):]
+        assert body.count('class="inv-totals-box"') == 1
+    assert "td.inv-totals-box{width:72mm}" in narrow
+
+
+@pytest.mark.parametrize("doc_type", DOC_TYPES)
+@pytest.mark.parametrize("design", DESIGN_KEYS)
+def test_signature_and_closing_line_sit_at_the_foot_of_the_page(design, doc_type):
+    out = rendered(design, doc_type)
+    body = out[out.index('<div class="inv-sheet'):]
+    assert '<div class="inv-foot">' in body
+    foot = body[body.index('<div class="inv-foot">'):]
+    assert "Signatory" in foot or "Approved By" in foot
+    assert "Thank you" in foot or "internal record" in foot
+    assert ".inv-sheet>.inv-foot{margin-top:auto" in out
+
+
+@pytest.mark.parametrize("doc_type", DOC_TYPES)
+def test_notes_stay_with_the_content_not_in_the_foot(doc_type):
+    """Notes read as part of the invoice; only the signing block is anchored."""
+    out = rendered("classic", doc_type)
+    body = out[out.index('<div class="inv-sheet'):]
+    assert body.index("Notes") < body.index('<div class="inv-foot">')
+
+
+@pytest.mark.parametrize("doc_type", DOC_TYPES)
+@pytest.mark.parametrize("design", DESIGN_KEYS)
+def test_every_page_gets_a_number_in_the_bottom_right(design, doc_type):
+    out = rendered(design, doc_type)
+    assert '<div class="inv-pagenums"' in out
+    assert ".inv-pageno{position:absolute;right:0" in out
+    assert "'Page ' + (i + 1) + ' of ' + pages" in out
+
+
+# ─────────────────────────────────────────────
+# Bank details opposite the summary
+# ─────────────────────────────────────────────
+
+def test_sales_invoice_prints_bank_details_opposite_the_totals():
+    out = rendered("classic", "sales", show_bank_details=True)
+    body = out[out.index('<div class="inv-sheet'):]
+    gap = body[body.index('class="inv-totals-gap"'):body.index('class="inv-totals-box"')]
+    assert "Payment Details" in gap
+    assert "Meezan Bank Ltd" in gap, "bank name"
+    assert "0102-0101234567-01" in gap, "account number"
+    assert "Title" in gap
+
+
+def test_bank_details_can_be_switched_off():
+    assert "Payment Details" not in rendered("classic", "sales",
+                                             show_bank_details=False)
+
+
+def test_a_purchase_invoice_never_prints_our_own_bank_details():
+    """It is the supplier's demand for payment; our account number has no
+    business on it."""
+    assert "show_bank_details" not in default_options("purchase")
+    for design in DESIGN_KEYS:
+        assert "Payment Details" not in rendered(design, "purchase")
+
+
+def test_bank_details_do_not_move_the_summary():
+    with_bank = rendered("classic", "sales", show_bank_details=True)
+    without = rendered("classic", "sales", show_bank_details=False)
+    for out in (with_bank, without):
+        body = out[out.index('<div class="inv-sheet'):]
+        assert body.count('class="inv-totals-box"') == 1
+        assert body.count('class="inv-totals-gap"') == 1
+
+
+def test_bank_details_prefer_the_real_company_profile():
+    class FakeCompany:
+        company_name = "Acme Solar"
+        address = city = phone = email = tax_id = logo_url = None
+        bank_name = "HBL, Model Town"
+        bank_account_title = "Acme Solar Pvt Ltd"
+        bank_account_number = "PK36HABB0000001234567890"
+    ctx = sample_context("sales", FakeCompany())
+    assert ctx["company_bank_name"] == "HBL, Model Town"
+    assert ctx["company_bank_account_number"] == "PK36HABB0000001234567890"
+
+
+# ─────────────────────────────────────────────
+# Existing templates pick up a new layout
+# ─────────────────────────────────────────────
+
+def test_refresh_designs_rebuilds_bodies_saved_under_an_old_layout(app):
+    """Without this an existing install keeps printing the old page, because
+    body_html is only regenerated when someone re-saves the template."""
+    from shared.extensions import db
+    stale = "<div style='max-width:820px'>{{grand_total}}</div>"
+    for doc_type in DOC_TYPES:
+        t = InvoiceTemplate(name=f"Old {doc_type}", type=doc_type,
+                            design="classic", accent_color="#0f766e",
+                            body_html=stale)
+        t.set_options(default_options(doc_type))
+        db.session.add(t)
+    db.session.flush()
+
+    assert InvoiceTemplate.refresh_designs() == 2
+    for t in InvoiceTemplate.query.all():
+        assert SHEET_MARKER in t.body_html
+    assert InvoiceTemplate.refresh_designs() == 0, "already current, nothing to do"
+    db.session.rollback()
+
+
+def test_refresh_designs_leaves_hand_written_bodies_alone(app):
+    from shared.extensions import db
+    t = InvoiceTemplate(name="Mine", type="sales", design="custom",
+                        body_html="<p>mine {{grand_total}}</p>")
+    db.session.add(t)
+    db.session.flush()
+    InvoiceTemplate.refresh_designs()
+    assert t.body_html == "<p>mine {{grand_total}}</p>"
+    db.session.rollback()
 
 
 def test_designs_and_accents_are_well_formed():

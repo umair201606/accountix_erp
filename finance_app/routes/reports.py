@@ -263,10 +263,86 @@ def _pl_rows(from_date, to_date):
     return rows, float(running)
 
 
+# Every figure on a finance report is money. Written without a format Excel
+# shows the raw float — 1234.5 where the report says 1,234.50 — and negatives
+# with a bare minus instead of the brackets an accountant reads.
+MONEY_FMT = "#,##0.00;(#,##0.00)"
+
+
+def _looks_numeric(v):
+    """Is this cell a figure, whoever formatted it?
+
+    Several reports hand the PDF builder money already rendered — "1,234.50",
+    "(9,876.50)". Judging a column only by its Python type classified those as
+    text and left-aligned them, so the decimal points stopped lining up. A
+    column is numeric if every value in it reads as a number, formatted or not.
+    """
+    if isinstance(v, bool):
+        return False
+    if isinstance(v, (int, float, Decimal)):
+        return True
+    if not isinstance(v, str):
+        return False
+    s = v.strip().replace(",", "")
+    if s.startswith("(") and s.endswith(")"):
+        s = s[1:-1]
+    if s.endswith("%"):
+        s = s[:-1]
+    if not s:
+        return False
+    try:
+        float(s)
+        return True
+    except ValueError:
+        return False
+
+
+def _cell_text(v):
+    """What Excel will actually display, which is what a column has to be wide
+    enough for. Sizing from str(1234.5) budgets six characters for the eight
+    that get drawn, and the column shows ###### instead."""
+    if isinstance(v, bool) or v is None:
+        return "" if v is None else str(v)
+    if isinstance(v, (int, float, Decimal)):
+        return f"{v:,.2f}"
+    return str(v)
+
+
+def _finish_sheet(ws, ncols, first_row=3):
+    """Money format and column widths for a hand-built sheet.
+
+    The five export routes each grew their own copy of the width loop and none
+    of them set a number format, so the figures came out unformatted and the
+    columns too narrow for them. One pass, applied everywhere.
+    """
+    for row in ws.iter_rows(min_row=first_row, max_col=ncols):
+        for c in row:
+            if isinstance(c.value, (int, float, Decimal)) and not isinstance(c.value, bool):
+                if c.number_format in (None, "General"):
+                    c.number_format = MONEY_FMT
+    # A section label written into a merged row spans the whole table, so
+    # measuring it would size the narrow Code column to "Less: Selling &
+    # Distribution Expenses". Those cells are skipped.
+    merged = set()
+    for rng in ws.merged_cells.ranges:
+        if rng.max_col > rng.min_col:
+            for r in range(rng.min_row, rng.max_row + 1):
+                for c in range(rng.min_col, rng.max_col + 1):
+                    merged.add((r, c))
+
+    for ci in range(1, ncols + 1):
+        max_len = 0
+        for row in ws.iter_rows(min_row=first_row, min_col=ci, max_col=ci):
+            cell = row[0]
+            if (cell.row, ci) in merged:
+                continue
+            max_len = max(max_len, len(_cell_text(cell.value)))
+        ws.column_dimensions[openpyxl.utils.get_column_letter(ci)].width = \
+            min(max(max_len + 2, 8), 60)
+
+
 def _build_excel_wb(title, headers, rows, col_widths=None,
-                    bold_rows=None, number_format=None):
-    """bold_rows: 0-based indices into ``rows`` to emphasise (subtotal/balance
-    lines). number_format: openpyxl format applied to every numeric cell."""
+                    bold_rows=None, number_format=MONEY_FMT):
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = title[:31]
@@ -281,7 +357,7 @@ def _build_excel_wb(title, headers, rows, col_widths=None,
         c = ws.cell(row=hdr_row, column=ci, value=h)
         c.font = HEADER_FONT
         c.fill = HEADER_FILL
-        c.alignment = CENTER
+        c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
         c.border = THIN
 
     bold_rows = set(bold_rows or ())
@@ -296,9 +372,18 @@ def _build_excel_wb(title, headers, rows, col_widths=None,
             if numeric and number_format:
                 c.number_format = number_format
 
-    if col_widths:
-        for ci, w in enumerate(col_widths, 1):
-            ws.column_dimensions[openpyxl.utils.get_column_letter(ci)].width = w
+    if col_widths is None:
+        col_widths = []
+        for ci in range(len(headers)):
+            max_len = len(str(headers[ci]))
+            for row in rows:
+                # Width has to cover the formatted figure, not the raw float.
+                cell_val = _cell_text(row[ci]) if ci < len(row) else ""
+                max_len = max(max_len, len(cell_val))
+            col_widths.append(min(max(max_len + 2, 8), 60))
+
+    for ci, w in enumerate(col_widths, 1):
+        ws.column_dimensions[openpyxl.utils.get_column_letter(ci)].width = w
 
     out = BytesIO()
     wb.save(out)
@@ -306,10 +391,26 @@ def _build_excel_wb(title, headers, rows, col_widths=None,
     return out
 
 
-def _build_pdf_landscape(title, headers, rows, col_widths=None, bold_rows=None,
-                         subtitle=None):
+def _build_pdf(title, headers, rows, col_widths=None, bold_rows=None,
+               subtitle=None):
+    from reportlab.pdfbase.pdfmetrics import stringWidth
+    from reportlab.lib.styles import ParagraphStyle
+
+    ncols = len(headers)
+    is_landscape = ncols > 5
+    pagesize = landscape(A4) if is_landscape else A4
     buf = BytesIO()
-    doc = SimpleDocTemplate(buf, pagesize=landscape(A4),
+
+    def add_page_number(canvas, doc):
+        canvas.saveState()
+        canvas.setFont("Helvetica", 8)
+        # The page width of the sheet actually in use. A4[0] is the portrait
+        # width, so on the landscape reports — anything over five columns —
+        # the number was drawn 87mm in from the right, on top of the table.
+        canvas.drawRightString(pagesize[0] - 20*mm, 10*mm, f"Page {doc.page}")
+        canvas.restoreState()
+
+    doc = SimpleDocTemplate(buf, pagesize=pagesize,
                             rightMargin=10*mm, leftMargin=10*mm,
                             topMargin=15*mm, bottomMargin=15*mm)
     styles = getSampleStyleSheet()
@@ -325,33 +426,119 @@ def _build_pdf_landscape(title, headers, rows, col_widths=None, bold_rows=None,
 
     data = [headers] + [[str(c) if not isinstance(c, (int, float, Decimal)) else
                          f"{c:,.2f}" for c in row] for row in rows]
-    if not col_widths:
-        col_widths = [doc.width / len(headers)] * len(headers)
-    else:
-        pw = doc.width
-        tw = sum(col_widths)
-        col_widths = [pw * (w / tw) for w in col_widths]
+    available_width = doc.width
 
-    t = Table(data, colWidths=col_widths, repeatRows=1)
+    # Which columns hold money. Decided from the values before they were turned
+    # into strings, so a numeric column is right-aligned and a text one is not
+    # — everything but the first column used to be forced right, which threw
+    # account names and descriptions against their column edge.
+    numeric_cols = set()
+    for ci in range(ncols):
+        seen = False
+        for row in rows:
+            if ci >= len(row) or row[ci] in (None, ""):
+                continue
+            if not _looks_numeric(row[ci]):
+                seen = False
+                break
+            seen = True
+        if seen:
+            numeric_cols.add(ci)
+
+    base_font = 8
+    header_font_size = base_font + 1
+    # Reportlab pads each cell 6pt left and right by default. The old budget of
+    # +10pt for a whole column was less than that 12pt, so every column came
+    # out narrower than its own widest word and the text broke mid-word —
+    # "Vouche/r", "Balanc/e", "2026-07-0/1". Pad explicitly and budget for it.
+    pad_x = 4
+    if col_widths is None:
+        max_widths = [0] * ncols
+        for ri, row in enumerate(data):
+            # The header row is set larger and bold, so it needs measuring at
+            # its own size or a long heading overflows its column.
+            fname = "Helvetica-Bold" if ri == 0 else "Helvetica"
+            fsize = header_font_size if ri == 0 else base_font
+            for ci, val in enumerate(row):
+                w = stringWidth(str(val), fname, fsize)
+                max_widths[ci] = max(max_widths[ci], w)
+        col_widths = [w + 2 * pad_x + 2 for w in max_widths]
+
+    total_width = sum(col_widths)
+    if total_width > available_width:
+        scale = available_width / total_width
+        # Shrink the type with the columns. Scaling the widths alone left the
+        # text at its original size inside narrower cells, so it wrapped or ran
+        # over the grid instead of fitting.
+        base_font = max(5.5, base_font * scale)
+        header_font_size = max(6.0, base_font + 1)
+        col_widths = [w * scale for w in col_widths]
+
+    font_size = base_font
+
+    cell_style = ParagraphStyle("cell", fontName="Helvetica", fontSize=font_size,
+                                leading=font_size * 1.25)
+    # A Paragraph draws its own text, so TableStyle's FONTNAME/FONTSIZE/TEXTCOLOR
+    # never reached the header — it rendered black, unbolded and at body size on
+    # the dark blue fill, which is close to unreadable. The header carries its
+    # own style instead.
+    head_style = ParagraphStyle("cellhead", fontName="Helvetica-Bold",
+                                fontSize=header_font_size,
+                                leading=header_font_size * 1.2,
+                                textColor=colors.white, alignment=1)
+    table_data = []
+    for ri, row in enumerate(data):
+        table_row = []
+        for ci, val in enumerate(row):
+            if ri == 0:
+                table_row.append(Paragraph(str(val), head_style))
+            elif ci in numeric_cols:
+                # Short and right-aligned; a plain string keeps TableStyle's
+                # alignment in charge.
+                table_row.append(val)
+            else:
+                # Text wraps inside its column. Left as a plain string it would
+                # run over the grid into the next cell once the columns were
+                # scaled down to fit the page.
+                table_row.append(Paragraph(str(val), cell_style))
+        table_data.append(table_row)
+
+    t = Table(table_data, colWidths=col_widths, repeatRows=1)
+    pad = 4 if font_size >= 7 else 2
     style = [
         ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1F4E79")),
         ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-        ("FONTSIZE", (0, 0), (-1, 0), 10),
-        ("FONTSIZE", (0, 1), (-1, -1), 8),
+        # Without these the table kept reportlab's 10pt default: the size
+        # computed to make the columns fit was only ever applied to the few
+        # cells wrapped in a Paragraph, so wide reports ran off the page.
+        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("FONTSIZE", (0, 0), (-1, 0), header_font_size),
+        ("FONTNAME", (0, 1), (-1, -1), "Helvetica"),
+        ("FONTSIZE", (0, 1), (-1, -1), font_size),
+        ("LEADING", (0, 0), (-1, -1), font_size * 1.25),
         ("ALIGN", (0, 0), (-1, 0), "CENTER"),
-        ("ALIGN", (1, 1), (-1, -1), "RIGHT"),
         ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
         ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#F2F7FB")]),
-        ("TOPPADDING", (0, 0), (-1, -1), 4),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ("TOPPADDING", (0, 0), (-1, -1), pad),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), pad),
+        ("LEFTPADDING", (0, 0), (-1, -1), pad_x),
+        ("RIGHTPADDING", (0, 0), (-1, -1), pad_x),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
     ]
+    # Money right, words left.
+    for ci in range(ncols):
+        style.append(("ALIGN", (ci, 1), (ci, -1),
+                      "RIGHT" if ci in numeric_cols else "LEFT"))
     for ri in (bold_rows or ()):
-        r = ri + 1  # header occupies row 0
+        r = ri + 1
         style += [("FONTNAME", (0, r), (-1, r), "Helvetica-Bold"),
                   ("BACKGROUND", (0, r), (-1, r), colors.HexColor("#E8EEF5"))]
     t.setStyle(TableStyle(style))
     elements.append(t)
-    doc.build(elements)
+    # These belong to build(), not to the SimpleDocTemplate constructor, which
+    # silently accepted and ignored them — so no finance PDF ever carried a
+    # page number.
+    doc.build(elements, onFirstPage=add_page_number, onLaterPages=add_page_number)
     buf.seek(0)
     return buf
 
@@ -503,8 +690,12 @@ def ledger():
             wb = openpyxl.Workbook()
             wb.remove(wb.active)
             for sec in account_sections:
-                data = ([["", "", "Opening Balance", "", "",
-                          f"{sec['opening']:,.2f} {sec['opening_side']}"]] +
+                # The balance stays a number and the Dr/Cr side goes in the
+                # label. Written as "1,234.50 Dr" it was text: SUM() skipped
+                # it, it sorted apart from the figures above it, and it sat
+                # left-aligned in an otherwise right-aligned column.
+                data = ([["", "", f"Opening Balance ({sec['opening_side']})",
+                          "", "", sec["opening"]]] +
                         [[r["date"], r["voucher"], r["description"], r["debit"], r["credit"], r["balance"]]
                          for r in sec["rows"]])
                 ws = wb.create_sheet(title=sec["account"].code[:31])
@@ -512,19 +703,30 @@ def ledger():
                 ws.cell(row=1, column=1, value=f"{sec['account'].code} - {sec['account'].name}").font = TITLE_FONT
                 for ci, h in enumerate(headers, 1):
                     c = ws.cell(row=3, column=ci, value=h)
-                    c.font = HEADER_FONT; c.fill = HEADER_FILL; c.alignment = CENTER; c.border = THIN
+                    c.font = HEADER_FONT; c.fill = HEADER_FILL; c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True); c.border = THIN
                 for ri, row in enumerate(data, 4):
                     for ci, val in enumerate(row, 1):
                         c = ws.cell(row=ri, column=ci, value=val)
                         c.font = DATA_FONT; c.border = THIN
                         c.alignment = RIGHT if isinstance(val, (int, float, Decimal)) else LEFT_ALIGN
+                # Both summary rows go through the same cell treatment as the
+                # data above them — they were written bare, so the grid stopped
+                # at the last transaction and the totals floated outside the
+                # table, unbordered and left-aligned.
                 tr = 4 + len(data)
-                ws.cell(row=tr, column=3, value="Period Movement").font = BOLD_FONT
-                ws.cell(row=tr, column=4, value=sec["total_debit"]).font = BOLD_FONT
-                ws.cell(row=tr, column=5, value=sec["total_credit"]).font = BOLD_FONT
-                ws.cell(row=tr + 1, column=5, value="Closing Balance").font = BOLD_FONT
-                ws.cell(row=tr + 1, column=6,
-                        value=f"{sec['closing']:,.2f} {sec['closing_side']}").font = BOLD_FONT
+                summary = [
+                    ["", "", "Period Movement", sec["total_debit"],
+                     sec["total_credit"], ""],
+                    ["", "", f"Closing Balance ({sec['closing_side']})",
+                     "", "", sec["closing"]],
+                ]
+                for ri, row in enumerate(summary, tr):
+                    for ci, val in enumerate(row, 1):
+                        c = ws.cell(row=ri, column=ci, value=val)
+                        c.font = BOLD_FONT
+                        c.border = THIN
+                        c.alignment = RIGHT if isinstance(val, (int, float, Decimal)) else LEFT_ALIGN
+                _finish_sheet(ws, 6)
             out = BytesIO(); wb.save(out); out.seek(0)
             return send_file(out, as_attachment=True, download_name="general_ledger.xlsx",
                              mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
@@ -532,16 +734,20 @@ def ledger():
             all_data = []
             for sec in account_sections:
                 all_data.append([sec["account"].code, sec["account"].name, "", "", "", ""])
-                all_data.append(["", "", "Opening Balance", "", "",
-                                 f"{sec['opening']:,.2f} {sec['opening_side']}"])
+                # Labels belong in the Description column. "Closing Balance"
+                # was landing in the Credit column, which made that column
+                # text and left-aligned every credit figure under it, while
+                # Debit stayed right — the two money columns disagreed.
+                all_data.append(["", "", f"Opening Balance ({sec['opening_side']})",
+                                 "", "", sec["opening"]])
                 for r in sec["rows"]:
                     all_data.append([r["date"], r["voucher"], r["description"], r["debit"], r["credit"], r["balance"]])
                 all_data.append(["", "", "Period Movement", sec["total_debit"], sec["total_credit"], ""])
-                all_data.append(["", "", "", "", "Closing Balance",
-                                 f"{sec['closing']:,.2f} {sec['closing_side']}"])
+                all_data.append(["", "", f"Closing Balance ({sec['closing_side']})",
+                                 "", "", sec["closing"]])
                 all_data.append(["", "", "", "", "", ""])
             hdrs = ["Date", "Voucher #", "Description", "Debit", "Credit", "Balance"]
-            pdf_out = _build_pdf_landscape("General Ledger", hdrs, all_data, [24, 28, 60, 24, 24, 24])
+            pdf_out = _build_pdf("General Ledger", hdrs, all_data)
             return send_file(pdf_out, as_attachment=True, download_name="general_ledger.pdf",
                              mimetype="application/pdf")
 
@@ -697,7 +903,11 @@ def trial_balance():
                 r["comp_dr_closing"].append(dr)
                 r["comp_cr_closing"].append(cr)
 
-    n_comp = len(comp_periods)
+    # Count the comparative data actually built, not the periods that happen
+    # to be in the query string. Switching the filter back from comparative
+    # leaves comp_period_ids populated with comp_mode cleared, which opened
+    # unlabelled columns of zeros.
+    n_comp = len(comp_periods) if comp_mode else 0
     fmt = request.args.get("format")
     headers = ["Code", "Account", "Type", "Dr Opening", "Cr Opening",
                "Dr Movement", "Cr Movement", "Dr Closing", "Cr Closing"]
@@ -724,32 +934,33 @@ def trial_balance():
         for ct in comp_class_totals:
             totals_row += [ct["total_dr_closing"], ct["total_cr_closing"]]
         data.append(totals_row)
-        col_widths = [10, 36, 14, 16, 16, 16, 16, 16, 16] + [14, 14] * n_comp
-        wb_out = _build_excel_wb(f"Trial Balance as of {as_of}", headers, data, col_widths)
+        wb_out = _build_excel_wb(f"Trial Balance as of {as_of}", headers, data)
         return send_file(wb_out, as_attachment=True, download_name="trial_balance.xlsx",
                          mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
     if fmt == "pdf":
+        # Figures stay numeric. _build_pdf formats them and decides column
+        # alignment from the values, so pre-rendering them here left every
+        # money column classified as text and aligned left.
         data = []
         for r in rows:
             row_data = [r["code"], r["name"], r["type"],
-                        f"{r['dr_opening']:,.2f}", f"{r['cr_opening']:,.2f}",
-                        f"{r['dr_movement']:,.2f}", f"{r['cr_movement']:,.2f}",
-                        f"{r['dr_closing']:,.2f}", f"{r['cr_closing']:,.2f}"]
+                        r["dr_opening"], r["cr_opening"],
+                        r["dr_movement"], r["cr_movement"],
+                        r["dr_closing"], r["cr_closing"]]
             if r.get("comp_dr_closing"):
                 for i in range(len(comp_periods)):
-                    row_data += [f"{r['comp_dr_closing'][i]:,.2f}", f"{r['comp_cr_closing'][i]:,.2f}"]
+                    row_data += [r["comp_dr_closing"][i], r["comp_cr_closing"][i]]
             else:
                 row_data += ["", ""] * n_comp
             data.append(row_data)
         totals_row = ["", "TOTAL", "",
-                      f"{float(total_dr_op):,.2f}", f"{float(total_cr_op):,.2f}",
-                      f"{float(total_dr_mv):,.2f}", f"{float(total_cr_mv):,.2f}",
-                      f"{float(total_dr_cl):,.2f}", f"{float(total_cr_cl):,.2f}"]
+                      float(total_dr_op), float(total_cr_op),
+                      float(total_dr_mv), float(total_cr_mv),
+                      float(total_dr_cl), float(total_cr_cl)]
         for ct in comp_class_totals:
             totals_row += [f"{ct['total_dr_closing']:,.2f}", f"{ct['total_cr_closing']:,.2f}"]
         data.append(totals_row)
-        col_widths = [12, 48, 14, 28, 28, 28, 28, 28, 28] + [24, 24] * n_comp
-        pdf_out = _build_pdf_landscape(f"Trial Balance as of {as_of}", headers, data, col_widths)
+        pdf_out = _build_pdf(f"Trial Balance as of {as_of}", headers, data)
         return send_file(pdf_out, as_attachment=True, download_name="trial_balance.pdf",
                          mimetype="application/pdf")
 
@@ -836,7 +1047,17 @@ def profit_loss():
         ws.title = "P&L"
         ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=ncols)
         ws.cell(row=1, column=1, value=f"Profit & Loss ({from_date} to {to_date})").font = TITLE_FONT
-        r = 3
+        # The sheet had no column headings at all: with comparatives on, every
+        # column from D rightwards was an unlabelled wall of figures and there
+        # was no way to tell which period was which.
+        for ci, h in enumerate(["Code", "Account", "Amount"] +
+                               [cp.period_name for cp in comp_periods], 1):
+            c = ws.cell(row=3, column=ci, value=h)
+            c.font = HEADER_FONT
+            c.fill = HEADER_FILL
+            c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+            c.border = THIN
+        r = 4
         for row in pl_rows:
             if row["kind"] == "header":
                 ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=ncols)
@@ -864,9 +1085,7 @@ def profit_loss():
                     ws.cell(row=r, column=ci, value=amt).font = Font(bold=True, size=12, color="1F4E79"); ws.cell(row=r, column=ci).alignment = RIGHT
                 r += 1
             r += 1
-        ws.column_dimensions["A"].width = 18
-        ws.column_dimensions["B"].width = 44
-        ws.column_dimensions["C"].width = 18
+        _finish_sheet(ws, ncols, first_row=4)
         out = BytesIO(); wb.save(out); out.seek(0)
         return send_file(out, as_attachment=True, download_name="profit_loss.xlsx",
                          mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
@@ -899,8 +1118,8 @@ def profit_loss():
                     vals += [""] * len(comp_periods)
                 data.append(vals)
                 data.append([""] * (3 + len(comp_periods)))
-        pdf_out = _build_pdf_landscape(f"Profit & Loss ({from_date} to {to_date})",
-                                        headers, data, [24, 66, 26] + [24] * len(comp_periods))
+        pdf_out = _build_pdf(f"Profit & Loss ({from_date} to {to_date})",
+                             headers, data)
         return send_file(pdf_out, as_attachment=True, download_name="profit_loss.pdf",
                          mimetype="application/pdf")
 
@@ -1045,15 +1264,17 @@ def balance_sheet():
         nr = write_section(ws, nr, "EQUITY", equity, "Total Equity", total_equity,
                            [t["total_equity"] for t in comp_totals])
 
-        ws.merge_cells(start_row=nr, start_column=1, end_row=nr, end_column=ncols)
+        # Merge the label columns only. Merging the whole row and then writing
+        # the figure into column 3 raised "'MergedCell' object attribute
+        # 'value' is read-only" — every Balance Sheet Excel export was a 500,
+        # with or without a comparative period.
+        ws.merge_cells(start_row=nr, start_column=1, end_row=nr, end_column=2)
         ws.cell(row=nr, column=1, value="LIABILITIES + EQUITY").font = Font(bold=True, size=12)
         ws.cell(row=nr, column=3, value=float(total_liabilities + total_equity)).font = Font(bold=True, size=12)
         for ci, cp in enumerate(comp_periods, 4):
             lte = float(comp_totals[ci - 4]["total_liabilities"] + comp_totals[ci - 4]["total_equity"]) if comp_totals else 0
             ws.cell(row=nr, column=ci, value=lte).font = Font(bold=True, size=12)
-        ws.column_dimensions["A"].width = 12
-        ws.column_dimensions["B"].width = 40
-        ws.column_dimensions["C"].width = 20
+        _finish_sheet(ws, ncols)
         out = BytesIO(); wb.save(out); out.seek(0)
         return send_file(out, as_attachment=True, download_name="balance_sheet.xlsx",
                          mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
@@ -1068,8 +1289,7 @@ def balance_sheet():
                    [["", "", ""] + [""] * len(comp_periods)] + \
                    [[e["code"], e["name"], f"{e['amount']:,.2f}"] +
                     [""] * len(comp_periods) for e in equity]
-        pdf_out = _build_pdf_landscape(f"Balance Sheet as of {as_of}", headers, all_data,
-                                       [20, 60, 30] + [24] * len(comp_periods))
+        pdf_out = _build_pdf(f"Balance Sheet as of {as_of}", headers, all_data)
         return send_file(pdf_out, as_attachment=True, download_name="balance_sheet.pdf",
                          mimetype="application/pdf")
 
@@ -1104,9 +1324,14 @@ SOCIE_EPS = Decimal("0.005")
 
 
 def _socie_paren(v):
-    """Accounting presentation for exports: negatives in parentheses, gaps as a dash."""
+    """Accounting presentation for exports: negatives in parentheses.
+
+    A gap is empty rather than a dash: the PDF builder decides a column is
+    money by looking at its values, and one "—" among them classified the
+    whole column as text and left-aligned every figure in it.
+    """
     if v is None:
-        return "—"
+        return ""
     return f"({abs(v):,.2f})" if v < 0 else f"{v:,.2f}"
 
 
@@ -1342,7 +1567,10 @@ def socie():
     columns, rows = _socie_matrix(specs)
 
     fmt = request.args.get("format")
-    if fmt in ("excel", "pdf"):
+    # No resolvable period means no columns, and the span line below indexes
+    # specs[0] and specs[-1]. The on-screen report already guards this; the
+    # export used to answer a 500 for a filter the page renders happily.
+    if fmt in ("excel", "pdf") and specs:
         headers = [""] + [c["label"] for c in columns]
         data, bold = [], []
         for r in rows:
@@ -1358,12 +1586,11 @@ def socie():
         title = "Statement of Changes in Equity"
         if fmt == "excel":
             out = _build_excel_wb(f"{title} ({span})", headers, data,
-                                  [46] + [20] * len(columns), bold_rows=bold,
+                                  bold_rows=bold,
                                   number_format="#,##0.00;(#,##0.00)")
             return send_file(out, as_attachment=True, download_name="socie.xlsx",
                              mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-        out = _build_pdf_landscape(title, headers, data, [70] + [30] * len(columns),
-                                   bold_rows=bold, subtitle=span)
+        out = _build_pdf(title, headers, data, bold_rows=bold, subtitle=span)
         return send_file(out, as_attachment=True, download_name="socie.pdf",
                          mimetype="application/pdf")
 
@@ -1486,10 +1713,15 @@ def cash_flow():
             a = all_accts.get(aid)
             if a is None:
                 continue
-            if a.type == "expense":
-                net_profit += float(dr - cr if cr > dr else cr - dr)
-            else:
-                net_profit += float(cr - dr)
+            # Credit less debit, whatever the account type. Expenses used to
+            # take a special case, `dr - cr if cr > dr else cr - dr`, whose
+            # arms are both negative — it always added -abs(movement), so an
+            # expense with a net credit (a refund, rebate or reversal) cut
+            # profit instead of raising it, by twice the amount. _net_income()
+            # uses this plain form, and the two have to agree or the exported
+            # cash flow contradicts the P&L and opening + change stops
+            # equalling closing cash.
+            net_profit += float(cr - dr)
 
         bs_moves = _period_movements(from_date, to_date, ["asset", "liability", "equity"])
 
@@ -1613,7 +1845,11 @@ def cash_flow():
         fin_items = annotate_list(fin_items)
 
     fmt = request.args.get("format")
-    n_comp = len(comp_periods)
+    # Count the comparative maps actually built, not the periods that happen to
+    # be in the query string. Switching the filter back from comparative leaves
+    # comp_period_ids populated with comp_mode cleared, which opened unlabelled
+    # columns of zeros in Excel and of whitespace in the PDF.
+    n_comp = len(comp_item_maps)
     if fmt == "excel":
         col_count = 2 + n_comp
         wb = openpyxl.Workbook()
@@ -1670,10 +1906,7 @@ def cash_flow():
                 c = ws.cell(row=nr, column=3+ci, value=cv or 0)
                 c.font = BOLD_FONT; c.alignment = RIGHT
             nr += 1
-        ws.column_dimensions["A"].width = 46
-        ws.column_dimensions["B"].width = 20
-        for ci in range(n_comp):
-            ws.column_dimensions[chr(ord("C")+ci)].width = 18
+        _finish_sheet(ws, col_count)
         out = BytesIO(); wb.save(out); out.seek(0)
         return send_file(out, as_attachment=True, download_name="cash_flow.xlsx",
                          mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
@@ -1712,9 +1945,8 @@ def cash_flow():
         pdf_data.append(["NET CHANGE IN CASH", f"{net_change:,.2f}"] + _comp_vals(comp_item_maps, "__net_chg__", n_comp))
         pdf_data.append(["Opening cash & equivalents", f"{opening_cash:,.2f}"] + _comp_vals(comp_item_maps, "__open__", n_comp))
         pdf_data.append(["Closing cash & equivalents", f"{closing_cash:,.2f}"] + _comp_vals(comp_item_maps, "__close__", n_comp))
-        col_widths = [80, 30] + [22] * n_comp
-        pdf_out = _build_pdf_landscape(f"Cash Flow Statement — {method.title()} Method ({from_date} to {to_date})",
-                                       pdf_headers, pdf_data, col_widths)
+        pdf_out = _build_pdf(f"Cash Flow Statement — {method.title()} Method ({from_date} to {to_date})",
+                             pdf_headers, pdf_data)
         return send_file(pdf_out, as_attachment=True, download_name="cash_flow.pdf",
                          mimetype="application/pdf")
 

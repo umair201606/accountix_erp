@@ -405,12 +405,12 @@ def voucher_export(id):
 
     if fmt == "excel":
         from .reports import _build_excel_wb
-        out = _build_excel_wb(title, headers, rows, [6, 14, 30, 30, 14, 14])
+        out = _build_excel_wb(title, headers, rows)
         return send_file(out, as_attachment=True,
                          download_name=f"voucher_{v.voucher_number}.xlsx")
 
-    from .reports import _build_pdf_landscape
-    pdf_out = _build_pdf_landscape(title, headers, rows, [6, 14, 30, 30, 14, 14])
+    from .reports import _build_pdf
+    pdf_out = _build_pdf(title, headers, rows)
     return send_file(pdf_out, as_attachment=True,
                      download_name=f"voucher_{v.voucher_number}.pdf",
                      mimetype="application/pdf")

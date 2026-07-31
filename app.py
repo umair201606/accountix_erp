@@ -404,6 +404,10 @@ def _migrate_schema(db):
         ("invoice_settings", "per_line_discount_enabled", "BOOLEAN DEFAULT 1"),
         ("invoice_settings", "per_line_tax_enabled", "BOOLEAN DEFAULT 1"),
         ("company_info", "number_format", "VARCHAR(10) DEFAULT 'en'"),
+        # Remittance details printed opposite the totals on a sales invoice
+        ("company_info", "bank_name", "VARCHAR(200)"),
+        ("company_info", "bank_account_title", "VARCHAR(200)"),
+        ("company_info", "bank_account_number", "VARCHAR(100)"),
         # Fixed Assets Management module columns
         ("fixed_assets", "fixed_asset_account_id", "INTEGER"),
         ("fixed_assets", "accum_dep_account_id", "INTEGER"),
@@ -860,6 +864,9 @@ def _seed_all_data(app):
         # opening cost layer so every future issue has a historic cost basis.
         from shared.models.invoice_template import InvoiceTemplate
         InvoiceTemplate.seed_defaults()
+        # Templates saved under an older page layout still print from their
+        # stored HTML, so bring the design-built ones up to the current sheet.
+        InvoiceTemplate.refresh_designs()
 
         from shared.costing import ensure_opening_balances, backfill_layers
         ensure_opening_balances(created_by=1)

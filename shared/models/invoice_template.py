@@ -35,6 +35,9 @@ PLACEHOLDER_HELP = {
     "company_email": "Company email",
     "company_tax_id": "Company tax/NTN number",
     "company_logo": "Company logo image tag",
+    "company_bank_name": "Company bank name",
+    "company_bank_account_title": "Company bank account title",
+    "company_bank_account_number": "Company bank account number",
     "invoice_no": "Invoice / voucher number",
     "invoice_date": "Invoice date",
     "due_date": "Payment due date",
@@ -75,6 +78,10 @@ DESIGNS = [
     ("bold", "Bold",
      "Solid colour header block. High contrast and easy to pick out of a pile "
      "of paperwork."),
+    ("letterhead", "Letterhead",
+     "Logo on the left with the company name centred across the page and the "
+     "invoice number and date on the right. Customer on the left, invoice "
+     "details on the right below it."),
 ]
 DESIGN_KEYS = [k for k, _l, _d in DESIGNS]
 
@@ -136,6 +143,8 @@ _COMMON_FOOTER = [
 _SALES_TOTALS = [
     ("show_delivery", "Delivery charges", None),
     ("show_installation", "Installation charges", None),
+    ("show_bank_details", "Bank details for payment",
+     "Your bank name, account title and number, printed beside the totals"),
 ]
 
 _PURCHASE_TOTALS = [
@@ -282,6 +291,14 @@ def _meta_rows(opts, muted="#64748b"):
 
 
 def _footer(doc_type, opts, accent):
+    """Notes stay with the content; signatures and the closing line sit at the
+    foot of the page.
+
+    Someone signs at the bottom of the sheet, not wherever the item list
+    happened to stop — an invoice with three lines and one with twenty should
+    put the signature in the same place. ``.inv-foot`` is pushed down by the
+    flex rule in the sheet CSS.
+    """
     out = []
     if opts.get("show_notes"):
         out.append(
@@ -289,10 +306,12 @@ def _footer(doc_type, opts, accent):
             'font-size:12px;color:#475569;">'
             '<div style="font-weight:700;color:#0f172a;margin-bottom:3px;">Notes</div>'
             '{{notes}}</div>')
+
+    bottom = []
     if opts.get("show_signature"):
         left = "Prepared By" if doc_type == "sales" else "Checked By"
         right = "Authorised Signatory" if doc_type == "sales" else "Approved By"
-        out.append(
+        bottom.append(
             '<table style="width:100%;margin-top:44px;border-collapse:collapse;">'
             '<tr>'
             f'<td style="width:45%;border-top:1px solid #94a3b8;padding-top:6px;'
@@ -304,9 +323,11 @@ def _footer(doc_type, opts, accent):
     if opts.get("show_thanks"):
         msg = ("Thank you for your business." if doc_type == "sales"
                else "This document is for internal record.")
-        out.append(
+        bottom.append(
             f'<div style="margin-top:22px;text-align:center;font-size:11px;'
             f'color:{accent};letter-spacing:.4px;">{msg}</div>')
+    if bottom:
+        out.append('<div class="inv-foot">' + "\n    ".join(bottom) + '</div>')
     return "\n  ".join(out)
 
 
@@ -323,9 +344,339 @@ def _company_tax(opts, style="color:#64748b;"):
             if opts.get("show_company_tax_id") else "")
 
 
-_PAGE_OPEN = ('<div style="font-family:Inter,Segoe UI,Arial,sans-serif;max-width:820px;'
-              'margin:0 auto;padding:32px;color:#0f172a;font-size:13px;line-height:1.5;">')
-_PAGE_CLOSE = "</div>"
+# ── Page geometry ───────────────────────────────────────────────────────────
+# One sheet of A4. The printable strip inside 14mm margins is 182mm, and every
+# design used to be laid out at max-width:820px (~217mm), so wide tables ran off
+# the right edge of the paper. Sizing in millimetres keeps the on-screen preview
+# and the printed page the same shape.
+#
+# The rules below also carry the items table, because the three places that
+# build one (this module's preview, invoices.py, purchase_invoice.py) all have
+# to wrap identically or the preview stops predicting the print. Each of them
+# emits class="inv-items" and marks its description cells "inv-desc"; the
+# behaviour lives here so it is defined once.
+
+A4_WIDTH_MM = 210
+A4_MARGIN_MM = 14
+A4_CONTENT_MM = A4_WIDTH_MM - 2 * A4_MARGIN_MM  # 182mm
+
+_SHEET_CSS = """<style>
+@page{size:A4;margin:14mm}
+.inv-sheet{width:210mm;min-height:297mm;box-sizing:border-box;padding:14mm;
+  margin:0 auto;background:#fff;color:#0f172a;font-size:13px;line-height:1.5;
+  font-family:Inter,Segoe UI,Arial,sans-serif;
+  position:relative;display:flex;flex-direction:column}
+.inv-sheet *{box-sizing:border-box}
+/* Flex items do not shrink-to-fit the way blocks do; without this a table or a
+   heading can end up narrower than the page. */
+.inv-sheet>*{flex:none;width:100%}
+
+/* Signatures and the closing line belong at the foot of the sheet, not
+   wherever the item list happened to stop. The bottom padding is the strip the
+   page number sits in, so the closing line does not share its baseline. */
+.inv-sheet>.inv-foot{margin-top:auto;padding-top:10mm;padding-bottom:7mm}
+
+/* Page numbers, bottom-right. Stamped by script because the count depends on
+   how far the content actually runs, and Chromium does not implement the
+   @page margin boxes that would otherwise carry counter(page). */
+.inv-pagenums{position:absolute;left:14mm;right:14mm;top:14mm;bottom:14mm;
+  width:auto;pointer-events:none}
+.inv-pageno{position:absolute;right:0;font-size:9px;color:#94a3b8;
+  letter-spacing:.3px;white-space:nowrap}
+
+/* Items table: columns size themselves to their content, and only the
+   description is allowed to wrap. Without the nowrap a long header squeezes a
+   money column until "1,234,567.00" breaks across two lines.
+   Size is set once, on the table — cells inherit it and pad in em — so the
+   auto-fit below can resize the whole table by changing a single property. */
+.inv-sheet table.inv-items{width:100%;border-collapse:collapse;table-layout:auto}
+.inv-sheet table.inv-items th,
+.inv-sheet table.inv-items td{white-space:nowrap;overflow-wrap:normal}
+/* Headers read as labels for the column, so they sit centred in the cell both
+   ways — including the tall ones that wrap to two or three lines. The body
+   cells keep their own alignment: numbers right, codes left. */
+.inv-sheet table.inv-items th{white-space:normal;word-break:normal;
+  overflow-wrap:break-word;text-align:center;vertical-align:middle;
+  line-height:1.25;font-size:.95em}
+/* Every other column takes exactly the width its content needs — width:1% on a
+   nowrap cell resolves to min-content — so the slack all lands on the
+   description instead of being shared out and leaving it to wrap early. */
+.inv-sheet table.inv-items th:not(.inv-desc),
+.inv-sheet table.inv-items td:not(.inv-desc){width:1%}
+/* The description absorbs the width the other columns do not need, and is the
+   one cell that may run to a second line. */
+.inv-sheet table.inv-items td.inv-desc{white-space:normal;overflow-wrap:break-word;
+  width:100%;min-width:22mm}
+.inv-sheet table.inv-items th.inv-desc{width:100%;min-width:22mm}
+.inv-sheet table.inv-items tr{page-break-inside:avoid}
+.inv-sheet table.inv-items thead{display:table-header-group}
+
+/* The summary stays pinned to the right edge at a fixed width, so adding or
+   removing item columns moves it not at all. */
+.inv-sheet table.inv-totals{width:100%;border-collapse:collapse;margin-top:14px;
+  page-break-inside:avoid}
+.inv-sheet table.inv-totals>tbody>tr>td.inv-totals-gap{width:auto}
+.inv-sheet table.inv-totals>tbody>tr>td.inv-totals-box{width:72mm}
+
+@media print{
+  /* The @page margin is the paper margin; a second one on the sheet would
+     double it and push the table off the page again. The scale applied for
+     small screens has no business on paper, where the sheet is already the
+     size of the page. */
+  .inv-sheet{width:auto;min-height:0;padding:0;margin:0!important;
+    transform:none!important;zoom:1!important}
+  /* Padding is gone on paper — the @page margin is doing that job — so the
+     number strip has to sit flush with the content box instead. */
+  .inv-pagenums{left:0;right:0;top:0;bottom:0}
+  .inv-sheet table.inv-items th{background:#1e293b!important;color:#fff!important;
+    -webkit-print-color-adjust:exact;print-color-adjust:exact}
+}
+</style>"""
+
+# Auto-fit. The starting size below is chosen for the column count, but the
+# column count is only half the story — an invoice whose amounts run to eight
+# digits needs more room per column than one whose amounts run to five, and no
+# formula on the server knows how wide the text will actually set. So the page
+# measures itself once it is laid out and steps the type down until the table
+# is inside the printable width. Everything stays legible-by-measurement rather
+# than legible-by-guess, and nothing is ever clipped.
+#
+# Ships with the sheet so it applies wherever a design is rendered — the
+# settings preview and both print pages — instead of being wired up three
+# times and drifting apart.
+_SHEET_FIT_JS = """<script>
+(function () {
+  function fitOne(sheet, tbl) {
+    var cs = window.getComputedStyle(sheet);
+    var avail = sheet.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+    if (!avail || avail <= 0) { return; }
+    var start = parseFloat(tbl.getAttribute('data-basesize') || '0');
+    if (!start) {
+      start = parseFloat(window.getComputedStyle(tbl).fontSize) || 11;
+      tbl.setAttribute('data-basesize', start);
+    }
+    var size = start;
+    tbl.style.fontSize = size + 'px';
+    // Step down until it fits. The floor is the point past which the paper is
+    // not readable anyway; below it, let the description column wrap harder
+    // rather than shrink the type into illegibility.
+    for (var i = 0; i < 60 && tbl.scrollWidth > avail + 1 && size > 5.5; i++) {
+      size = Math.round((size - 0.25) * 100) / 100;
+      tbl.style.fontSize = size + 'px';
+    }
+    if (tbl.scrollWidth > avail + 1) {
+      tbl.style.tableLayout = 'fixed';
+      tbl.style.width = '100%';
+    }
+  }
+  // A sheet is a fixed 210mm because that is what A4 is. On any screen narrower
+  // than that — a phone, a split pane, the settings preview — show the whole
+  // page scaled down rather than letting it hang off the side or reflowing it
+  // into something that is no longer A4. What you see stays the page, just
+  // smaller, so the preview still answers "does this fit on paper".
+  //
+  // zoom rather than transform: zoom shrinks the layout box, so the document
+  // ends where the sheet ends. A transform only repaints, leaving the full
+  // 297mm reserved and a screenful of dead space under a scaled-down page.
+  var CAN_ZOOM = (typeof document.documentElement.style.zoom !== 'undefined');
+
+  function unscale(sheet) {
+    sheet.style.zoom = '';
+    sheet.style.transform = '';
+    sheet.style.marginRight = '';
+    sheet.style.marginBottom = '';
+  }
+
+  function scaleSheet(sheet) {
+    if (window.matchMedia && window.matchMedia('print').matches) { return; }
+    var box = sheet.parentElement || document.body;
+    var avail = box.clientWidth;
+    var natural = sheet.offsetWidth;
+    if (!avail || !natural || avail >= natural) { return; }
+    var k = avail / natural;
+    if (CAN_ZOOM) { sheet.style.zoom = k; return; }
+    // Fallback for engines without zoom: transform, then pull the leftover
+    // width and height back in so nothing scrolls to empty space.
+    sheet.style.transformOrigin = 'top left';
+    sheet.style.transform = 'scale(' + k + ')';
+    sheet.style.marginRight = -Math.round(natural - avail) + 'px';
+    sheet.style.marginBottom = -Math.round(sheet.offsetHeight * (1 - k)) + 'px';
+  }
+
+  // Millimetres in CSS pixels, measured rather than assumed — a page zoom or a
+  // non-96dpi setting changes it.
+  function mmPx() {
+    var probe = document.createElement('div');
+    probe.style.cssText = 'position:absolute;visibility:hidden;width:100mm;height:0';
+    document.body.appendChild(probe);
+    var px = probe.offsetWidth / 100;
+    document.body.removeChild(probe);
+    return px || (96 / 25.4);
+  }
+
+  // A4 minus the 14mm margins top and bottom: the strip of paper one page of
+  // content actually gets.
+  var PAGE_CONTENT_MM = 297 - 28;
+
+  function stampPages(sheet) {
+    var host = sheet.querySelector('.inv-pagenums');
+    if (!host) { return; }
+    host.innerHTML = '';
+    var mm = mmPx();
+    var per = PAGE_CONTENT_MM * mm;
+    if (!per || !host.clientHeight) { return; }
+    var printing = !!(window.matchMedia && window.matchMedia('print').matches);
+
+    // A hair of tolerance, or a page that fills exactly to its margin claims a
+    // second, empty one.
+    var pages = Math.max(1, Math.ceil((host.clientHeight - 2) / per));
+
+    // On screen the sheet is one continuous block, so round it up to whole
+    // pages. That keeps it looking like the stack of paper it will print as,
+    // and it puts the signature block — which floats to the bottom — at the
+    // foot of the last page rather than partway down it.
+    // On paper the browser is already doing the pagination; growing the sheet
+    // there would just add a blank page at the end.
+    sheet.style.minHeight = printing ? '' : (pages * per + 28 * mm) + 'px';
+
+    var total = host.clientHeight;
+    for (var i = 0; i < pages; i++) {
+      var tag = document.createElement('div');
+      tag.className = 'inv-pageno';
+      tag.textContent = 'Page ' + (i + 1) + ' of ' + pages;
+      host.appendChild(tag);
+      // Sit the tag's baseline just inside the bottom edge of each page's
+      // content strip — measured from its own height, so it is never half cut
+      // off by the edge — and never past where the content actually ends, or
+      // the last one is stranded outside the sheet and never drawn.
+      var h = tag.offsetHeight || 12;
+      var y = (i + 1) * per - h - 1;
+      tag.style.top = Math.max(0, Math.min(y, total - h - 1)) + 'px';
+    }
+  }
+
+  // A sheet is usually laid out inside something not visible yet — the preview
+  // pane behind a tab, the mobile preview before it slides up. Measured while
+  // hidden every width is zero, so the fit is skipped; nothing then fires when
+  // the container is finally shown and the page is left at full 210mm inside a
+  // phone-width frame, overflowing to the right with the summary off-screen.
+  // Watching the box it sits in catches that moment and every later resize.
+  //
+  // Wired from fitAll rather than on load: this script is emitted ahead of the
+  // sheet markup, so at the time it first runs there is no sheet to observe.
+  var ro = null;
+  function observeSheets(sheets) {
+    if (!window.ResizeObserver) { return; }
+    if (!ro) {
+      ro = new ResizeObserver(function (entries) {
+        // Width is what drives the scale. Refitting on a height change would
+        // chase the height the fit itself just produced.
+        var moved = false;
+        for (var i = 0; i < entries.length; i++) {
+          var el = entries[i].target;
+          var w = el.clientWidth;
+          if (el.__invLastW !== w) { el.__invLastW = w; moved = true; }
+        }
+        if (!moved) { return; }
+        clearTimeout(window.__invFitT);
+        window.__invFitT = setTimeout(fitAll, 60);
+      });
+    }
+    for (var s = 0; s < sheets.length; s++) {
+      var box = sheets[s].parentElement;
+      if (box && !box.__invObserved) {
+        box.__invObserved = true;
+        box.__invLastW = box.clientWidth;
+        ro.observe(box);
+      }
+    }
+  }
+
+  function fitAll() {
+    var sheets = document.querySelectorAll('.inv-sheet');
+    observeSheets(sheets);
+    for (var s = 0; s < sheets.length; s++) {
+      // Measure at true size: a scale left over from the last pass would make
+      // the sheet look narrower than A4 and shrink the type for no reason.
+      unscale(sheets[s]);
+      // Type first — the table has to fit the sheet's own 182mm whatever size
+      // the sheet is being displayed at.
+      var tables = sheets[s].querySelectorAll('table.inv-items');
+      for (var t = 0; t < tables.length; t++) { fitOne(sheets[s], tables[t]); }
+      // Then count pages, which depends on the height the fitted type produced.
+      stampPages(sheets[s]);
+      scaleSheet(sheets[s]);
+    }
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', fitAll);
+  } else {
+    fitAll();
+  }
+  window.addEventListener('load', fitAll);
+  // ResizeObserver is the right tool for "the pane just became visible", but it
+  // is suspended while a tab is not rendering and absent on older engines. A
+  // few settling passes cover the common case — a preview revealed a moment
+  // after load — without depending on it. Bounded, so this cannot become a
+  // polling loop.
+  var settleAt = [200, 600, 1500];
+  for (var q = 0; q < settleAt.length; q++) { setTimeout(fitAll, settleAt[q]); }
+  // Print geometry differs from screen geometry, so measure again for paper.
+  if (window.matchMedia) {
+    try { window.matchMedia('print').addListener(fitAll); } catch (e) {}
+  }
+  window.addEventListener('beforeprint', fitAll);
+  window.addEventListener('resize', function () {
+    clearTimeout(window.__invFitT);
+    window.__invFitT = setTimeout(fitAll, 120);
+  });
+
+  window.invoiceFitSheets = fitAll;
+})();
+</script>"""
+
+# Stamped into every generated body so ``refresh_designs`` can tell which
+# templates were built by the current layout. Bump it whenever the sheet
+# changes in a way already-saved templates need to pick up.
+SHEET_MARKER = "inv-sheet-v1"
+
+_PAGE_OPEN = _SHEET_CSS + _SHEET_FIT_JS + f'<div class="inv-sheet {SHEET_MARKER}">'
+# The number strip is a sibling of the content, filled in by the script above.
+_PAGE_CLOSE = '<div class="inv-pagenums" aria-hidden="true"></div></div>'
+
+
+# ── Items table sizing ──────────────────────────────────────────────────────
+# Base layout is 10 columns (#, SKU, Description, Qty, Unit, Per Unit Price,
+# Amount Excl., Total Sales Tax, Amount Incl., Total). Per-line discount, tax
+# and charges add two or three more each, up to 17 on a purchase invoice.
+
+_BASE_COLUMNS = 10
+
+
+def items_table_metrics(n_cols):
+    """Starting type size and cell padding for an ``n_cols`` items table.
+
+    A starting point, not the final word: the auto-fit in ``_SHEET_FIT_JS``
+    measures the rendered table and steps this down further if the real data is
+    wider than the column count alone suggests. Picking a sensible start still
+    matters — it is what a PDF generated without scripting gets, and it keeps
+    the common cases from being resized at all.
+
+    Padding is in em so it tracks the font size; the size itself goes on the
+    table, once, and the cells inherit it.
+    """
+    n = max(1, int(n_cols or 0))
+    over = max(0, n - _BASE_COLUMNS)
+    font = max(7.0, 11.0 - 0.55 * over)
+    if over == 0:
+        pad = "0.5em 0.7em"
+    elif over <= 3:
+        pad = "0.45em 0.55em"
+    elif over <= 5:
+        pad = "0.4em 0.45em"
+    else:
+        pad = "0.35em 0.4em"
+    return {"font": round(font, 1), "pad": pad}
 
 
 def _design_classic(doc_type, opts, accent):
@@ -446,11 +797,57 @@ def _design_bold(doc_type, opts, accent):
 {_PAGE_CLOSE}"""
 
 
+def _design_letterhead(doc_type, opts, accent):
+    """Logo left, company name centred, invoice number and date right.
+
+    The three-cell top row is a table rather than flexbox because this markup
+    is also read by print engines and by whatever a user pastes it into; a
+    table row is the one layout every one of them agrees on. The logo and meta
+    cells are held to a fixed width so the centred name stays centred on the
+    page whether or not a logo has been uploaded.
+    """
+    logo = _logo(opts)
+    return f"""{_PAGE_OPEN}
+  <table style="width:100%;border-collapse:collapse;">
+    <tr>
+      <td style="width:34mm;vertical-align:middle;">{logo}</td>
+      <td style="vertical-align:middle;text-align:center;padding:0 4mm;">
+        <div style="font-size:22px;font-weight:800;letter-spacing:.3px;line-height:1.2;">{{{{company_name}}}}</div>
+        <div style="color:#475569;font-size:11.5px;margin-top:3px;">{{{{company_address}}}}, {{{{company_city}}}}</div>
+        <div style="color:#475569;font-size:11.5px;">{{{{company_phone}}}} &nbsp;&bull;&nbsp; {{{{company_email}}}}</div>
+        {_company_tax(opts, "color:#64748b;font-size:11.5px;")}
+      </td>
+      <!-- Balances the logo cell so the company name is centred on the page,
+           not on the space left over beside the logo. The invoice number and
+           date live in the Bill To row below, once. -->
+      <td style="width:34mm;"></td>
+    </tr>
+  </table>
+  <div style="border-top:2px solid {accent};margin:10px 0 0;"></div>
+  <div style="text-align:center;font-size:13px;font-weight:800;letter-spacing:2.5px;
+    color:{accent};margin:12px 0 16px;">{_title(doc_type)}</div>
+  <table style="width:100%;border-collapse:collapse;margin-bottom:16px;">
+    <tr>
+      <td style="width:55%;vertical-align:top;">
+        {_party_block(doc_type, opts, "font-size:10px;font-weight:700;letter-spacing:1px;color:#64748b;text-transform:uppercase;")}
+      </td>
+      <td style="width:45%;vertical-align:top;text-align:right;line-height:1.9;">
+        {_meta_rows(opts)}
+      </td>
+    </tr>
+  </table>
+  {{{{items_table}}}}
+  {{{{totals_table}}}}
+  {_footer(doc_type, opts, accent)}
+{_PAGE_CLOSE}"""
+
+
 _BUILDERS = {
     "classic": _design_classic,
     "modern": _design_modern,
     "minimal": _design_minimal,
     "bold": _design_bold,
+    "letterhead": _design_letterhead,
 }
 
 
@@ -468,8 +865,52 @@ def build_body(design, doc_type, accent_color, options):
 
 # ── Print-time totals table ─────────────────────────────────────────────────
 
-_TABLE_OPEN = '<table style="width:100%;border-collapse:collapse;margin-top:16px;"><tr><td style="width:62%;"></td><td style="width:38%;"><table style="width:100%;border-collapse:collapse;">\n'
+def _bank_block(doc_type, opts, accent):
+    """Where to send the money, printed opposite the totals.
+
+    Sales only: a purchase invoice is the supplier's demand for payment, so
+    printing our own account details on it would be telling ourselves where to
+    pay. Empty when the toggle is off, which leaves the gap cell as it was.
+    """
+    if doc_type != "sales" or not opts.get("show_bank_details"):
+        return ""
+    label = ("font-size:10px;font-weight:700;letter-spacing:1px;"
+             f"color:{accent};text-transform:uppercase;")
+    row = "padding:1px 0;color:#475569;font-size:11.5px;"
+    key = "padding:1px 10px 1px 0;color:#94a3b8;font-size:11.5px;white-space:nowrap;"
+    return (
+        '<div style="max-width:82mm;">'
+        f'<div style="{label}">Payment Details</div>'
+        '<table style="border-collapse:collapse;margin-top:5px;">'
+        f'<tr><td style="{key}">Bank</td>'
+        f'<td style="{row}font-weight:600;color:#0f172a;">{{{{company_bank_name}}}}</td></tr>'
+        f'<tr><td style="{key}">Title</td>'
+        f'<td style="{row}">{{{{company_bank_account_title}}}}</td></tr>'
+        f'<tr><td style="{key}">Account #</td>'
+        f'<td style="{row}">{{{{company_bank_account_number}}}}</td></tr>'
+        '</table></div>')
+
+
+# The gap cell takes whatever is left over, so the summary sits hard against
+# the right edge at a fixed 72mm however many item columns are on the page.
+# Anything in that cell — the bank block — grows leftwards and cannot push the
+# summary out of position.
 _TABLE_CLOSE = '\n</table></td></tr></table>'
+
+
+def _table_open(gap_content=""):
+    """The totals block, styled inline as well as by class.
+
+    The classes let the sheet refine it, but the layout cannot depend on them:
+    a hand-written template still gets ``{{totals_table}}`` substituted into
+    HTML that carries none of the sheet's CSS, and without an explicit width
+    the table shrinks to its contents and the summary lands on the left.
+    """
+    return ('<table class="inv-totals" style="width:100%;border-collapse:collapse;'
+            'margin-top:14px;"><tr>'
+            f'<td class="inv-totals-gap" style="vertical-align:top;">{gap_content}</td>'
+            '<td class="inv-totals-box" style="width:72mm;vertical-align:top;">'
+            '<table style="width:100%;border-collapse:collapse;">\n')
 
 
 def build_totals_table(doc_type, opts, accent):
@@ -478,7 +919,8 @@ def build_totals_table(doc_type, opts, accent):
     Called at print time so the same template can render either combined or
     item-wise totals depending on the invoice's mode per section.
     """
-    return _TABLE_OPEN + _totals_rows(doc_type, opts, accent) + _TABLE_CLOSE
+    return (_table_open(_bank_block(doc_type, opts, accent))
+            + _totals_rows(doc_type, opts, accent) + _TABLE_CLOSE)
 
 
 # ── Preview ─────────────────────────────────────────────────────────────────
@@ -518,7 +960,13 @@ def _sample_items_table(doc_type="sales", opts=None):
              5.0, 4800.00, 16.0, 2167.00, 4000.00, 1000.00),
         ]
 
-    tds = "padding:6px 8px;border:1px solid #e2e8f0;"
+    n_cols = (_BASE_COLUMNS
+              + (2 if show_disc_col else 0)
+              + (2 if show_tax_col else 0)
+              + ((2 if doc_type == "sales" else 3) if show_chg_col else 0))
+    m = items_table_metrics(n_cols)
+
+    tds = f"padding:{m['pad']};border:1px solid #e2e8f0;white-space:nowrap;"
     tdc = tds + "text-align:center;"
     tdr = tds + "text-align:right;"
 
@@ -553,7 +1001,7 @@ def _sample_items_table(doc_type="sales", opts=None):
         cells = (
             f"<td style='{tdc}'>{n}</td>"
             f"<td style='{tds}'>{sku}</td>"
-            f"<td style='{tds}'>{desc}</td>"
+            f"<td class='inv-desc' style='{tds}white-space:normal;'>{desc}</td>"
             f"<td style='{tdc}'>{qty}</td>"
             f"<td style='{tdc}'>{unit}</td>"
             f"<td style='{tdr}'>{price:,.2f}</td>")
@@ -578,12 +1026,13 @@ def _sample_items_table(doc_type="sales", opts=None):
         body += "<tr>" + cells + "</tr>"
 
     # ── Totals footer row ────────────────────────────────────────────
-    tds_b = "padding:6px 8px;border:1px solid #e2e8f0;font-weight:700;background:#f1f5f9;"
+    tds_b = (f"padding:{m['pad']};border:1px solid #e2e8f0;font-weight:700;"
+             f"background:#f1f5f9;white-space:nowrap;")
     tdr_b = tds_b + "text-align:right;"
     foot_cells = (
         f"<td style='{tds_b};text-align:center;'></td>"
         f"<td style='{tds_b}'></td>"
-        f"<td style='{tds_b}'>Total</td>"
+        f"<td class='inv-desc' style='{tds_b}'>Total</td>"
         f"<td style='{tds_b};text-align:center;'>{tot_qty}</td>"
         f"<td style='{tds_b}'></td>"
         f"<td style='{tdr_b}'></td>")
@@ -607,39 +1056,39 @@ def _sample_items_table(doc_type="sales", opts=None):
     foot_cells += f"<td style='{tdr_b}'>{tot_line:,.2f}</td>"
 
     # ── Header ───────────────────────────────────────────────────────
-    hds = "padding:8px;border:1px solid #1e293b;"
-    hdc = hds + "text-align:center;"
-    hdl = hds + "text-align:left;"
-    hdr = hds + "text-align:right;"
+    # One style for every header: centred in the cell both ways.
+    hd = (f"padding:{m['pad']};border:1px solid #1e293b;white-space:normal;"
+          "text-align:center;vertical-align:middle;")
 
     head = (
-        f"<th style='{hdc}'>#</th>"
-        f"<th style='{hdl}'>SKU</th>"
-        f"<th style='{hdl}'>Description</th>"
-        f"<th style='{hdc}'>Qty</th>"
-        f"<th style='{hdc}'>Unit</th>"
-        f"<th style='{hdr}'>Per Unit Price</th>")
+        f"<th style='{hd}'>#</th>"
+        f"<th style='{hd}'>SKU</th>"
+        f"<th class='inv-desc' style='{hd}'>Description</th>"
+        f"<th style='{hd}'>Qty</th>"
+        f"<th style='{hd}'>Unit</th>"
+        f"<th style='{hd}'>Per Unit Price</th>")
     if show_disc_col:
-        head += f"<th style='{hdr}'>Discount %</th>"
-        head += f"<th style='{hdr}'>Discount allowed</th>"
-    head += f"<th style='{hdr}'>Amount Excl. of Sales Tax</th>"
+        head += f"<th style='{hd}'>Discount %</th>"
+        head += f"<th style='{hd}'>Discount allowed</th>"
+    head += f"<th style='{hd}'>Amount Excl. of Sales Tax</th>"
     if show_tax_col:
-        head += f"<th style='{hdr}'>Sales Tax %</th>"
-        head += f"<th style='{hdr}'>Sales Tax Amount per Unit</th>"
+        head += f"<th style='{hd}'>Sales Tax %</th>"
+        head += f"<th style='{hd}'>Sales Tax Amount per Unit</th>"
     if show_chg_col:
         if doc_type == "sales":
-            head += f"<th style='{hdr}'>Carriage Expense</th>"
-            head += f"<th style='{hdr}'>Installation</th>"
+            head += f"<th style='{hd}'>Carriage Expense</th>"
+            head += f"<th style='{hd}'>Installation</th>"
         else:
-            head += f"<th style='{hdr}'>Commission</th>"
-            head += f"<th style='{hdr}'>Freight</th>"
-            head += f"<th style='{hdr}'>Ld/Unld</th>"
-    head += f"<th style='{hdr}'>Total Sales Tax</th>"
-    head += f"<th style='{hdr}'>Amount Incl. of Sales Tax</th>"
-    head += f"<th style='{hdr}'>Total</th>"
+            head += f"<th style='{hd}'>Commission</th>"
+            head += f"<th style='{hd}'>Freight</th>"
+            head += f"<th style='{hd}'>Ld/Unld</th>"
+    head += f"<th style='{hd}'>Total Sales Tax</th>"
+    head += f"<th style='{hd}'>Amount Incl. of Sales Tax</th>"
+    head += f"<th style='{hd}'>Total</th>"
 
     return (
-        '<table style="width:100%;border-collapse:collapse;font-size:12px;">'
+        f'<table class="inv-items" style="width:100%;border-collapse:collapse;'
+        f'font-size:{m["font"]}px;">'
         '<thead><tr style="background:#1e293b;color:#fff;">' + head +
         '</tr></thead><tbody>' + body +
         '<tr>' + foot_cells + '</tr></tbody></table>')
@@ -678,6 +1127,10 @@ def sample_context(doc_type, company=None, opts=None):
         "company_phone": c("phone", "+92 42 1234 5678"),
         "company_email": c("email", "info@yourcompany.pk"),
         "company_tax_id": c("tax_id", "1234567-8"),
+        "company_bank_name": c("bank_name", "Meezan Bank Ltd, Gulberg Branch"),
+        "company_bank_account_title": c("bank_account_title",
+                                        c("company_name", "Your Company Name")),
+        "company_bank_account_number": c("bank_account_number", "0102-0101234567-01"),
         "invoice_no": "VCH-202607-0042" if doc_type == "sales" else "PINV-202607-0042",
         "invoice_date": datetime.utcnow().strftime("%d-%b-%Y"),
         "due_date": datetime.utcnow().strftime("%d-%b-%Y"),
@@ -706,12 +1159,24 @@ def sample_context(doc_type, company=None, opts=None):
 
 
 def render_invoice_template(body_html, ctx):
-    """Replace {{placeholder}} tokens in body_html with values from ctx dict."""
-    for key, val in ctx.items():
-        token = "{{" + key + "}}"
-        if val is None:
-            val = ""
-        body_html = body_html.replace(token, str(val))
+    """Replace {{placeholder}} tokens in body_html with values from ctx dict.
+
+    Repeats until nothing more resolves, because some values are themselves
+    markup carrying tokens: ``totals_table`` holds the bank block, which holds
+    ``{{company_bank_name}}``. A single pass over the context substituted
+    ``totals_table`` after it had already walked past ``company_bank_name``,
+    so those tokens printed on the invoice as literal braces.
+
+    Bounded so a value that contains its own token cannot spin forever.
+    """
+    for _pass in range(5):
+        before = body_html
+        for key, val in ctx.items():
+            token = "{{" + key + "}}"
+            if token in body_html:
+                body_html = body_html.replace(token, "" if val is None else str(val))
+        if body_html == before:
+            break
     return body_html
 
 
@@ -768,6 +1233,29 @@ class InvoiceTemplate(db.Model):
         return build_body("classic", doc_type, "#0f766e", default_options(doc_type))
 
     @classmethod
+    def refresh_designs(cls):
+        """Recompile design-built templates whose body predates the current
+        page layout.
+
+        ``recompile`` otherwise only runs when someone opens a template and
+        presses Save, so an existing install would keep printing the old
+        layout — off the edge of the A4 sheet — until every template happened
+        to be re-saved by hand. Sales and purchase templates both go through
+        here, so neither is left behind.
+
+        Hand-written bodies are skipped by ``recompile`` itself: they are the
+        user's own HTML and are never regenerated.
+        """
+        changed = 0
+        for t in cls.query.all():
+            if t.is_custom or SHEET_MARKER in (t.body_html or ""):
+                continue
+            t.recompile()
+            changed += 1
+        if changed:
+            db.session.commit()
+        return changed
+
     @classmethod
     def _seed_one(cls, doc_type, name, accent_color, opts, is_default):
         """Create and add a single template row (helper for seed_defaults)."""

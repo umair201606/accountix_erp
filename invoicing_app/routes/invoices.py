@@ -14,7 +14,9 @@ from shared.ledger_utils import post_journal_entry, reverse_journal_entry, posti
 from shared.models.ledger import ChartOfAccount
 from shared.models.company_settings import CompanyInfo, ReportSettings
 from shared.models.invoice_settings import InvoiceSettings
-from shared.models.invoice_template import InvoiceTemplate, render_invoice_template, build_totals_table
+from shared.models.invoice_template import (
+    InvoiceTemplate, render_invoice_template, build_totals_table,
+    items_table_metrics)
 from shared.permissions import deny_json, deny_page
 from shared.costing import record_out, reverse_voucher_stock
 
@@ -167,11 +169,16 @@ def invoice_form(id):
         else:
             show_chg_col = False
 
-        # Style constants
-        # Auto-size font when extra columns are shown, so the table fits A4
-        extra = (1 if show_disc_col else 0) + (1 if show_tax_col else 0) + (1 if show_chg_col else 0)
-        fs = max(9, 12 - extra)
-        tds = f"padding:6px 8px;border:1px solid #e2e8f0;font-size:{fs}px;"
+        # Style constants. Sizing keys off the real column count, not off how
+        # many option groups are on: a group can add two columns, so counting
+        # groups under-reports the width the table actually needs.
+        n_cols = (10
+                  + (2 if show_disc_col else 0)
+                  + (2 if show_tax_col else 0)
+                  + (2 if show_chg_col else 0))
+        m = items_table_metrics(n_cols)
+        fs = m["font"]
+        tds = f"padding:{m['pad']};border:1px solid #e2e8f0;white-space:nowrap;"
         tdc = tds + "text-align:center;"
         tdr = tds + "text-align:right;"
 
@@ -206,7 +213,7 @@ def invoice_form(id):
             cells = (
                 f"<td style='{tdc}'>{i}</td>"
                 f"<td style='{tds}'>{product.sku if product else ''}</td>"
-                f"<td style='{tds}'>{it.description or ''}</td>"
+                f"<td class='inv-desc' style='{tds}white-space:normal;'>{it.description or ''}</td>"
                 f"<td style='{tdc}'>{it.quantity}</td>"
                 f"<td style='{tdc}'>{it.unit or ''}</td>"
                 f"<td style='{tdr}'>{it.unit_price:.2f}</td>")
@@ -229,12 +236,13 @@ def invoice_form(id):
             items_rows += "<tr>" + cells + "</tr>"
 
         # Totals footer row
-        tds_b = f"padding:6px 8px;border:1px solid #e2e8f0;font-weight:700;background:#f1f5f9;font-size:{fs}px;"
+        tds_b = (f"padding:{m['pad']};border:1px solid #e2e8f0;font-weight:700;"
+                 f"background:#f1f5f9;white-space:nowrap;")
         tdr_b = tds_b + "text-align:right;"
         foot = (
             f"<td style='{tds_b};text-align:center;'></td>"
             f"<td style='{tds_b}'></td>"
-            f"<td style='{tds_b}'>Total</td>"
+            f"<td class='inv-desc' style='{tds_b}'>Total</td>"
             f"<td style='{tds_b};text-align:center;'>{tot_qty}</td>"
             f"<td style='{tds_b}'></td>"
             f"<td style='{tdr_b}'></td>")
@@ -252,34 +260,34 @@ def invoice_form(id):
         foot += f"<td style='{tdr_b}'>{tot_incl:.2f}</td>"
         foot += f"<td style='{tdr_b}'>{tot_line:.2f}</td>"
 
-        hds = "padding:8px;border:1px solid #1e293b;"
-        hdr = hds + "text-align:right;"
-        hdl = hds + "text-align:left;"
-        hdc = hds + "text-align:center;"
+        # One style for every header: centred in the cell both ways.
+        hd = (f"padding:{m['pad']};border:1px solid #1e293b;white-space:normal;"
+              "text-align:center;vertical-align:middle;")
 
         head = (
-            f"<th style='{hdc}'>#</th>"
-            f"<th style='{hdl}'>SKU</th>"
-            f"<th style='{hdl}'>Description</th>"
-            f"<th style='{hdc}'>Qty</th>"
-            f"<th style='{hdc}'>Unit</th>"
-            f"<th style='{hdr}'>Per Unit Price</th>")
+            f"<th style='{hd}'>#</th>"
+            f"<th style='{hd}'>SKU</th>"
+            f"<th class='inv-desc' style='{hd}'>Description</th>"
+            f"<th style='{hd}'>Qty</th>"
+            f"<th style='{hd}'>Unit</th>"
+            f"<th style='{hd}'>Per Unit Price</th>")
         if show_disc_col:
-            head += f"<th style='{hdr}'>Discount %</th>"
-            head += f"<th style='{hdr}'>Discount allowed</th>"
-        head += f"<th style='{hdr}'>Amount Excl. of Sales Tax</th>"
+            head += f"<th style='{hd}'>Discount %</th>"
+            head += f"<th style='{hd}'>Discount allowed</th>"
+        head += f"<th style='{hd}'>Amount Excl. of Sales Tax</th>"
         if show_tax_col:
-            head += f"<th style='{hdr}'>Sales Tax %</th>"
-            head += f"<th style='{hdr}'>Sales Tax Amount per Unit</th>"
+            head += f"<th style='{hd}'>Sales Tax %</th>"
+            head += f"<th style='{hd}'>Sales Tax Amount per Unit</th>"
         if show_chg_col:
-            head += f"<th style='{hdr}'>Carriage Expense</th>"
-            head += f"<th style='{hdr}'>Installation</th>"
-        head += f"<th style='{hdr}'>Total Sales Tax</th>"
-        head += f"<th style='{hdr}'>Amount Incl. of Sales Tax</th>"
-        head += f"<th style='{hdr}'>Total</th>"
+            head += f"<th style='{hd}'>Carriage Expense</th>"
+            head += f"<th style='{hd}'>Installation</th>"
+        head += f"<th style='{hd}'>Total Sales Tax</th>"
+        head += f"<th style='{hd}'>Amount Incl. of Sales Tax</th>"
+        head += f"<th style='{hd}'>Total</th>"
 
         items_table = (
-            '<table style="width:100%;border-collapse:collapse;table-layout:fixed;font-size:12px;">'
+            f'<table class="inv-items" style="width:100%;border-collapse:collapse;'
+            f'font-size:{fs}px;">'
             '<thead><tr style="background:#1e293b;color:#fff;">' + head +
             '</tr></thead><tbody>' + items_rows +
             '<tr>' + foot + '</tr></tbody></table>'
@@ -294,6 +302,9 @@ def invoice_form(id):
             "company_phone": company.phone or "",
             "company_email": company.email or "",
             "company_tax_id": company.tax_id or "",
+            "company_bank_name": company.bank_name or "",
+            "company_bank_account_title": company.bank_account_title or "",
+            "company_bank_account_number": company.bank_account_number or "",
             "invoice_no": invoice.voucher_number or "",
             "invoice_date": invoice.invoice_date.strftime("%d-%b-%Y") if invoice.invoice_date else "",
             "due_date": invoice.due_date.strftime("%d-%b-%Y") if invoice.due_date else "",
