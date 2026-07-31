@@ -191,7 +191,8 @@ def cost_of_issue(product_id, qty):
 
 def _sync_product_stock(product_id):
     from inventory_app.models.product import InvProduct
-    p = InvProduct.query.get(product_id)
+    from shared.tenancy import scoped_get
+    p = scoped_get(InvProduct, product_id)
     if p is not None:
         # current_stock is a legacy denormalised Integer column kept for
         # display; the StockLedger (Numeric 16,4) is authoritative and is what

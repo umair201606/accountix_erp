@@ -44,6 +44,8 @@ def spike_app():
     db.init_app(application)
     import shared.models.base  # noqa: F401  (users/roles: FK targets)
     import shared.models.company  # noqa: F401
+    import shared.models.ledger  # noqa: F401  (chart_of_accounts: FK target)
+    import shared.models.inventory_settings  # noqa: F401  (FKs to COA)
     tenancy._reset_registry()
     with application.app_context():
         db.create_all()
