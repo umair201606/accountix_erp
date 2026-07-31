@@ -31,12 +31,12 @@
           <th style="width:150px;">Code</th>
           <th>Account</th>
           {% if comp_mode and comp_periods %}
-          <th class="num" style="width:140px;">{{ all_periods[0].period_name if all_periods else 'Amount' }}</th>
+          <th class="num" style="width:140px;">{{ as_of.strftime('%d %B, %Y') if as_of else 'Amount' }}</th>
           {% for cp in comp_periods %}
           <th class="num" style="width:140px;">{{ cp.end_date.strftime('%d %B, %Y') }}</th>
           {% endfor %}
           {% else %}
-          <th class="num" style="width:150px;">{{ to_date.strftime('%d %B, %Y') if to_date else 'Amount' }}</th>
+          <th class="num" style="width:150px;">{{ as_of.strftime('%d %B, %Y') if as_of else 'Amount' }}</th>
           {% endif %}
         </tr>
       </thead>

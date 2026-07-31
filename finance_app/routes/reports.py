@@ -202,20 +202,13 @@ def _period_movements(from_date=None, to_date=None, types=None):
             for r in q.group_by(JournalLine.account_id).all()}
 
 
-def _pl_rows(from_date, to_date):
-    """Sectioned P&L per ReportSettings.pl_structure.
+def _pl_by_section(from_date, to_date):
+    """Group one period's P&L accounts by structure section.
 
     Every P&L account's contribution to profit is (credit - debit); revenue
     is naturally positive, expenses negative, and contra accounts (sales
-    returns, purchase discounts) self-correct without special cases. Each
-    structure entry's ``negate`` flag only flips the DISPLAY sign so expense
-    sections read as positive figures under a "Less: ..." label.
-
-    Returns (render_rows, net_profit). Render row kinds:
-    header / account / total / subtotal.
+    returns, purchase discounts) self-correct without special cases.
     """
-    settings = ReportSettings.get()
-    detail = settings.pl_detail_rows or 10
     movements = _period_movements(from_date, to_date, ["revenue", "expense", "contra-expense"])
     accounts = {a.id: a for a in ChartOfAccount.query.filter(
         ChartOfAccount.type.in_(["revenue", "expense", "contra-expense"])).all()}
@@ -234,6 +227,23 @@ def _pl_rows(from_date, to_date):
         section = a.effective_pl_section() or (
             "other_income" if a.type == "revenue" else "other_operating")
         by_section[section].append({"code": a.code, "name": a.name, "contrib": contrib})
+    return by_section
+
+
+def _pl_rows(from_date, to_date):
+    """Sectioned P&L per ReportSettings.pl_structure.
+
+    Each structure entry's ``negate`` flag only flips the DISPLAY sign so
+    expense sections read as positive figures under a "Less: ..." label.
+
+    Returns (render_rows, net_profit). Render row kinds:
+    header / account / total / subtotal. Section and subtotal rows carry the
+    structure key they came from so a comparative column can line its figures
+    up with the right section instead of guessing from position.
+    """
+    settings = ReportSettings.get()
+    detail = settings.pl_detail_rows or 10
+    by_section = _pl_by_section(from_date, to_date)
 
     rows, running = [], Decimal("0")
     for entry in settings.pl_structure():
@@ -247,26 +257,132 @@ def _pl_rows(from_date, to_date):
             running += total_contrib
             items.sort(key=lambda i: -abs(i["contrib"]))
             shown, hidden = items[:detail], items[detail:]
-            rows.append({"kind": "header", "label": entry["label"]})
+            rows.append({"kind": "header", "label": entry["label"],
+                         "section": entry["section"]})
             for i in shown:
                 rows.append({"kind": "account", "code": i["code"], "name": i["name"],
+                             "section": entry["section"],
                              "amount": float(disp(i["contrib"]))})
             if hidden:
                 rows.append({"kind": "account", "code": "",
                              "name": f"Others ({len(hidden)} accounts)",
+                             "section": entry["section"],
+                             "shown_codes": [i["code"] for i in shown],
                              "amount": float(disp(sum(i["contrib"] for i in hidden)))})
             rows.append({"kind": "total", "label": f"Total {entry['label']}",
+                         "section": entry["section"],
                          "amount": float(disp(total_contrib))})
         elif "subtotal" in entry:
             rows.append({"kind": "subtotal", "label": entry["label"],
+                         "subtotal": entry["subtotal"],
                          "amount": float(running)})
     return rows, float(running)
+
+
+def _pl_period_lookup(from_date, to_date):
+    """Display-signed P&L figures for one period, keyed for comparative lookup.
+
+    Returns (accounts, totals, subtotals): {code: amount}, {section_key:
+    total}, {subtotal_key: running}. Running the real structure per period is
+    what makes a comparative column mean anything — the previous code summed
+    every account in the period into every total row, so "Total Sales" in a
+    comparative column showed the period's net profit.
+    """
+    settings = ReportSettings.get()
+    by_section = _pl_by_section(from_date, to_date)
+
+    accounts, totals, subtotals = {}, {}, {}
+    running = Decimal("0")
+    for entry in settings.pl_structure():
+        if "section" in entry:
+            items = by_section.get(entry["section"], [])
+            negate = bool(entry.get("negate"))
+            disp = (lambda c: -c) if negate else (lambda c: c)
+            total_contrib = sum((i["contrib"] for i in items), Decimal("0"))
+            running += total_contrib
+            for i in items:
+                accounts[i["code"]] = float(disp(i["contrib"]))
+            totals[entry["section"]] = float(disp(total_contrib))
+        elif "subtotal" in entry:
+            subtotals[entry["subtotal"]] = float(running)
+    return accounts, totals, subtotals
+
+
+def _pl_comp_amount(row, lookup):
+    """One comparative period's figure for one already-rendered P&L row."""
+    accounts, totals, subtotals = lookup
+    if row["kind"] == "total":
+        return totals.get(row.get("section"), 0.0)
+    if row["kind"] == "subtotal":
+        return subtotals.get(row.get("subtotal"), 0.0)
+    if row.get("code"):
+        return accounts.get(row["code"], 0.0)
+    # An "Others (N accounts)" row: which accounts fall into it differs from
+    # period to period, so take whatever the section total does not attribute
+    # to the accounts listed above it. That keeps the column adding up.
+    section = row.get("section")
+    shown = sum(accounts.get(c, 0.0) for c in row.get("shown_codes", []))
+    return round(totals.get(section, 0.0) - shown, 2)
 
 
 # Every figure on a finance report is money. Written without a format Excel
 # shows the raw float — 1234.5 where the report says 1,234.50 — and negatives
 # with a bare minus instead of the brackets an accountant reads.
 MONEY_FMT = "#,##0.00;(#,##0.00)"
+
+
+def _col_label(d):
+    """Heading for a column of figures: the date those figures are stated at.
+
+    Every report has to label its columns the same way, on screen and in both
+    exports. They did not. The exports headed the current column "Amount" and
+    the comparatives with period names ("FY 2025-2026") while the screen used
+    dates, so an exported comparative did not match the report it came from —
+    and the P&L headed its current column with the *comparative* period's name.
+    """
+    return d.strftime("%d %B, %Y") if d else "Amount"
+
+
+def _period_line(from_date=None, to_date=None, as_of=None):
+    """The dated line under a report title, worded as the screen words it."""
+    if from_date and to_date:
+        return f"For the period {_col_label(from_date)} to {_col_label(to_date)}"
+    if as_of:
+        return f"As at {_col_label(as_of)}"
+    return ""
+
+
+def _company_name():
+    try:
+        from shared.models.company_settings import CompanyInfo
+        info = CompanyInfo.get()
+        return (info.company_name or "").strip() if info else ""
+    except Exception:
+        return ""
+
+
+# Rows 1-3 of every exported sheet, then a blank row: content starts at 5.
+SHEET_FIRST_ROW = 5
+
+
+def _write_sheet_heading(ws, ncols, title, from_date=None, to_date=None,
+                         as_of=None, period=None):
+    """Company / title / period, the same three lines the screen shows.
+
+    The exports used to carry a single squashed line with ISO dates and no
+    company — "Profit & Loss (2026-07-01 to 2027-06-30)" against a screen
+    reading "HEAT WAVE / Profit & Loss Statement / For the period 01 July,
+    2026 to 30 June, 2027". Returns the first row free for content.
+    """
+    lines = [(_company_name(), SUBTITLE_FONT),
+             (title, TITLE_FONT),
+             (period or _period_line(from_date, to_date, as_of), SUBTITLE_FONT)]
+    for r, (text, font) in enumerate(lines, 1):
+        ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=max(ncols, 1))
+        c = ws.cell(row=r, column=1, value=text)
+        c.font = font
+        c.alignment = Alignment(horizontal="center")
+    return SHEET_FIRST_ROW
 
 
 def _looks_numeric(v):
@@ -342,17 +458,16 @@ def _finish_sheet(ws, ncols, first_row=3):
 
 
 def _build_excel_wb(title, headers, rows, col_widths=None,
-                    bold_rows=None, number_format=MONEY_FMT):
+                    bold_rows=None, number_format=MONEY_FMT,
+                    sheet_title=None, from_date=None, to_date=None, as_of=None,
+                    period=None):
     wb = openpyxl.Workbook()
     ws = wb.active
-    ws.title = title[:31]
+    ws.title = (sheet_title or title)[:31]
 
-    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=len(headers))
-    cell = ws.cell(row=1, column=1, value=title)
-    cell.font = TITLE_FONT
-    cell.alignment = Alignment(horizontal="center")
-
-    hdr_row = 3
+    hdr_row = _write_sheet_heading(ws, len(headers), title,
+                                   from_date=from_date, to_date=to_date,
+                                   as_of=as_of, period=period)
     for ci, h in enumerate(headers, 1):
         c = ws.cell(row=hdr_row, column=ci, value=h)
         c.font = HEADER_FONT
@@ -392,7 +507,7 @@ def _build_excel_wb(title, headers, rows, col_widths=None,
 
 
 def _build_pdf(title, headers, rows, col_widths=None, bold_rows=None,
-               subtitle=None):
+               subtitle=None, company=None):
     from reportlab.pdfbase.pdfmetrics import stringWidth
     from reportlab.lib.styles import ParagraphStyle
 
@@ -416,9 +531,17 @@ def _build_pdf(title, headers, rows, col_widths=None, bold_rows=None,
     styles = getSampleStyleSheet()
     elements = []
 
+    # Company / title / period — the screen's heading block, in the same
+    # order and the same wording, centred over the table.
+    centred = ParagraphStyle("hdr", parent=styles["Normal"], alignment=1,
+                             textColor=colors.HexColor("#555555"))
+    if company is None:
+        company = _company_name()
+    if company:
+        elements.append(Paragraph(company, centred))
     elements.append(Paragraph(title, styles["Title"]))
     if subtitle:
-        elements.append(Paragraph(subtitle, styles["Normal"]))
+        elements.append(Paragraph(subtitle, centred))
     elements.append(Spacer(1, 6*mm))
     elements.append(Paragraph(f"Generated: {datetime.now():%Y-%m-%d %H:%M}",
                               styles["Normal"]))
@@ -699,12 +822,13 @@ def ledger():
                         [[r["date"], r["voucher"], r["description"], r["debit"], r["credit"], r["balance"]]
                          for r in sec["rows"]])
                 ws = wb.create_sheet(title=sec["account"].code[:31])
-                ws.merge_cells("A1:F1")
-                ws.cell(row=1, column=1, value=f"{sec['account'].code} - {sec['account'].name}").font = TITLE_FONT
+                hdr_row = _write_sheet_heading(
+                    ws, 6, f"{sec['account'].code} - {sec['account'].name}",
+                    from_date=from_date, to_date=to_date)
                 for ci, h in enumerate(headers, 1):
-                    c = ws.cell(row=3, column=ci, value=h)
+                    c = ws.cell(row=hdr_row, column=ci, value=h)
                     c.font = HEADER_FONT; c.fill = HEADER_FILL; c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True); c.border = THIN
-                for ri, row in enumerate(data, 4):
+                for ri, row in enumerate(data, hdr_row + 1):
                     for ci, val in enumerate(row, 1):
                         c = ws.cell(row=ri, column=ci, value=val)
                         c.font = DATA_FONT; c.border = THIN
@@ -713,7 +837,7 @@ def ledger():
                 # data above them — they were written bare, so the grid stopped
                 # at the last transaction and the totals floated outside the
                 # table, unbordered and left-aligned.
-                tr = 4 + len(data)
+                tr = hdr_row + 1 + len(data)
                 summary = [
                     ["", "", "Period Movement", sec["total_debit"],
                      sec["total_credit"], ""],
@@ -726,7 +850,7 @@ def ledger():
                         c.font = BOLD_FONT
                         c.border = THIN
                         c.alignment = RIGHT if isinstance(val, (int, float, Decimal)) else LEFT_ALIGN
-                _finish_sheet(ws, 6)
+                _finish_sheet(ws, 6, first_row=hdr_row + 1)
             out = BytesIO(); wb.save(out); out.seek(0)
             return send_file(out, as_attachment=True, download_name="general_ledger.xlsx",
                              mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
@@ -747,7 +871,8 @@ def ledger():
                                  "", "", sec["closing"]])
                 all_data.append(["", "", "", "", "", ""])
             hdrs = ["Date", "Voucher #", "Description", "Debit", "Credit", "Balance"]
-            pdf_out = _build_pdf("General Ledger", hdrs, all_data)
+            pdf_out = _build_pdf("General Ledger", hdrs, all_data,
+                                 subtitle=_period_line(from_date, to_date))
             return send_file(pdf_out, as_attachment=True, download_name="general_ledger.pdf",
                              mimetype="application/pdf")
 
@@ -912,7 +1037,8 @@ def trial_balance():
     headers = ["Code", "Account", "Type", "Dr Opening", "Cr Opening",
                "Dr Movement", "Cr Movement", "Dr Closing", "Cr Closing"]
     for cp in comp_periods:
-        headers += [f"Dr Clsg ({cp.period_name})", f"Cr Clsg ({cp.period_name})"]
+        headers += [f"Dr Clsg ({_col_label(cp.end_date)})",
+                    f"Cr Clsg ({_col_label(cp.end_date)})"]
 
     if fmt == "excel":
         data = []
@@ -934,7 +1060,9 @@ def trial_balance():
         for ct in comp_class_totals:
             totals_row += [ct["total_dr_closing"], ct["total_cr_closing"]]
         data.append(totals_row)
-        wb_out = _build_excel_wb(f"Trial Balance as of {as_of}", headers, data)
+        wb_out = _build_excel_wb("Trial Balance", headers, data,
+                                 sheet_title="Trial Balance",
+                                 from_date=from_date, to_date=to_date, as_of=as_of)
         return send_file(wb_out, as_attachment=True, download_name="trial_balance.xlsx",
                          mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
     if fmt == "pdf":
@@ -960,7 +1088,8 @@ def trial_balance():
         for ct in comp_class_totals:
             totals_row += [f"{ct['total_dr_closing']:,.2f}", f"{ct['total_cr_closing']:,.2f}"]
         data.append(totals_row)
-        pdf_out = _build_pdf(f"Trial Balance as of {as_of}", headers, data)
+        pdf_out = _build_pdf("Trial Balance", headers, data,
+                             subtitle=_period_line(from_date, to_date, as_of))
         return send_file(pdf_out, as_attachment=True, download_name="trial_balance.pdf",
                          mimetype="application/pdf")
 
@@ -983,24 +1112,6 @@ def trial_balance():
 # 4. PROFIT & LOSS
 # ═══════════════════════════════════════════════
 
-def _pl_account_contribs(from_date, to_date):
-    """Return {account_code: amount} for the period."""
-    movements = _period_movements(from_date, to_date, ["revenue", "expense", "contra-expense"])
-    accounts = {a.id: a for a in ChartOfAccount.query.filter(
-        ChartOfAccount.type.in_(["revenue", "expense", "contra-expense"])).all()}
-    result = {}
-    for aid, (dr, cr) in movements.items():
-        a = accounts.get(aid)
-        if a is None: continue
-        if a.type == "expense":
-            contrib = dr - cr if cr > dr else cr - dr
-        else:
-            contrib = cr - dr
-        if dr == 0 and cr == 0: continue
-        result[a.code] = float(contrib)
-    return result
-
-
 @finance_bp.route("/profit-loss")
 @login_required
 def profit_loss():
@@ -1016,28 +1127,16 @@ def profit_loss():
 
     pl_rows, net_profit = _pl_rows(from_date, to_date)
 
-    # Comparative data: per-account contributions for each comparative period
-    comp_contribs = []
+    # Comparative data: each period re-run through the same P&L structure, so
+    # a section total compares against that section and not the whole period.
     if comp_mode and comp_periods:
-        for cp in comp_periods:
-            comp_contribs.append(_pl_account_contribs(cp.start_date, cp.end_date))
-        # Annotate pl_rows with comp_amounts array
+        comp_lookups = [_pl_period_lookup(cp.start_date, cp.end_date)
+                        for cp in comp_periods]
         for row in pl_rows:
-            if row["kind"] in ("account", "total", "subtotal"):
-                amounts = []
-                base_amt = row.get("amount", 0)
-                amounts.append(base_amt)
-                for cc in comp_contribs:
-                    if row["kind"] == "account":
-                        amounts.append(cc.get(row.get("code", ""), 0))
-                    elif row["kind"] == "total":
-                        total = 0
-                        for code, val in cc.items():
-                            total += val
-                        amounts.append(round(total, 2))
-                    else:  # subtotal — approximate; compute net profit for each comp period
-                        amounts.append(round(sum(cc.values()), 2))
-                row["comp_amounts"] = amounts
+            if row["kind"] not in ("account", "total", "subtotal"):
+                continue
+            row["comp_amounts"] = [row.get("amount", 0)] + [
+                _pl_comp_amount(row, lk) for lk in comp_lookups]
 
     fmt = request.args.get("format")
     if fmt == "excel":
@@ -1045,19 +1144,19 @@ def profit_loss():
         wb = openpyxl.Workbook()
         ws = wb.active
         ws.title = "P&L"
-        ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=ncols)
-        ws.cell(row=1, column=1, value=f"Profit & Loss ({from_date} to {to_date})").font = TITLE_FONT
+        hdr_row = _write_sheet_heading(ws, ncols, "Profit & Loss Statement",
+                                      from_date=from_date, to_date=to_date)
         # The sheet had no column headings at all: with comparatives on, every
         # column from D rightwards was an unlabelled wall of figures and there
         # was no way to tell which period was which.
-        for ci, h in enumerate(["Code", "Account", "Amount"] +
-                               [cp.period_name for cp in comp_periods], 1):
-            c = ws.cell(row=3, column=ci, value=h)
+        for ci, h in enumerate(["Code", "Account", _col_label(to_date)] +
+                               [_col_label(cp.end_date) for cp in comp_periods], 1):
+            c = ws.cell(row=hdr_row, column=ci, value=h)
             c.font = HEADER_FONT
             c.fill = HEADER_FILL
             c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
             c.border = THIN
-        r = 4
+        r = hdr_row + 1
         for row in pl_rows:
             if row["kind"] == "header":
                 ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=ncols)
@@ -1085,13 +1184,14 @@ def profit_loss():
                     ws.cell(row=r, column=ci, value=amt).font = Font(bold=True, size=12, color="1F4E79"); ws.cell(row=r, column=ci).alignment = RIGHT
                 r += 1
             r += 1
-        _finish_sheet(ws, ncols, first_row=4)
+        _finish_sheet(ws, ncols, first_row=hdr_row + 1)
         out = BytesIO(); wb.save(out); out.seek(0)
         return send_file(out, as_attachment=True, download_name="profit_loss.xlsx",
                          mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
     if fmt == "pdf":
-        headers = ["Code", "Account / Section", "Amount"] + [cp.period_name for cp in comp_periods]
+        headers = (["Code", "Account / Section", _col_label(to_date)] +
+                   [_col_label(cp.end_date) for cp in comp_periods])
         data = []
         for row in pl_rows:
             if row["kind"] == "header":
@@ -1118,8 +1218,8 @@ def profit_loss():
                     vals += [""] * len(comp_periods)
                 data.append(vals)
                 data.append([""] * (3 + len(comp_periods)))
-        pdf_out = _build_pdf(f"Profit & Loss ({from_date} to {to_date})",
-                             headers, data)
+        pdf_out = _build_pdf("Profit &amp; Loss Statement", headers, data,
+                             subtitle=_period_line(from_date, to_date))
         return send_file(pdf_out, as_attachment=True, download_name="profit_loss.pdf",
                          mimetype="application/pdf")
 
@@ -1215,54 +1315,64 @@ def balance_sheet():
         if base_period:
             all_periods = [base_period]
 
+    # Merged rows carry one 'amounts' array per account (base then each
+    # comparative). Built before the export branches because the exports need
+    # exactly the rows the screen shows — writing a literal 0 into every
+    # comparative cell, as the Excel sheet did, is not a comparative report.
+    merged_assets = _merge_multi_period(assets, [cl["assets"] for cl in comp_items_list]) if comp_items_list else []
+    merged_liabilities = _merge_multi_period(liabilities, [cl["liabilities"] for cl in comp_items_list]) if comp_items_list else []
+    merged_equity = _merge_multi_period(equity, [cl["equity"] for cl in comp_items_list]) if comp_items_list else []
+
+    def _export_rows(items, merged):
+        """(code, name, [amount per column]) for one section, comparative or not."""
+        if merged:
+            return [(m["code"], m["name"], list(m["amounts"])) for m in merged]
+        return [(i["code"], i["name"], [i["amount"]]) for i in items]
+
+    def _export_totals(base_total, key):
+        return [float(base_total)] + [t[key] for t in comp_totals]
+
     fmt = request.args.get("format")
     if fmt == "excel":
         wb = openpyxl.Workbook()
         ws = wb.active
         ws.title = "Balance Sheet"
         ncols = 3 + len(comp_periods)
-        ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=ncols)
-        ws.cell(row=1, column=1, value=f"Balance Sheet as of {as_of}").font = TITLE_FONT
+        first_row = _write_sheet_heading(ws, ncols, "Balance Sheet", as_of=as_of)
 
-        def write_section(ws, sr, section_title, items, total_label, total_val, comp_total_vals=None):
+        def write_section(ws, sr, section_title, rows, total_label, total_vals):
             ws.merge_cells(start_row=sr, start_column=1, end_row=sr, end_column=ncols)
             ws.cell(row=sr, column=1, value=section_title).font = Font(bold=True, size=12)
             hdr = sr + 1
-            h_labels = ["Code", "Account", "Amount"] + [f"{cp.period_name}" for cp in comp_periods]
+            h_labels = (["Code", "Account", _col_label(as_of)] +
+                        [_col_label(cp.end_date) for cp in comp_periods])
             for ci, h in enumerate(h_labels[:ncols], 1):
                 c = ws.cell(row=hdr, column=ci, value=h)
                 c.font = HEADER_FONT; c.fill = HEADER_FILL; c.alignment = CENTER; c.border = THIN
-            for ri, item in enumerate(items, hdr + 1):
-                ws.cell(row=ri, column=1, value=item["code"]).font = DATA_FONT
+            for ri, (code, name, amounts) in enumerate(rows, hdr + 1):
+                ws.cell(row=ri, column=1, value=code).font = DATA_FONT
                 ws.cell(row=ri, column=1).border = THIN
-                ws.cell(row=ri, column=2, value=item["name"]).font = DATA_FONT
+                ws.cell(row=ri, column=2, value=name).font = DATA_FONT
                 ws.cell(row=ri, column=2).border = THIN
-                ws.cell(row=ri, column=3, value=item["amount"]).font = DATA_FONT
-                ws.cell(row=ri, column=3).border = THIN
-                ws.cell(row=ri, column=3).alignment = RIGHT
-                for ci, cp in enumerate(comp_periods, 4):
-                    ws.cell(row=ri, column=ci, value=0).font = DATA_FONT
+                for ci, amt in enumerate(amounts[:ncols - 2], 3):
+                    ws.cell(row=ri, column=ci, value=float(amt)).font = DATA_FONT
                     ws.cell(row=ri, column=ci).border = THIN
                     ws.cell(row=ri, column=ci).alignment = RIGHT
-            tr = hdr + len(items) + 1
+            tr = hdr + len(rows) + 1
             ws.cell(row=tr, column=2, value=total_label).font = BOLD_FONT
             ws.cell(row=tr, column=2).border = THIN
-            ws.cell(row=tr, column=3, value=float(total_val)).font = BOLD_FONT
-            ws.cell(row=tr, column=3).border = THIN
-            ws.cell(row=tr, column=3).alignment = RIGHT
-            for ci, cp in enumerate(comp_periods, 4):
-                cv = float(comp_total_vals[ci - 4]) if comp_total_vals else 0
-                ws.cell(row=tr, column=ci, value=cv).font = BOLD_FONT
+            for ci, tv in enumerate(total_vals[:ncols - 2], 3):
+                ws.cell(row=tr, column=ci, value=float(tv)).font = BOLD_FONT
                 ws.cell(row=tr, column=ci).border = THIN
                 ws.cell(row=tr, column=ci).alignment = RIGHT
             return tr + 2
 
-        nr = write_section(ws, 3, "ASSETS", assets, "Total Assets", total_assets,
-                           [t["total_assets"] for t in comp_totals])
-        nr = write_section(ws, nr, "LIABILITIES", liabilities, "Total Liabilities", total_liabilities,
-                           [t["total_liabilities"] for t in comp_totals])
-        nr = write_section(ws, nr, "EQUITY", equity, "Total Equity", total_equity,
-                           [t["total_equity"] for t in comp_totals])
+        nr = write_section(ws, first_row, "ASSETS", _export_rows(assets, merged_assets),
+                           "Total Assets", _export_totals(total_assets, "total_assets"))
+        nr = write_section(ws, nr, "LIABILITIES", _export_rows(liabilities, merged_liabilities),
+                           "Total Liabilities", _export_totals(total_liabilities, "total_liabilities"))
+        nr = write_section(ws, nr, "EQUITY", _export_rows(equity, merged_equity),
+                           "Total Equity", _export_totals(total_equity, "total_equity"))
 
         # Merge the label columns only. Merging the whole row and then writing
         # the figure into column 3 raised "'MergedCell' object attribute
@@ -1270,33 +1380,46 @@ def balance_sheet():
         # with or without a comparative period.
         ws.merge_cells(start_row=nr, start_column=1, end_row=nr, end_column=2)
         ws.cell(row=nr, column=1, value="LIABILITIES + EQUITY").font = Font(bold=True, size=12)
-        ws.cell(row=nr, column=3, value=float(total_liabilities + total_equity)).font = Font(bold=True, size=12)
-        for ci, cp in enumerate(comp_periods, 4):
-            lte = float(comp_totals[ci - 4]["total_liabilities"] + comp_totals[ci - 4]["total_equity"]) if comp_totals else 0
+        lte_vals = [float(total_liabilities + total_equity)] + [
+            float(t["total_liabilities"] + t["total_equity"]) for t in comp_totals]
+        for ci, lte in enumerate(lte_vals[:ncols - 2], 3):
             ws.cell(row=nr, column=ci, value=lte).font = Font(bold=True, size=12)
-        _finish_sheet(ws, ncols)
+        _finish_sheet(ws, ncols, first_row=first_row)
         out = BytesIO(); wb.save(out); out.seek(0)
         return send_file(out, as_attachment=True, download_name="balance_sheet.xlsx",
                          mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
     if fmt == "pdf":
-        headers = ["Code", "Account", "Amount"] + [cp.period_name for cp in comp_periods]
-        all_data = [[a["code"], a["name"], f"{a['amount']:,.2f}"] +
-                    [""] * len(comp_periods) for a in assets] + \
-                   [["", "", ""] + [""] * len(comp_periods)] + \
-                   [[l["code"], l["name"], f"{l['amount']:,.2f}"] +
-                    [""] * len(comp_periods) for l in liabilities] + \
-                   [["", "", ""] + [""] * len(comp_periods)] + \
-                   [[e["code"], e["name"], f"{e['amount']:,.2f}"] +
-                    [""] * len(comp_periods) for e in equity]
-        pdf_out = _build_pdf(f"Balance Sheet as of {as_of}", headers, all_data)
+        ncols = 3 + len(comp_periods)
+        headers = (["Code", "Account", _col_label(as_of)] +
+                   [_col_label(cp.end_date) for cp in comp_periods])
+        blank = [""] * ncols
+
+        def pdf_section(title, rows, total_label, total_vals):
+            # The section headings and the three totals were missing outright:
+            # the PDF ran assets straight into liabilities with a blank line
+            # between and never stated Total Assets.
+            out = [[title.upper()] + [""] * (ncols - 1)]
+            for code, name, amounts in rows:
+                out.append([code, name] + [f"{a:,.2f}" for a in amounts[:ncols - 2]])
+            out.append(["", total_label] + [f"{float(t):,.2f}" for t in total_vals[:ncols - 2]])
+            out.append(list(blank))
+            return out
+
+        all_data = (pdf_section("Assets", _export_rows(assets, merged_assets),
+                                "Total Assets", _export_totals(total_assets, "total_assets")) +
+                    pdf_section("Liabilities", _export_rows(liabilities, merged_liabilities),
+                                "Total Liabilities", _export_totals(total_liabilities, "total_liabilities")) +
+                    pdf_section("Equity", _export_rows(equity, merged_equity),
+                                "Total Equity", _export_totals(total_equity, "total_equity")))
+        lte_vals = [float(total_liabilities + total_equity)] + [
+            float(t["total_liabilities"] + t["total_equity"]) for t in comp_totals]
+        all_data.append(["", "LIABILITIES + EQUITY"] +
+                        [f"{v:,.2f}" for v in lte_vals[:ncols - 2]])
+        pdf_out = _build_pdf("Balance Sheet", headers, all_data,
+                             subtitle=_period_line(as_of=as_of))
         return send_file(pdf_out, as_attachment=True, download_name="balance_sheet.pdf",
                          mimetype="application/pdf")
-
-    # If comparative, merge items across periods
-    merged_assets = _merge_multi_period(assets, [cl["assets"] for cl in comp_items_list]) if comp_items_list else []
-    merged_liabilities = _merge_multi_period(liabilities, [cl["liabilities"] for cl in comp_items_list]) if comp_items_list else []
-    merged_equity = _merge_multi_period(equity, [cl["equity"] for cl in comp_items_list]) if comp_items_list else []
 
     return render_template("finance/balance_sheet.html", assets=assets,
                            liabilities=liabilities, equity=equity,
@@ -1585,8 +1708,9 @@ def socie():
                 f"{specs[-1][1].strftime('%d %B %Y')}")
         title = "Statement of Changes in Equity"
         if fmt == "excel":
-            out = _build_excel_wb(f"{title} ({span})", headers, data,
-                                  bold_rows=bold,
+            out = _build_excel_wb(title, headers, data,
+                                  bold_rows=bold, sheet_title="SOCIE",
+                                  period=span,
                                   number_format="#,##0.00;(#,##0.00)")
             return send_file(out, as_attachment=True, download_name="socie.xlsx",
                              mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
@@ -1855,8 +1979,9 @@ def cash_flow():
         wb = openpyxl.Workbook()
         ws = wb.active
         ws.title = "Cash Flow"
-        ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=col_count)
-        ws.cell(row=1, column=1, value=f"Cash Flow Statement — {method.title()} Method ({from_date} to {to_date})").font = TITLE_FONT
+        first_row = _write_sheet_heading(
+            ws, col_count, f"Cash Flow Statement ({method.title()} Method)",
+            from_date=from_date, to_date=to_date)
 
         def write_section_excel(sr, title, items, total_label, total_val, comp_total=None):
             ws.merge_cells(start_row=sr, start_column=1, end_row=sr, end_column=col_count)
@@ -1887,7 +2012,7 @@ def cash_flow():
         comp_net_op = [m["__net_op__"] for m in comp_item_maps] if comp_item_maps else []
         comp_net_inv = [m["__net_inv__"] for m in comp_item_maps] if comp_item_maps else []
         comp_net_fin = [m["__net_fin__"] for m in comp_item_maps] if comp_item_maps else []
-        nr = write_section_excel(3, "OPERATING ACTIVITIES", op_items,
+        nr = write_section_excel(first_row, "OPERATING ACTIVITIES", op_items,
                                  "Net cash from operating activities", net_operating, comp_net_op)
         nr = write_section_excel(nr, "INVESTING ACTIVITIES", inv_items,
                                  "Net cash from investing activities", net_investing, comp_net_inv)
@@ -1906,15 +2031,15 @@ def cash_flow():
                 c = ws.cell(row=nr, column=3+ci, value=cv or 0)
                 c.font = BOLD_FONT; c.alignment = RIGHT
             nr += 1
-        _finish_sheet(ws, col_count)
+        _finish_sheet(ws, col_count, first_row=first_row)
         out = BytesIO(); wb.save(out); out.seek(0)
         return send_file(out, as_attachment=True, download_name="cash_flow.xlsx",
                          mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
     if fmt == "pdf":
-        pdf_headers = ["Item", "Amount"]
+        pdf_headers = ["Item", _col_label(to_date)]
         for cp in comp_periods:
-            pdf_headers.append(cp.period_name)
+            pdf_headers.append(_col_label(cp.end_date))
         def _comp_str(v):
             return f"{v:,.2f}" if v is not None else ""
         def _comp_vals(maps, key, n):
@@ -1945,8 +2070,9 @@ def cash_flow():
         pdf_data.append(["NET CHANGE IN CASH", f"{net_change:,.2f}"] + _comp_vals(comp_item_maps, "__net_chg__", n_comp))
         pdf_data.append(["Opening cash & equivalents", f"{opening_cash:,.2f}"] + _comp_vals(comp_item_maps, "__open__", n_comp))
         pdf_data.append(["Closing cash & equivalents", f"{closing_cash:,.2f}"] + _comp_vals(comp_item_maps, "__close__", n_comp))
-        pdf_out = _build_pdf(f"Cash Flow Statement — {method.title()} Method ({from_date} to {to_date})",
-                             pdf_headers, pdf_data)
+        pdf_out = _build_pdf(f"Cash Flow Statement ({method.title()} Method)",
+                             pdf_headers, pdf_data,
+                             subtitle=_period_line(from_date, to_date))
         return send_file(pdf_out, as_attachment=True, download_name="cash_flow.pdf",
                          mimetype="application/pdf")
 

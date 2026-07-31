@@ -8,6 +8,7 @@ or a spreadsheet full of raw floats — because nothing here was exercised.
 
 import io
 import re
+from datetime import date
 from decimal import Decimal
 
 import openpyxl
@@ -15,7 +16,8 @@ import pytest
 from PyPDF2 import PdfReader
 
 from finance_app.routes.reports import (
-    MONEY_FMT, _build_excel_wb, _build_pdf, _cell_text, _finish_sheet)
+    MONEY_FMT, SHEET_FIRST_ROW, _build_excel_wb, _build_pdf, _cell_text,
+    _col_label, _finish_sheet, _pl_comp_amount)
 
 
 HEADERS = ["Date", "Voucher", "Account Code", "Account Name", "Description",
@@ -122,25 +124,41 @@ def _sheet(**kw):
     return openpyxl.load_workbook(io.BytesIO(buf.getvalue())).active
 
 
+# Headings occupy rows 1-3 and column headers sit on SHEET_FIRST_ROW, so the
+# first row of figures is the one after that.
+FIRST_DATA_ROW = SHEET_FIRST_ROW + 1
+
+
 def test_money_cells_carry_a_money_format():
     """number_format was passed on one export path out of eight, so the rest
     wrote 1234.5 where the report says 1,234.50."""
     ws = _sheet()
-    for row in ws.iter_rows(min_row=4, min_col=3, max_col=4):
+    for row in ws.iter_rows(min_row=FIRST_DATA_ROW, min_col=3, max_col=4):
         for c in row:
             assert c.number_format == MONEY_FMT, (c.coordinate, c.number_format)
 
 
 def test_text_cells_are_left_as_text():
     ws = _sheet()
-    for row in ws.iter_rows(min_row=4, min_col=1, max_col=2):
+    for row in ws.iter_rows(min_row=FIRST_DATA_ROW, min_col=1, max_col=2):
         for c in row:
             assert c.number_format == "General"
 
 
 def test_money_stays_a_number_so_the_sheet_can_sum_it():
     ws = _sheet()
-    assert isinstance(ws.cell(row=4, column=3).value, (int, float, Decimal))
+    assert isinstance(ws.cell(row=FIRST_DATA_ROW, column=3).value, (int, float, Decimal))
+
+
+def test_a_sheet_leads_with_the_same_heading_block_as_the_screen():
+    """Exports carried "Profit & Loss (2026-07-01 to 2027-06-30)" against a
+    screen showing company, title and a worded period on three lines."""
+    from datetime import date as _date
+    ws = _sheet(from_date=_date(2026, 7, 1), to_date=_date(2027, 6, 30))
+    assert ws.cell(row=2, column=1).value == "Trial Balance"
+    assert ws.cell(row=3, column=1).value == (
+        "For the period 01 July, 2026 to 30 June, 2027")
+    assert ws.cell(row=SHEET_FIRST_ROW, column=1).value == "Code", "headers follow"
 
 
 def test_columns_are_wide_enough_for_the_formatted_figure():
@@ -184,3 +202,53 @@ def test_finish_sheet_leaves_a_deliberate_format_alone():
     c.number_format = "0.00%"
     _finish_sheet(ws, 1)
     assert c.number_format == "0.00%", "an explicit format is not overwritten"
+
+
+# ─────────────────────────────────────────────
+# Comparative columns
+# ─────────────────────────────────────────────
+
+def test_column_label_is_the_date_the_figures_are_stated_at():
+    """Screen and exports label a column the same way or the export does not
+    match the report it came from."""
+    assert _col_label(date(2027, 6, 30)) == "30 June, 2027"
+    assert _col_label(None) == "Amount"
+
+
+def _lookup(accounts=None, totals=None, subtotals=None):
+    return (accounts or {}, totals or {}, subtotals or {})
+
+
+def test_a_comparative_section_total_reads_that_section_only():
+    """The reported defect: Total Sales showed -100,000 in the comparative
+    column while the only sales account under it showed 0.00, because the
+    total summed every account in the period — it was the period's net
+    profit sitting under a Sales heading."""
+    lk = _lookup(accounts={"4-01-01-01-0001": 0.0, "5-01-01-01-0001": -100000.0},
+                 totals={"sales": 0.0, "admin": -100000.0})
+    row = {"kind": "total", "label": "Total Sales", "section": "sales"}
+    assert _pl_comp_amount(row, lk) == 0.0
+
+
+def test_a_comparative_subtotal_reads_its_own_running_figure():
+    lk = _lookup(subtotals={"net_sales": 630000.0, "net_profit": 90000.0})
+    assert _pl_comp_amount(
+        {"kind": "subtotal", "label": "Net Sales", "subtotal": "net_sales"}, lk) == 630000.0
+    assert _pl_comp_amount(
+        {"kind": "subtotal", "label": "Net Profit", "subtotal": "net_profit"}, lk) == 90000.0
+
+
+def test_an_account_missing_from_a_comparative_period_reads_zero():
+    lk = _lookup(accounts={"4-01-01-01-0001": 630000.0})
+    row = {"kind": "account", "code": "4-01-01-01-0002", "section": "sales"}
+    assert _pl_comp_amount(row, lk) == 0.0
+
+
+def test_an_others_row_takes_whatever_the_listed_accounts_do_not():
+    """Which accounts collapse into "Others" differs period to period, so the
+    row has to be the section's remainder or the column stops adding up."""
+    lk = _lookup(accounts={"A": 100.0, "B": 50.0, "C": 25.0},
+                 totals={"admin": 175.0})
+    row = {"kind": "account", "code": "", "name": "Others (1 accounts)",
+           "section": "admin", "shown_codes": ["A", "B"]}
+    assert _pl_comp_amount(row, lk) == 25.0

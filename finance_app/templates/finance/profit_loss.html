@@ -31,7 +31,7 @@
           <th style="width:130px;">Code</th>
           <th>Account</th>
           {% if comp_mode and comp_periods %}
-          <th class="num" style="width:140px;">{{ comp_periods[0].period_name if comp_periods else 'Amount' }}</th>
+          <th class="num" style="width:140px;">{{ to_date.strftime('%d %B, %Y') if to_date else 'Amount' }}</th>
           {% for cp in comp_periods %}
           <th class="num" style="width:140px;">{{ cp.end_date.strftime('%d %B, %Y') }}</th>
           {% endfor %}
