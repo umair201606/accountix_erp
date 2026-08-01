@@ -23,17 +23,15 @@ SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,60}$")
 
 
 def should_redirect_to_portal():
-    """Login landing decision: portal when the user has no active company,
-    several companies, or pending invitations — otherwise the hub."""
-    if not current_user.is_authenticated:
-        return False
-    active = current_user.active_companies()
-    if len(active) != 1:
-        return True
-    pending = CompanyInvitation.query.filter_by(
-        email=current_user.email,
-        status=CompanyInvitation.SENT).count()
-    return pending > 0
+    """Login landing: always the portal.
+
+    The hub is a company's front door, so "which company?" has to be
+    answered before it can be opened. A user with exactly one company used
+    to skip the picker, but that made logging in mean two different things
+    depending on a count the user cannot see, and it left them in a
+    company's books without ever being told which. One landing page, always.
+    """
+    return bool(current_user.is_authenticated)
 
 
 def _role_name(role_id):

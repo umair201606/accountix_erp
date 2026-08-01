@@ -521,14 +521,115 @@ def test_disabling_a_module_removes_it_from_the_hub_and_its_routes(seeded):
     assert page.status_code == 200
     assert b"Fixed Assets" not in page.data, \
         "a module the company lost is still offered on the hub"
-    # The module's own guard must refuse cleanly, not blow up: these routes
-    # render "access_denied.html", which had no file at the root of the
-    # template loader and so raised TemplateNotFound.
+    # The route must refuse cleanly, not blow up: it renders
+    # "access_denied.html", which had no file at the root of the template
+    # loader and so raised TemplateNotFound.
     resp = c.get("/fixed-assets/")
-    assert resp.status_code == 200
+    assert resp.status_code == 403
     assert b"Module Not Available" in resp.data
     assert b"Net Book Value" not in resp.data, \
         "the refusal page must not leak the module's own dashboard"
+
+
+def _company_with_modules(**flags):
+    """An admin in their own company, with the named modules switched off."""
+    from shared.extensions import db
+    from shared.models.company import Company
+    email = f"gate_{_suffix()}@example.com"
+    uid = _create_user(email)
+    cid = _create_company("Gate Co", f"gate-{_suffix()}", created_by=uid)
+    _add_membership(cid, uid, role="admin")
+    if flags:
+        with flask_app.app_context():
+            company = Company.query.get(cid)
+            for key, on in flags.items():
+                setattr(company, Company.MODULE_COLUMNS[key], on)
+            db.session.commit()
+    c, _ = _login(email, "pw12345")
+    c.get(f"/company/switch/{cid}")
+    return c, cid
+
+
+# module key -> the URL that module answers on
+MODULE_DOORS = {
+    "hr": "/dashboard",
+    "inventory": "/inventory/",
+    "invoicing": "/invoicing/",
+    "finance": "/finance/",
+    "accounting": "/accounting/",
+    "fbr": "/fbr/",
+    "fixed_assets": "/fixed-assets/",
+}
+
+
+def test_a_disabled_module_is_refused_at_its_own_url(seeded):
+    """Entitlement was presentation only: the hub hid the tile and the
+    sidebar dropped the links, but the routes still answered to anyone who
+    typed the URL. Hiding a module is not restricting it."""
+    c, _cid = _company_with_modules(**{k: False for k in MODULE_DOORS})
+    for key, path in MODULE_DOORS.items():
+        resp = c.get(path)
+        assert resp.status_code == 403, \
+            f"{key} is still reachable at {path} after being switched off"
+        assert b"Module Not Available" in resp.data
+
+
+def test_each_module_is_gated_independently(seeded):
+    """Switching one module off must not take its neighbours with it —
+    Accounting and the Chart of Accounts live in the finance app but are
+    their own entitlement."""
+    c, _cid = _company_with_modules(accounting=False)
+    assert c.get("/accounting/").status_code == 403
+    assert c.get("/accounting/coa/").status_code == 403, \
+        "the Chart of Accounts belongs to Accounting, not Finance"
+    assert c.get("/finance/").status_code == 200, \
+        "Finance shares an app with Accounting but not its entitlement"
+    assert c.get("/inventory/").status_code == 200
+
+
+def test_losing_hr_does_not_lock_a_user_out_of_the_app(seeded):
+    """Login, logout, the account pages and the notification bell all live
+    in HR's blueprints. Gating them with the HR module would leave a company
+    that dropped HR unable to even sign out."""
+    c, cid = _company_with_modules(hr=False)
+    assert c.get("/dashboard").status_code == 403, "HR itself must be shut"
+
+    # ...but the app is still usable and still escapable.
+    assert c.get("/settings/").status_code == 200
+    assert c.get("/inventory/").status_code == 200
+    assert c.get("/portal/").status_code == 200
+    assert c.get("/auth/logout").status_code == 302, \
+        "a user whose company dropped HR must still be able to sign out"
+    with c.session_transaction() as sess:
+        assert not sess.get("_user_id"), "logout did not sign the user out"
+
+
+def test_entitlement_survives_a_company_switch(seeded):
+    """The guard reads the ACTIVE company, so the same user must be refused
+    in one company and admitted in another."""
+    from shared.extensions import db
+    from shared.models.company import Company
+    email = f"twoco_{_suffix()}@example.com"
+    uid = _create_user(email)
+    with_fin = _create_company("Has Finance", f"hasfin-{_suffix()}",
+                               created_by=uid)
+    without = _create_company("No Finance", f"nofin-{_suffix()}",
+                              created_by=uid)
+    _add_membership(with_fin, uid, role="admin")
+    _add_membership(without, uid, role="admin")
+    with flask_app.app_context():
+        c = Company.query.get(without)
+        c.mod_finance_enabled = False
+        db.session.commit()
+
+    cl, _ = _login(email, "pw12345")
+    cl.get(f"/company/switch/{with_fin}")
+    assert cl.get("/finance/").status_code == 200
+    cl.get(f"/company/switch/{without}")
+    assert cl.get("/finance/").status_code == 403, \
+        "entitlement must follow the company the user switched into"
+    cl.get(f"/company/switch/{with_fin}")
+    assert cl.get("/finance/").status_code == 200
 
 
 # ── Member blocking ─────────────────────────────────────────────────────────

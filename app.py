@@ -56,23 +56,32 @@ def _create_app():
     from shared.routes.settings import settings_bp
     app.register_blueprint(settings_bp)
 
+    # Registered through register_module so each module app's blueprints are
+    # tagged with the module they belong to; the guard installed further
+    # down uses that to refuse a module the active company has not bought.
+    from shared.module_guard import register_module
+
     from hr_app.app import register_hr_blueprints
-    register_hr_blueprints(app)
+    register_module(app, "hr", register_hr_blueprints)
 
     from inventory_app.app import register_inventory_blueprints
-    register_inventory_blueprints(app)
+    register_module(app, "inventory", register_inventory_blueprints)
 
     from invoicing_app.app import register_invoicing_blueprints
-    register_invoicing_blueprints(app)
+    register_module(app, "invoicing", register_invoicing_blueprints)
 
+    # finance_app also carries Accounting and the Chart of Accounts, which
+    # are their own module as far as entitlement is concerned.
     from finance_app.app import register_finance_blueprints
-    register_finance_blueprints(app)
+    register_module(app, "finance", register_finance_blueprints,
+                    overrides={"accounting": "accounting",
+                               "coa": "accounting"})
 
     from fbr_app.app import register_fbr_blueprints
-    register_fbr_blueprints(app)
+    register_module(app, "fbr", register_fbr_blueprints)
 
     from fixed_assets_app.app import register_fixed_assets_blueprints
-    register_fixed_assets_blueprints(app)
+    register_module(app, "fixed_assets", register_fixed_assets_blueprints)
 
     from superadmin_app.routes import superadmin_bp
     app.register_blueprint(superadmin_bp)
@@ -218,6 +227,12 @@ def _create_app():
             set_current_company(m.company_id)
         else:
             set_current_company(None)
+
+    # Installed here, not with the blueprints: before_request handlers run in
+    # registration order, and entitlement is a property of the active
+    # company, so this has to come after _set_company_context has chosen one.
+    from shared.module_guard import install_module_guard
+    install_module_guard(app)
 
     def _friendly_error_page(code, title, message):
         return f"""<!doctype html><html><head><meta charset='utf-8'>
@@ -1026,10 +1041,17 @@ def _bootstrap_default_company(db):
             company_id=company.id, user_id=u.id, role_id=role_id,
             status=CompanyMembership.ACTIVE, employee_code=u.employee_code))
 
-    # SYSADMIN becomes the super admin.
+    # SYSADMIN becomes the super admin, and owns the default company.
+    #
+    # created_by is what the portal means by "companies I created", so
+    # leaving it NULL filed the one company the admin actually runs under
+    # "companies where I have a role" — as if somebody else had made it.
+    # Backfill only: a company that already records a creator keeps it.
     sysadmin = User.query.filter_by(employee_code="SYSADMIN").first()
     if sysadmin is not None:
         sysadmin.is_super_admin = True
+        if company.created_by is None:
+            company.created_by = sysadmin.id
 
     # ADM001 used to be seeded as a company admin of the default company.
     # Admin duties live on SYSADMIN alone now, so an already-seeded database

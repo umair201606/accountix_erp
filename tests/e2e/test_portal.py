@@ -141,10 +141,37 @@ def test_login_lands_on_portal_for_companyless_user(seeded):
     assert c.get("/portal/").status_code == 200
 
 
-def test_login_skips_portal_for_single_company_user(seeded):
-    """Seeded users belong to exactly one company — login goes to the hub."""
+def test_login_lands_on_portal_even_with_one_company(seeded):
+    """No shortcut for single-company users. Skipping the picker made login
+    mean two different things depending on a count the user cannot see, and
+    dropped them into a company's books without ever naming it."""
     c, resp = _login("emp@solarkon.com", "emp123")
-    assert resp.headers["Location"].endswith("/dashboard/")
+    assert resp.headers["Location"].endswith("/portal/")
+    assert c.get("/portal/").status_code == 200
+
+
+def test_default_company_is_owned_by_the_seeded_admin(seeded):
+    """The admin's own company was filed under "companies where I have a
+    role" because the seed left created_by NULL — as if somebody else had
+    made the one company they actually run."""
+    from shared.models.base import User
+    from shared.models.company import Company
+    with flask_app.app_context():
+        sysadmin = User.query.filter_by(employee_code="SYSADMIN").first()
+        assert sysadmin is not None, "seed produced no SYSADMIN"
+        default = Company.query.filter_by(slug="default").first()
+        assert default.created_by == sysadmin.id, \
+            "the default company must record its admin as its creator"
+
+    c, _ = _login("admin@gmail.com", "admin123")
+    page = c.get("/portal/")
+    assert page.status_code == 200
+    body = page.data.decode()
+    created_at = body.index("Companies I created")
+    role_at = body.index("Companies where I have a role")
+    assert body.index("Default Company") < role_at, \
+        "Default Company must be listed under the companies the admin created"
+    assert created_at < body.index("Default Company")
 
 
 def test_login_lands_on_portal_when_invite_pending(seeded):
@@ -372,12 +399,11 @@ def test_landing_page_is_public(seeded):
 
 def test_landing_redirects_signed_in_users(seeded):
     """A signed-in user never sees marketing copy — "/" sends them where
-    login would have: the hub for a single-company user, the portal
-    otherwise."""
+    login would have, which is the portal."""
     c, _ = _login("emp@solarkon.com", "emp123")
     resp = c.get("/")
     assert resp.status_code == 302
-    assert resp.headers["Location"].endswith("/dashboard/")
+    assert resp.headers["Location"].endswith("/portal/")
 
     email = f"landing_{_suffix()}@example.com"
     _create_user(email)

@@ -142,7 +142,12 @@ def test_companyless_user_renders_pages_without_500(seeded):
 
     with c.session_transaction() as sess:
         assert "company_id" not in sess
-    assert c.get("/dashboard/").status_code == 200
+    # The hub belongs to a company, so with none it sends the user to pick
+    # one. What this test guards is that nothing 500s on the way.
+    resp = c.get("/dashboard/")
+    assert resp.status_code == 302
+    assert resp.headers["Location"].endswith("/portal/")
+    assert c.get("/dashboard/", follow_redirects=True).status_code == 200
     assert c.get("/settings/").status_code == 200
 
 
@@ -324,7 +329,7 @@ def test_invite_accept_remove_lifecycle(seeded):
     with flask_app.app_context():
         u = User.query.get(inv_uid)
         assert u.active_companies() == []
-    assert c2.get("/dashboard/").status_code == 200
+    assert c2.get("/dashboard/", follow_redirects=True).status_code == 200
 
 
 # ── Cross-company isolation (the core tenancy guarantee) ────────────────────
