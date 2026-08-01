@@ -29,9 +29,10 @@ def _get_scope_users(scope, user_id=None, department=None):
     if scope == "individual" and user_id:
         return [get_member(user_id)]
     elif scope == "department" and department:
-        return User.employees().filter_by(department=department, is_active=True).all()
+        return User.employees().filter(User.department == department,
+                                       User.is_active.is_(True)).all()
     else:
-        return User.employees().filter_by(is_active=True).all()
+        return User.employees().filter(User.is_active.is_(True)).all()
 
 
 @reports_bp.route("/")
@@ -39,7 +40,7 @@ def _get_scope_users(scope, user_id=None, department=None):
 def index():
     if not _require_admin():
         return render_template("dashboard/index.html")
-    employees = User.employees().filter_by(is_active=True).all()
+    employees = User.employees().filter(User.is_active.is_(True)).all()
     return render_template("reports/index.html", employees=employees)
 
 
@@ -48,7 +49,7 @@ def index():
 def dashboard():
     today = date.today()
     if current_user.is_admin() or current_user.is_manager():
-        total_employees = User.employees().filter_by(is_active=True).count()
+        total_employees = User.employees().filter(User.is_active.is_(True)).count()
         today_present = Attendance.query.filter(Attendance.date == today, Attendance.clock_in != None).count()
         pending_leaves = LeaveRequest.query.filter(LeaveRequest.status == "pending").count()
         running_payroll = PayrollRun.query.filter(

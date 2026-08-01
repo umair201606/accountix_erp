@@ -172,7 +172,7 @@ def merge_report():
         return jsonify({"error": "Access denied"}), 403
     period_start = datetime.strptime(request.form["period_start"], "%Y-%m-%d").date()
     period_end = datetime.strptime(request.form["period_end"], "%Y-%m-%d").date()
-    users = User.employees().filter_by(is_active=True).all()
+    users = User.employees().filter(User.is_active.is_(True)).all()
     results = []
     for u in users:
         total = db.session.query(func.sum(TimesheetEntry.hours)).join(TimesheetWeek).filter(

@@ -84,7 +84,7 @@ def create_profile():
     if not current_user.is_admin():
         flash("Access denied.", "danger")
         return redirect(url_for("compensation.index"))
-    employees = User.employees().filter_by(is_active=True).all()
+    employees = User.employees().filter(User.is_active.is_(True)).all()
     if request.method == "POST":
         uid = request.form.get("user_id", type=int)
         basic = request.form.get("basic_salary", type=float)

@@ -37,7 +37,7 @@ def send_notification():
     db.session.add(notif)
     db.session.flush()
     if target == "all":
-        users = User.employees().filter_by(is_active=True).all()
+        users = User.employees().filter(User.is_active.is_(True)).all()
     elif target == "role":
         role = request.form.get("role")
         users = User.employees().join(User.role_obj).filter(User.is_active == True, db.text("roles.name = :r")).params(r=role).all()

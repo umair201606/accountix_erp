@@ -171,7 +171,7 @@ def live_status():
         return jsonify({"error": "Access denied"}), 403
     today = date.today()
     from ..models.user import User
-    users = User.employees().filter_by(is_active=True).all()
+    users = User.employees().filter(User.is_active.is_(True)).all()
     statuses = []
     for u in users:
         att = Attendance.query.filter_by(user_id=u.id, date=today).first()
