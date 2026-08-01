@@ -1,0 +1,72 @@
+{% extends "layouts/base.html" %}
+{% block title %}Assign Member - Accountix ERP{% endblock %}
+{% block content %}
+<div class="page-header">
+    <h1>Assign Member as Employee</h1>
+    <a href="{{ url_for('auth.user_list') }}" class="btn btn-outline">&larr; Back to Users</a>
+</div>
+
+<div class="card" style="margin-bottom:16px;">
+    <p style="font-size:13px;color:var(--muted);margin:0;">
+        People join this company by invitation from
+        <a href="{{ url_for('settings.invitations') }}">Settings &rsaquo; Invitations</a>.
+        Once they accept, they appear here and you give them their employee
+        details. Accounts are never created from the HR module.
+    </p>
+</div>
+
+{% if pending %}
+<div class="card">
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Email</th>
+                    <th style="width:130px;">Employee Code</th>
+                    <th style="width:150px;">Designation</th>
+                    <th style="width:150px;">Department</th>
+                    <th style="width:150px;">Reports To</th>
+                    <th style="width:110px;">Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for u, m in pending %}
+                <tr>
+                    <form method="POST">
+                        <input type="hidden" name="user_id" value="{{ u.id }}">
+                        <td><strong>{{ u.full_name }}</strong></td>
+                        <td>{{ u.email }}</td>
+                        <td><input name="employee_code" class="form-control" required
+                                   placeholder="EMP001" style="min-width:110px;"></td>
+                        <td><input name="designation" class="form-control"
+                                   value="{{ u.designation or '' }}" style="min-width:130px;"></td>
+                        <td><input name="department" class="form-control"
+                                   value="{{ u.department or '' }}" style="min-width:130px;"></td>
+                        <td>
+                            <select name="manager_id" class="form-control" style="min-width:130px;">
+                                <option value="">&mdash;</option>
+                                {% for mgr in managers %}
+                                <option value="{{ mgr.id }}"
+                                    {{ 'selected' if u.manager_id == mgr.id }}>{{ mgr.full_name }}</option>
+                                {% endfor %}
+                            </select>
+                        </td>
+                        <td><button class="btn btn-sm btn-primary">Assign</button></td>
+                    </form>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% else %}
+<div class="card">
+    <p style="color:var(--muted);font-size:13px;margin:0;">
+        Every active member of this company already has their employee details.
+        To bring someone new in, invite them from
+        <a href="{{ url_for('settings.invitations') }}">Settings &rsaquo; Invitations</a>.
+    </p>
+</div>
+{% endif %}
+{% endblock %}

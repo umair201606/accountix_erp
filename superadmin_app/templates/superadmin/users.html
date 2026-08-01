@@ -1,38 +1,68 @@
 {% extends "superadmin/base.html" %}
 {% block title %}Users - Super Admin{% endblock %}
 {% block content %}
-<h2 style="margin:0 0 16px;font-size:20px;">Users</h2>
+<h2 style="margin:0 0 16px;font-size:20px;">Manage Users</h2>
+
+<div class="sa-card" style="margin-bottom:20px;">
+  <h3>Create User</h3>
+  <p class="hint">Accounts are only ever created from this console. Everywhere else works with people who already exist: a company invites a registered email from its Settings, and HR fills in employee details once the invitation is accepted.</p>
+  <form method="POST" action="{{ url_for('superadmin.users') }}">
+    <div class="fgrid">
+      <div class="fgroup">
+        <label class="lbl">Email</label>
+        <input type="email" name="email" class="inp" required>
+      </div>
+      <div class="fgroup">
+        <label class="lbl">Full Name</label>
+        <input type="text" name="full_name" class="inp" placeholder="defaults to the email name">
+      </div>
+      <div class="fgroup">
+        <label class="lbl">Password</label>
+        <input type="text" name="password" class="inp" required>
+      </div>
+    </div>
+    <div class="sa-actions">
+      <button type="submit" class="btn btn-p">Create User</button>
+    </div>
+  </form>
+</div>
+
 <div class="sa-card">
+  <h3>All Users</h3>
+  <p class="hint">Default company creation limit is {{ limits.max_companies_per_user }} per user; open a user to override it.</p>
   <div class="tbl-scroll">
     <table class="sa-tbl">
       <thead>
         <tr>
           <th>Email</th><th>Full Name</th><th>Super Admin</th>
-          <th>Active Memberships</th><th></th>
+          <th>Account</th><th>Companies</th><th></th>
         </tr>
       </thead>
       <tbody>
         {% for u, mc in users %}
         <tr>
           <td>{{ u.email }}</td>
-          <td>{{ u.full_name }}</td>
+          <td>
+            <a href="{{ url_for('superadmin.user_detail', user_id=u.id) }}">{{ u.full_name }}</a>
+            {% if u.id == current_user.id %}
+            <span style="font-size:12px;color:#94a3b8;">(you)</span>
+            {% endif %}
+          </td>
           <td>
             {% if u.is_super_admin %}<span class="pill pill-sa">yes</span>
             {% else %}<span class="pill pill-off">no</span>{% endif %}
           </td>
+          <td>
+            {% if u.is_active %}<span class="pill pill-on">active</span>
+            {% else %}<span class="pill pill-off">deactivated</span>{% endif %}
+          </td>
           <td>{{ mc }}</td>
           <td>
-            {% if u.id == current_user.id %}
-            <span style="font-size:12px;color:#94a3b8;">(you)</span>
-            {% else %}
-            <form method="POST" action="{{ url_for('superadmin.toggle_super', user_id=u.id) }}">
-              <button type="submit" class="btn btn-sm {{ 'btn-danger' if u.is_super_admin }}">
-                {{ 'Revoke' if u.is_super_admin else 'Grant' }}
-              </button>
-            </form>
-            {% endif %}
+            <a class="btn btn-sm" href="{{ url_for('superadmin.user_detail', user_id=u.id) }}">Manage</a>
           </td>
         </tr>
+        {% else %}
+        <tr><td colspan="6" style="text-align:center;color:#94a3b8;padding:24px;">No users yet.</td></tr>
         {% endfor %}
       </tbody>
     </table>

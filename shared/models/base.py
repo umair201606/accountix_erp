@@ -88,6 +88,10 @@ class User(UserMixin, db.Model):
     has_fbr_access = db.Column(db.Boolean, default=False)
     has_fixed_assets_access = db.Column(db.Boolean, default=False)
     is_super_admin = db.Column(db.Boolean, default=False)
+    # Per-user company quotas set by the super admin. NULL = fall back to
+    # GlobalLimits (see company_limit_for / join_limit_for).
+    max_companies_owned = db.Column(db.Integer, nullable=True)
+    max_companies_joined = db.Column(db.Integer, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -184,9 +188,16 @@ class User(UserMixin, db.Model):
         return False
 
     def module_access(self, module_key):
-        """Whether this user may open a module. Admin sees everything."""
-        if self.is_admin():
-            return True
+        """Whether this user may open a module in the ACTIVE company.
+
+        Effective access is company entitlement AND the user's own flag. A
+        company admin bypasses the user flag — that is what being admin means
+        — but never the entitlement: a module the company is not entitled to
+        is off for everyone in it, admin included.
+
+        Outside a company (portal, super admin console) there is no
+        entitlement to apply, so the user flag alone decides.
+        """
         flags = {
             "hr": self.has_hr_access,
             "inventory": self.has_inventory_access,
@@ -196,7 +207,21 @@ class User(UserMixin, db.Model):
             "fbr": self.has_fbr_access,
             "fixed_assets": self.has_fixed_assets_access,
         }
+        if not self._company_entitled(module_key):
+            return False
+        if self.is_admin():
+            return True
         return bool(flags.get(module_key))
+
+    @staticmethod
+    def _company_entitled(module_key):
+        from shared.models.company import Company
+        from shared.tenancy import current_company_id
+        cid = current_company_id()
+        if cid is None:
+            return True
+        company = Company.query.get(cid)
+        return company.module_enabled(module_key) if company else True
 
     def can(self, resource, action="view"):
         """Per-user section rights (view/create/edit/approve/delete),

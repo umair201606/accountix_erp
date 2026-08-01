@@ -1,0 +1,116 @@
+{% extends "superadmin/base.html" %}
+{% block title %}{{ user.full_name }} - Super Admin{% endblock %}
+{% block content %}
+<a href="{{ url_for('superadmin.users') }}" class="btn btn-sm" style="margin-bottom:12px;">&larr; All users</a>
+
+<div class="sa-card">
+  <h3>{{ user.full_name }}
+    {% if user.is_super_admin %}<span class="pill pill-sa">super admin</span>{% endif %}
+    {% if user.is_active %}<span class="pill pill-on">active</span>
+    {% else %}<span class="pill pill-off">deactivated</span>{% endif %}
+  </h3>
+  <p class="hint">{{ user.email }} &middot; account code <code>{{ user.employee_code }}</code></p>
+
+  <form method="POST" action="{{ url_for('superadmin.user_detail', user_id=user.id) }}">
+    <input type="hidden" name="action" value="profile">
+    <div class="fgrid">
+      <div class="fgroup">
+        <label class="lbl">Full Name</label>
+        <input type="text" name="full_name" class="inp" value="{{ user.full_name }}">
+      </div>
+      <div class="fgroup">
+        <label class="lbl">Email</label>
+        <input type="text" class="inp" value="{{ user.email }}" disabled>
+      </div>
+      <div class="fgroup">
+        <label class="lbl">Max Companies Owned (override)</label>
+        <input type="number" name="max_companies_owned" class="inp" min="0"
+               value="{{ user.max_companies_owned if user.max_companies_owned is not none else '' }}"
+               placeholder="blank = global default ({{ limits.max_companies_per_user }})">
+        <p class="hint" style="margin:4px 0 0;">Owns {{ owned }} of {{ effective_owned }}.</p>
+      </div>
+      <div class="fgroup">
+        <label class="lbl">Max Companies Joined (override)</label>
+        <input type="number" name="max_companies_joined" class="inp" min="0"
+               value="{{ user.max_companies_joined if user.max_companies_joined is not none else '' }}"
+               placeholder="blank = unlimited">
+        <p class="hint" style="margin:4px 0 0;">
+          {% if effective_joined is none %}No limit on how many companies this user may belong to.
+          {% else %}May belong to at most {{ effective_joined }} companies.{% endif %}
+        </p>
+      </div>
+    </div>
+    <div class="sa-actions">
+      <button type="submit" class="btn btn-p">Save User</button>
+    </div>
+  </form>
+</div>
+
+<div class="sa-card" style="margin-top:20px;">
+  <h3>Access</h3>
+  <p class="hint">Reset the password or take the account out of service. A deactivated account cannot log in anywhere.</p>
+  <div class="sa-actions" style="margin-top:0;align-items:flex-end;">
+    <form method="POST" action="{{ url_for('superadmin.user_detail', user_id=user.id) }}"
+          style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;">
+      <input type="hidden" name="action" value="password">
+      <div class="fgroup">
+        <label class="lbl">New Password</label>
+        <input type="text" name="new_password" class="inp" required minlength="4"
+               placeholder="at least 4 characters">
+      </div>
+      <button type="submit" class="btn">Reset Password</button>
+    </form>
+    {% if user.id != current_user.id %}
+    <form method="POST" action="{{ url_for('superadmin.user_detail', user_id=user.id) }}">
+      <input type="hidden" name="action" value="active">
+      <button type="submit" class="btn {{ 'btn-danger' if user.is_active }}">
+        {{ 'Deactivate Account' if user.is_active else 'Reactivate Account' }}
+      </button>
+    </form>
+    <form method="POST" action="{{ url_for('superadmin.toggle_super', user_id=user.id) }}">
+      <button type="submit" class="btn {{ 'btn-danger' if user.is_super_admin }}">
+        {{ 'Revoke Super Admin' if user.is_super_admin else 'Grant Super Admin' }}
+      </button>
+    </form>
+    {% else %}
+    <span style="font-size:12px;color:#94a3b8;">This is your own account — deactivation and super-admin changes are disabled.</span>
+    {% endif %}
+  </div>
+</div>
+
+<div class="sa-card" style="margin-top:20px;">
+  <h3>Companies</h3>
+  <p class="hint">Where this user belongs. Block or unblock a membership from that company's page.</p>
+  <div class="tbl-scroll">
+    <table class="sa-tbl">
+      <thead>
+        <tr><th>Company</th><th>Role</th><th>Employee Code</th><th>Status</th><th></th></tr>
+      </thead>
+      <tbody>
+        {% for m, c in memberships %}
+        <tr>
+          <td>{{ c.name if c else '—' }}
+            {% if c and c.created_by == user.id %}<span class="pill pill-sa">owner</span>{% endif %}
+          </td>
+          <td>{{ m.role_name() }}</td>
+          <td>{{ m.employee_code or '—' }}</td>
+          <td>
+            {% if m.status == 'active' %}<span class="pill pill-on">active</span>
+            {% else %}<span class="pill pill-off">{{ m.status }}</span>{% endif %}
+          </td>
+          <td>
+            {% if c %}
+            <a class="btn btn-sm" href="{{ url_for('superadmin.company_edit', company_id=c.id) }}">Manage</a>
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="5" style="text-align:center;color:#94a3b8;padding:24px;">
+          This user does not belong to any company yet. Invite them from a company's Settings &rsaquo; Invitations.
+        </td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

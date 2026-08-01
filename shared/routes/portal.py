@@ -64,7 +64,7 @@ def index():
         invites=invites,
         role_name=_role_name,
         membership_company=_membership_company,
-        quota_total=limits.max_companies_per_user,
+        quota_total=limits.company_limit_for(current_user),
         quota_used=len(owned),
     )
 
@@ -85,9 +85,10 @@ def create():
         flash("That company address is already taken.", "error")
         return redirect(url_for("portal.index"))
     limits = GlobalLimits.get()
-    if current_user.owns_company_count() >= limits.max_companies_per_user:
-        flash(f"You have reached your company creation limit "
-              f"({limits.max_companies_per_user}).", "error")
+    cap = limits.company_limit_for(current_user)
+    if current_user.owns_company_count() >= cap:
+        flash(f"You have reached your company creation limit ({cap}).",
+              "error")
         return redirect(url_for("portal.index"))
 
     company = Company(name=name, slug=slug, is_active=True,

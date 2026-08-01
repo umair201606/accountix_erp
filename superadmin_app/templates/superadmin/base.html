@@ -66,6 +66,14 @@
     .pill-on { background: #dcfce7; color: #166534; }
     .pill-off { background: #f1f5f9; color: #64748b; }
     .pill-sa { background: #dbeafe; color: #1d4ed8; }
+    .pill-danger { background: #fee2e2; color: #b91c1c; }
+    .mod-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+                gap: 8px; }
+    .mod-item { display: flex; align-items: center; gap: 8px; padding: 9px 12px;
+                border: 1px solid #e2e8f0; border-radius: 8px; font-size: 13px;
+                cursor: pointer; background: #f8fafc; }
+    .mod-item:hover { border-color: #bfdbfe; background: #eff6ff; }
+    .mod-item input { width: 16px; height: 16px; accent-color: #1d4ed8; cursor: pointer; }
     .sa-stog { position: relative; display: inline-block; width: 40px; height: 22px;
                vertical-align: middle; }
     .sa-stog input { opacity: 0; width: 0; height: 0; }
@@ -89,9 +97,10 @@
   <header class="sa-top">
     <a class="sa-brand" href="{{ url_for('superadmin.index') }}">Super Admin Portal</a>
     <nav class="sa-nav">
-      <a href="{{ url_for('superadmin.index') }}" class="{{ 'active' if request.endpoint == 'superadmin.index' }}">Dashboard</a>
-      <a href="{{ url_for('superadmin.companies') }}" class="{{ 'active' if request.endpoint in ['superadmin.companies', 'superadmin.company_edit'] }}">Companies</a>
-      <a href="{{ url_for('superadmin.users') }}" class="{{ 'active' if request.endpoint == 'superadmin.users' }}">Users</a>
+      <a href="{{ url_for('superadmin.users') }}" class="{{ 'active' if request.endpoint in ['superadmin.users', 'superadmin.user_detail'] }}">Manage Users</a>
+      <a href="{{ url_for('superadmin.companies') }}" class="{{ 'active' if request.endpoint in ['superadmin.companies', 'superadmin.company_edit'] }}">Manage Companies</a>
+      <a href="{{ url_for('superadmin.my_companies') }}" class="{{ 'active' if request.endpoint == 'superadmin.my_companies' }}">My Companies</a>
+      <a href="{{ url_for('superadmin.index') }}" class="{{ 'active' if request.endpoint == 'superadmin.index' }}">Platform</a>
     </nav>
     <div class="sa-user">
       <span>{{ current_user.full_name }}</span>

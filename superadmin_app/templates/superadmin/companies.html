@@ -50,9 +50,11 @@
         </tr>
       </thead>
       <tbody>
-        {% for c, mc in companies %}
+        {% for c, mc, mine in companies %}
         <tr>
-          <td>{{ c.name }}</td>
+          <td>{{ c.name }}
+            {% if mine %}<span class="pill pill-sa">mine</span>{% endif %}
+          </td>
           <td><code>{{ c.slug }}</code></td>
           <td>{{ c.plan_name or 'free' }}</td>
           <td>{{ mc }}</td>

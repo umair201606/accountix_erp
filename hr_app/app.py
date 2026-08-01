@@ -123,7 +123,7 @@ def register_hr_blueprints(app):
             "workplace.events": "workplace.index",
             "workplace.kanban": "workplace.index",
             "auth.change_password": "dashboard",
-            "auth.user_add": "auth.user_list",
+            "auth.member_assign": "auth.user_list",
             "auth.user_edit": "auth.user_list",
         }
         if ep in back_map:

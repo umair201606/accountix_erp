@@ -171,55 +171,106 @@ def user_list():
     return render_template("auth/user_list.html", users=users, roles=roles)
 
 
-@auth_bp.route("/users/add", methods=["GET", "POST"])
+# HR does not mint logins. A person becomes a user of this company by being
+# invited in Settings and accepting — that is the only path that binds an
+# account to a company, and the only one where the person consents. HR's job
+# starts after that: turning an existing member into an employee record.
+#
+# The old /users/add created a global User with no CompanyMembership at all,
+# so the person vanished from the very list they were added to and could not
+# reach any books. It is gone rather than patched.
+
+
+def _unassigned_members():
+    """Active members of this company who are not yet employees here.
+
+    Membership carries the employee code (uq_membership_company_emp_code), so
+    "assigned" means that code is set — a person can be EMP001 in one company
+    and something else in another without the two colliding.
+    """
+    from shared.models.company import CompanyMembership
+    from shared.tenancy import current_company_id
+    cid = current_company_id()
+    if cid is None:
+        return []
+    admin_role = Role.query.filter_by(name=Role.ADMIN).first()
+    q = (db.session.query(User, CompanyMembership)
+         .join(CompanyMembership, db.and_(
+             CompanyMembership.user_id == User.id,
+             CompanyMembership.company_id == cid,
+             CompanyMembership.status == CompanyMembership.ACTIVE))
+         .filter(db.or_(CompanyMembership.employee_code.is_(None),
+                        CompanyMembership.employee_code == "")))
+    if admin_role:
+        q = q.filter(CompanyMembership.role_id != admin_role.id)
+    return q.order_by(User.full_name).all()
+
+
+@auth_bp.route("/members/assign", methods=["GET", "POST"])
 @login_required
-def user_add():
+def member_assign():
+    """Assign an existing company member their employee details."""
     if not _can_manage_users():
         return redirect(url_for("dashboard"))
-    roles = Role.query.all()
-    managers = User.query.filter(User.role_obj.has(name=Role.MANAGER)).all()
+    from shared.models.company import CompanyMembership
+    from shared.tenancy import current_company_id, get_member
+
+    def _page():
+        return render_template(
+            "auth/member_assign.html",
+            pending=_unassigned_members(),
+            managers=User.employees().filter(
+                User.role_obj.has(name=Role.MANAGER)).all())
+
     if request.method == "POST":
-        email = request.form.get("email", "").strip().lower()
+        uid = request.form.get("user_id", type=int)
         emp_code = request.form.get("employee_code", "").strip()
-        full_name = request.form.get("full_name", "").strip()
-        password = request.form.get("password", "")
-        role_id = request.form.get("role_id", type=int)
-        manager_id = request.form.get("manager_id", type=int)
-        designation = request.form.get("designation", "").strip()
-        department = request.form.get("department", "").strip()
-        phone = request.form.get("phone", "").strip()
-        if not all([email, emp_code, full_name, password, role_id]):
-            flash("Email, Employee Code, Name, Password, and Role are required.", "danger")
-            return render_template("auth/user_form.html", roles=roles, managers=managers, user=None)
-        if User.query.filter_by(email=email).first():
-            flash("Email already exists.", "danger")
-            return render_template("auth/user_form.html", roles=roles, managers=managers, user=None)
-        if User.query.filter_by(employee_code=emp_code).first():
-            flash("Employee code already exists.", "danger")
-            return render_template("auth/user_form.html", roles=roles, managers=managers, user=None)
-        admin_role = Role.query.filter_by(name=Role.ADMIN).first()
-        if not current_user.is_admin() and admin_role and role_id == admin_role.id:
-            flash("Only admin can create admin accounts.", "danger")
-            return render_template("auth/user_form.html", roles=roles, managers=managers, user=None)
-        # New users always get HR (self-service) access so they can log in and
-        # land on a working hub — without this the hub showed "access denied".
-        # Further module access & rights are granted by admin in Settings.
-        u = User(employee_code=emp_code, email=email, login_id=email,
-                 full_name=full_name,
-                 role_id=role_id, manager_id=manager_id or None,
-                 designation=designation, department=department, phone=phone,
-                 date_of_joining=datetime.utcnow().date(), is_active=True,
-                 has_hr_access=True)
-        u.set_password(password)
-        db.session.add(u)
+        u = get_member(uid) if uid else None
+        if u is None:
+            flash("That person is not a member of this company.", "danger")
+            return _page()
+        if not emp_code:
+            flash("Employee code is required.", "danger")
+            return _page()
+        cid = current_company_id()
+        m = CompanyMembership.query.filter_by(
+            company_id=cid, user_id=u.id,
+            status=CompanyMembership.ACTIVE).first()
+        if m is None:
+            flash("That person is not an active member of this company.",
+                  "danger")
+            return _page()
+        # Unique per company, not globally — the same code may be in use by a
+        # different person in a different company.
+        clash = CompanyMembership.query.filter(
+            CompanyMembership.company_id == cid,
+            CompanyMembership.employee_code == emp_code,
+            CompanyMembership.user_id != u.id).first()
+        if clash:
+            flash(f"Employee code {emp_code} is already used in this company.",
+                  "danger")
+            return _page()
+
+        m.employee_code = emp_code
+        u.designation = request.form.get("designation", "").strip()
+        u.department = request.form.get("department", "").strip()
+        u.phone = request.form.get("phone", "").strip() or u.phone
+        u.manager_id = request.form.get("manager_id", type=int) or None
+        if not u.employee_code:
+            # Legacy global column, still read by payroll and attendance.
+            u.employee_code = emp_code
+        if not u.date_of_joining:
+            u.date_of_joining = datetime.utcnow().date()
         db.session.flush()
         from shared.ledger_utils import create_entity_account
-        create_entity_account("employee", u.id, f"{full_name} ({emp_code})")
+        create_entity_account("employee", u.id,
+                              f"{u.full_name} ({emp_code})")
         db.session.commit()
-        flash(f"User {full_name} created — employee ledger account added. "
-              f"Admin can set module access & rights in Settings.", "success")
+        flash(f"{u.full_name} assigned as {emp_code} — employee ledger "
+              f"account added.", "success")
         return redirect(url_for("auth.user_list"))
-    return render_template("auth/user_form.html", roles=roles, managers=managers, user=None)
+
+    return _page()
 
 
 @auth_bp.route("/users/<int:uid>/edit", methods=["GET", "POST"])

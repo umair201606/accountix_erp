@@ -459,6 +459,18 @@ def _migrate_schema(db):
         ("fixed_assets", "dep_expense_account_id", "INTEGER"),
         ("fixed_assets", "acquisition_credit_account_id", "INTEGER"),
         ("asset_depreciation", "journal_entry_id", "INTEGER"),
+        # Per-company module entitlement (super admin). DEFAULT 1 so every
+        # company that predates this keeps the modules it already had.
+        ("companies", "mod_hr_enabled", "BOOLEAN DEFAULT 1"),
+        ("companies", "mod_inventory_enabled", "BOOLEAN DEFAULT 1"),
+        ("companies", "mod_invoicing_enabled", "BOOLEAN DEFAULT 1"),
+        ("companies", "mod_finance_enabled", "BOOLEAN DEFAULT 1"),
+        ("companies", "mod_accounting_enabled", "BOOLEAN DEFAULT 1"),
+        ("companies", "mod_fbr_enabled", "BOOLEAN DEFAULT 1"),
+        ("companies", "mod_fixed_assets_enabled", "BOOLEAN DEFAULT 1"),
+        # Per-user company quotas; NULL falls back to GlobalLimits.
+        ("users", "max_companies_owned", "INTEGER"),
+        ("users", "max_companies_joined", "INTEGER"),
     ]
 
     inspector = inspect(engine)

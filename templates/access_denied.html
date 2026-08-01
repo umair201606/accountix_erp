@@ -1,0 +1,29 @@
+{# Refusal page for a single module. The fixed-assets app renders
+   "access_denied.html" from ~20 route guards; without this file at the root
+   of the loader those guards raised TemplateNotFound and turned a clean "no"
+   into a 500. The hub's own all-modules refusal is dashboard/access_denied.html. #}
+{% extends "layouts/base.html" %}
+{% block title %}Access Denied{% endblock %}
+{% block page_title %}Access Denied{% endblock %}
+{% block content %}
+<div class="denied-card">
+  <div class="denied-icon">&#128274;</div>
+  <h2>Module Not Available</h2>
+  <p>This module is not available to you in this company.</p>
+  <p>It is either not part of the company's plan, or your account has not been
+     granted access to it. Please contact your administrator.</p>
+  <a href="{{ url_for('dashboard.hub') }}" class="btn btn-outline">Back to Modules</a>
+</div>
+<style>
+.denied-card { max-width:480px; margin:60px auto; text-align:center; padding:48px 32px;
+  background:#fff; border-radius:12px; box-shadow:0 2px 12px rgba(0,0,0,.06); }
+.denied-icon { font-size:64px; margin-bottom:16px; }
+.denied-card h2 { margin:0 0 12px; color:#dc2626; }
+.denied-card p { color:#666; font-size:14px; margin:0 0 6px; }
+.denied-card .btn { margin-top:24px; }
+@media (max-width: 640px) {
+  .denied-card { margin:24px 12px; padding:32px 20px; }
+  .denied-icon { font-size:48px; }
+}
+</style>
+{% endblock %}

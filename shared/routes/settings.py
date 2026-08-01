@@ -1108,13 +1108,25 @@ def accept_invitation(invitation_id):
             company_id=company.id, user_id=current_user.id).first():
         flash("You are already a member of that company.", "error")
         return back
+    limits = GlobalLimits.get()
     active_count = CompanyMembership.query.filter_by(
         company_id=company.id, status=CompanyMembership.ACTIVE).count()
-    limit = GlobalLimits.get().member_limit_for(company)
+    limit = limits.member_limit_for(company)
     if active_count >= limit:
         flash(f"Cannot join {company.name}: it has reached its member "
               f"limit ({limit}).", "error")
         return back
+    # The invitee's own cap on how many companies they may belong to. Unset
+    # means unlimited, so this only bites where a super admin set it.
+    join_cap = limits.join_limit_for(current_user)
+    if join_cap is not None:
+        mine = CompanyMembership.query.filter_by(
+            user_id=current_user.id,
+            status=CompanyMembership.ACTIVE).count()
+        if mine >= join_cap:
+            flash(f"You already belong to the maximum number of companies "
+                  f"allowed for your account ({join_cap}).", "error")
+            return back
     inv.status = CompanyInvitation.ACCEPTED
     db.session.add(CompanyMembership(
         company_id=company.id, user_id=current_user.id,

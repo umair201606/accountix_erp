@@ -22,6 +22,18 @@ class Company(db.Model):
     max_members = db.Column(db.Integer, nullable=True)
     created_by = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
 
+    # Module entitlement, set by the super admin. Default on, so existing
+    # companies keep every module they had before this existed. A user's
+    # effective access is this AND their own has_*_access flag — see
+    # User.module_access.
+    mod_hr_enabled = db.Column(db.Boolean, default=True)
+    mod_inventory_enabled = db.Column(db.Boolean, default=True)
+    mod_invoicing_enabled = db.Column(db.Boolean, default=True)
+    mod_finance_enabled = db.Column(db.Boolean, default=True)
+    mod_accounting_enabled = db.Column(db.Boolean, default=True)
+    mod_fbr_enabled = db.Column(db.Boolean, default=True)
+    mod_fixed_assets_enabled = db.Column(db.Boolean, default=True)
+
     # Profile / letterhead (previously CompanyInfo)
     address = db.Column(db.Text)
     city = db.Column(db.String(100))
@@ -51,9 +63,38 @@ class Company(db.Model):
         "CompanyMembership", backref="company",
         lazy="dynamic", cascade="all, delete-orphan")
 
+    # module key (shared.permissions.MODULES) -> entitlement column. One
+    # mapping, so a new module is added in exactly two places.
+    MODULE_COLUMNS = {
+        "hr": "mod_hr_enabled",
+        "inventory": "mod_inventory_enabled",
+        "invoicing": "mod_invoicing_enabled",
+        "finance": "mod_finance_enabled",
+        "accounting": "mod_accounting_enabled",
+        "fbr": "mod_fbr_enabled",
+        "fixed_assets": "mod_fixed_assets_enabled",
+    }
+
     @classmethod
     def by_slug(cls, slug):
         return cls.query.filter_by(slug=slug).first()
+
+    def module_enabled(self, module_key):
+        """Whether this company is entitled to a module at all.
+
+        Unknown keys are allowed rather than denied: a module that predates
+        this mapping must not silently disappear from every company.
+        """
+        col = self.MODULE_COLUMNS.get(module_key)
+        if col is None:
+            return True
+        # Columns added by migration are NULL on rows written before it, and
+        # NULL means "not yet decided", which is the old always-on behaviour.
+        value = getattr(self, col, None)
+        return True if value is None else bool(value)
+
+    def enabled_modules(self):
+        return [k for k in self.MODULE_COLUMNS if self.module_enabled(k)]
 
 
 class CompanyMembership(db.Model):
@@ -64,6 +105,10 @@ class CompanyMembership(db.Model):
     PENDING = "pending"
     ACTIVE = "active"
     REMOVED = "removed"
+    # Suspended by the super admin: the membership is kept (role, employee
+    # code, history) but every gate filters on ACTIVE, so a blocked member
+    # cannot enter the company. Distinct from REMOVED, which is a departure.
+    BLOCKED = "blocked"
 
     id = db.Column(db.Integer, primary_key=True)
     company_id = db.Column(db.Integer, db.ForeignKey("companies.id"),
@@ -133,3 +178,16 @@ class GlobalLimits(db.Model):
 
     def member_limit_for(self, company):
         return company.max_members or self.default_max_members
+
+    # Per-user overrides beat the global default; NULL means "use the
+    # default", which is why these read the attribute rather than trusting a
+    # column value that is NULL on every row predating the migration.
+    def company_limit_for(self, user):
+        """How many companies this user may create."""
+        return (getattr(user, "max_companies_owned", None)
+                or self.max_companies_per_user)
+
+    def join_limit_for(self, user):
+        """How many companies this user may belong to. No global default
+        exists for joining, so an unset override means unlimited."""
+        return getattr(user, "max_companies_joined", None)

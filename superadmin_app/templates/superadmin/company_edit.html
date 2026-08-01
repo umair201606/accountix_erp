@@ -72,6 +72,21 @@
       <label class="lbl">Address</label>
       <textarea name="address" class="inp" rows="2">{{ company.address or '' }}</textarea>
     </div>
+
+    <div class="fgroup" style="margin-top:18px;">
+      <label class="lbl">Modules</label>
+      <p class="hint" style="margin:0 0 10px;">What this company has bought. A module switched off here disappears for everyone in the company, its admin included. Inside the company, each person still needs their own access flag.</p>
+      <div class="mod-grid">
+        {% for key, label, _flag, _sections in modules %}
+        <label class="mod-item">
+          <input type="checkbox" name="mod_{{ key }}"
+                 {{ 'checked' if company.module_enabled(key) }}>
+          <span>{{ label }}</span>
+        </label>
+        {% endfor %}
+      </div>
+    </div>
+
     <div class="sa-actions">
       <button type="submit" class="btn btn-p">Save Company</button>
     </div>
@@ -80,25 +95,39 @@
 
 <div class="sa-card" style="margin-top:20px;">
   <h3>Members ({{ active_members }} active)</h3>
+  <p class="hint">Blocking keeps the membership — role, employee code and history stay put — and only stops the person entering this company. It does not touch their account or their other companies.</p>
   <div class="tbl-scroll">
     <table class="sa-tbl">
       <thead>
-        <tr><th>Name</th><th>Email</th><th>Role</th><th>Status</th></tr>
+        <tr><th>Name</th><th>Email</th><th>Role</th><th>Status</th><th></th></tr>
       </thead>
       <tbody>
         {% for m, u in members %}
         <tr>
-          <td>{{ u.full_name if u else '—' }}</td>
+          <td>
+            {% if u %}
+            <a href="{{ url_for('superadmin.user_detail', user_id=u.id) }}">{{ u.full_name }}</a>
+            {% else %}—{% endif %}
+          </td>
           <td>{{ u.email if u else '—' }}</td>
           <td>{{ m.role_name() }}</td>
           <td>
             {% if m.status == 'active' %}<span class="pill pill-on">active</span>
-            {% elif m.status == 'pending' %}<span class="pill pill-off">pending</span>
+            {% elif m.status == blocked_status %}<span class="pill pill-danger">blocked</span>
             {% else %}<span class="pill pill-off">{{ m.status }}</span>{% endif %}
+          </td>
+          <td>
+            {% if m.status in ['active', blocked_status] %}
+            <form method="POST" action="{{ url_for('superadmin.member_block', company_id=company.id, membership_id=m.id) }}">
+              <button type="submit" class="btn btn-sm {{ 'btn-danger' if m.status == 'active' }}">
+                {{ 'Unblock' if m.status == blocked_status else 'Block' }}
+              </button>
+            </form>
+            {% endif %}
           </td>
         </tr>
         {% else %}
-        <tr><td colspan="4" style="text-align:center;color:#94a3b8;padding:24px;">No memberships yet.</td></tr>
+        <tr><td colspan="5" style="text-align:center;color:#94a3b8;padding:24px;">No memberships yet.</td></tr>
         {% endfor %}
       </tbody>
     </table>
