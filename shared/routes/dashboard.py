@@ -7,6 +7,13 @@ dashboard_bp = Blueprint("dashboard", __name__, url_prefix="/dashboard")
 @dashboard_bp.route("/")
 @login_required
 def hub():
+    # The hub is a company's front door: every tile behind it opens that
+    # company's books, and module entitlement is a property of the company.
+    # With none active there is nothing to show, so send the user to pick
+    # one rather than render a hub belonging to nobody.
+    from shared.tenancy import current_company_id
+    if current_company_id() is None:
+        return redirect(url_for("portal.index"))
     is_admin = current_user.is_admin()
     has_hr = current_user.module_access("hr")
     has_inv = current_user.module_access("inventory")

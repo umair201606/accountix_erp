@@ -99,12 +99,16 @@
     <nav class="sa-nav">
       <a href="{{ url_for('superadmin.users') }}" class="{{ 'active' if request.endpoint in ['superadmin.users', 'superadmin.user_detail'] }}">Manage Users</a>
       <a href="{{ url_for('superadmin.companies') }}" class="{{ 'active' if request.endpoint in ['superadmin.companies', 'superadmin.company_edit'] }}">Manage Companies</a>
-      <a href="{{ url_for('superadmin.my_companies') }}" class="{{ 'active' if request.endpoint == 'superadmin.my_companies' }}">My Companies</a>
+      {# The super admin's own books are the portal's job — every user has
+         exactly one My Companies page, and this is a link to it, not a
+         second copy of it. #}
+      <a href="{{ url_for('portal.index') }}">My Companies</a>
       <a href="{{ url_for('superadmin.index') }}" class="{{ 'active' if request.endpoint == 'superadmin.index' }}">Platform</a>
     </nav>
     <div class="sa-user">
+      {# No ERP Hub link: the console runs outside any company, and the hub
+         only means something once one has been picked. #}
       <span>{{ current_user.full_name }}</span>
-      <a href="{{ url_for('dashboard.hub') }}">ERP Hub</a>
       <a href="{{ url_for('auth.logout') }}">Logout</a>
     </div>
   </header>

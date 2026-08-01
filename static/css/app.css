@@ -43,7 +43,11 @@ a:hover{text-decoration:underline;}
 .sidebar{width:250px;height:100vh;position:sticky;top:0;background:var(--sidebar-bg);color:rgba(255,255,255,0.85);display:flex;flex-direction:column;flex-shrink:0;border-right:1px solid rgba(255,255,255,0.06);}
 .sidebar-header{padding:20px 18px 16px;border-bottom:1px solid rgba(255,255,255,0.08);display:flex;align-items:center;gap:10px;}
 .sidebar-header .brand-icon{width:32px;height:32px;background:linear-gradient(135deg,var(--amber),var(--ledger));border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:800;color:#fff;flex-shrink:0;}
-.sidebar-header h2{font-size:15px;font-weight:700;letter-spacing:0.3px;color:rgba(255,255,255,0.9);white-space:nowrap;font-family:var(--font);}
+/* min-width:0 lets the flex child actually shrink, so a long company name
+   ellipsises instead of pushing the sidebar wider. */
+.sidebar-header .brand-text{min-width:0;display:flex;flex-direction:column;}
+.sidebar-header h2{font-size:14.5px;font-weight:700;letter-spacing:0.2px;color:rgba(255,255,255,0.92);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-family:var(--font);}
+.sidebar-header .brand-sub{font-size:10px;font-weight:600;letter-spacing:0.5px;text-transform:uppercase;color:rgba(255,255,255,0.42);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:1px;}
 .sidebar-user{display:flex;align-items:center;gap:10px;padding:12px 18px;border-bottom:1px solid rgba(255,255,255,0.06);}
 .sidebar-user-avatar{width:34px;height:34px;background:linear-gradient(135deg,var(--amber),var(--ledger));border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-size:14px;font-weight:700;flex-shrink:0;overflow:hidden;}
 .sidebar-user-avatar img{width:100%;height:100%;object-fit:cover;border-radius:50%;}
@@ -217,7 +221,8 @@ td{padding:10px 14px;border-top:1px solid var(--line);}
 /* ── Collapsed Sidebar ── */
 .sidebar.collapsed{width:64px;}
 .sidebar.collapsed .sidebar-header{padding:16px 12px;justify-content:center;}
-.sidebar.collapsed .sidebar-header h2{display:none;}
+.sidebar.collapsed .sidebar-header h2,
+.sidebar.collapsed .sidebar-header .brand-text{display:none;}
 .sidebar.collapsed .sidebar-header .brand-icon{width:36px;height:36px;font-size:18px;}
 .sidebar.collapsed .sidebar-user{justify-content:center;padding:10px 0;}
 .sidebar.collapsed .sidebar-user-info{display:none;}
@@ -277,6 +282,7 @@ td{padding:10px 14px;border-top:1px solid var(--line);}
   .sidebar-overlay.show{display:block;}
   .sidebar.collapsed{width:250px;}
   .sidebar.collapsed .sidebar-header h2{display:block;}
+  .sidebar.collapsed .sidebar-header .brand-text{display:flex;}
   .sidebar.collapsed .sidebar-header .brand-icon{width:32px;height:32px;font-size:16px;}
   .sidebar.collapsed .sidebar-user{justify-content:flex-start;padding:12px 18px;}
   .sidebar.collapsed .sidebar-user-info{display:block;}

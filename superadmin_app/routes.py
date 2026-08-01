@@ -4,7 +4,6 @@ All tables touched here (companies, company_memberships, global_limits,
 users, roles) are GLOBAL: no tenancy scoping, no unscoped() needed.
 """
 import random
-import re
 import string
 
 from datetime import datetime
@@ -20,10 +19,6 @@ from shared.models.company import (Company, CompanyMembership,
 from shared.permissions import MODULES
 
 superadmin_bp = Blueprint("superadmin", __name__, url_prefix="/superadmin")
-
-# Same rule the portal enforces, so a company address means one thing however
-# it was created.
-SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,60}$")
 
 
 def _require_super_admin():
@@ -258,52 +253,11 @@ def member_block(company_id, membership_id):
     return redirect(url_for("superadmin.company_edit", company_id=company_id))
 
 
-@superadmin_bp.route("/my-companies/", methods=["GET", "POST"])
-@login_required
-def my_companies():
-    """The super admin's own books — the same flow every other user gets,
-    in super-admin chrome. Creating here provisions the company exactly as
-    the portal does; entering one goes through the shared company_switch."""
-    _require_super_admin()
-    if request.method == "POST":
-        name = request.form.get("name", "").strip()
-        slug = request.form.get("slug", "").strip().lower()
-        if not name or not SLUG_RE.match(slug or ""):
-            flash("Name is required, and the address must be 2-62 characters: "
-                  "lowercase letters, digits and hyphens.", "error")
-            return redirect(url_for("superadmin.my_companies"))
-        if Company.query.filter_by(slug=slug).first():
-            flash("That company address is already taken.", "error")
-            return redirect(url_for("superadmin.my_companies"))
-        admin_role = Role.query.filter_by(name=Role.ADMIN).first()
-        if admin_role is None:
-            flash("Admin role is not seeded yet.", "error")
-            return redirect(url_for("superadmin.my_companies"))
-        company = Company(name=name, slug=slug, is_active=True,
-                          plan_name="free", created_by=current_user.id)
-        db.session.add(company)
-        db.session.flush()
-        db.session.add(CompanyMembership(
-            company_id=company.id, user_id=current_user.id,
-            role_id=admin_role.id, status=CompanyMembership.ACTIVE))
-        db.session.commit()
-
-        from shared.company_setup import provision_company
-        provision_company(company.id)
-        flash(f"Company '{company.name}' created — its books are ready.",
-              "success")
-        return redirect(url_for("superadmin.my_companies"))
-
-    mine = (CompanyMembership.query
-            .filter_by(user_id=current_user.id,
-                       status=CompanyMembership.ACTIVE).all())
-    rows = []
-    for m in mine:
-        c = Company.query.get(m.company_id)
-        if c is not None:
-            rows.append((c, m, c.created_by == current_user.id))
-    rows.sort(key=lambda r: r[0].name)
-    return render_template("superadmin/my_companies.html", rows=rows)
+# A super admin's own books are not a special case: they use the same portal
+# (/portal/) as every other user, with the same quota, provisioning and
+# company switch. The console used to carry a second copy of that page; two
+# "My Companies" screens for one person is one too many, so the console's
+# nav now just links to the portal.
 
 
 @superadmin_bp.route("/users/", methods=["GET", "POST"])

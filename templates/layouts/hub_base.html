@@ -3,7 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}Accountix ERP{% endblock %}</title>
+    {# The hub belongs to the company whose books it opens, so it is titled
+       and branded with that company — not with the product. #}
+    <title>{% block title %}{{ company.name if company else 'Select Module' }}{% endblock %}</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
     <style>
       .hub-container{width:100%;max-width:1100px;margin:0 auto;}
@@ -24,8 +26,8 @@
 <body style="background:#f5f5f5;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;padding:20px;">
     <div class="hub-container">
         <div class="hub-header">
-            <div class="hub-brand">S</div>
-            <h1 class="hub-title">Accountix ERP</h1>
+            <div class="hub-brand">{{ (company.name if company else '?')[:1]|upper }}</div>
+            <h1 class="hub-title">{{ company.name if company else 'Select Module' }}</h1>
             <p class="hub-subtitle">{{ current_user.full_name }} &bull; {{ current_user.get_role_name()|title }}</p>
         </div>
         <div class="hub-grid">

@@ -95,9 +95,18 @@
     <aside class="sidebar" id="sidebar">
 
       {# ── Common sidebar header: brand + module switcher + user ── #}
+      {# Which company's books you are in is the first thing the shell must
+         answer — the module is secondary, and the topbar's switcher pill
+         drops its label on narrow viewports, so it cannot be the only
+         place the company name appears. #}
       <div class="sidebar-header">
         <div class="brand-icon" style="background:{{ meta.brand }};">{{ meta.letter }}</div>
-        <h2>{{ meta.label }}</h2>
+        <div class="brand-text">
+          <h2 title="{{ company.name if company else 'No company' }}">{{ company.name if company else 'No company' }}</h2>
+          {# badge, not label: label is "Accountix Settings", which repeats
+             the product name under every company in every module. #}
+          <span class="brand-sub">{{ meta.badge }}</span>
+        </div>
       </div>
 
       {% if switch_modules|length > 1 %}

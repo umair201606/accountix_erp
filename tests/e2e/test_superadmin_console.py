@@ -307,17 +307,31 @@ def test_super_admin_cannot_deactivate_themselves(seeded):
         assert User.query.get(my_id).is_active is True
 
 
-# ── My Companies ────────────────────────────────────────────────────────────
+# ── One My Companies page, not two ──────────────────────────────────────────
 
-def test_super_admin_creates_own_company_with_provisioned_books(seeded):
+def test_the_console_has_no_second_my_companies_page(seeded):
+    """A super admin's own books are not a special case: they use the same
+    portal every other user gets. The console links to it and does not carry
+    a second copy."""
+    sa = _super()
+    assert sa.get("/superadmin/my-companies/").status_code == 404
+    page = sa.get("/superadmin/")
+    assert page.status_code == 200
+    assert b'href="/portal/"' in page.data, \
+        "the console must link out to the one My Companies page"
+
+
+def test_super_admin_creates_own_company_through_the_portal(seeded):
+    """The portal is the single creation path — same quota, same slug rule,
+    same provisioning — and the super admin is no exception."""
     from shared.models.company import Company, CompanyMembership
     from shared.tenancy import set_current_company
     sa = _super()
-    assert sa.get("/superadmin/my-companies/").status_code == 200
+    assert sa.get("/portal/").status_code == 200
 
     slug = f"saown-{_suffix()}"
-    resp = sa.post("/superadmin/my-companies/",
-                   data={"name": "SA Own Books", "slug": slug})
+    resp = sa.post("/portal/create", data={"name": "SA Own Books",
+                                           "slug": slug})
     assert resp.status_code == 302
 
     with flask_app.app_context():
@@ -338,33 +352,70 @@ def test_super_admin_creates_own_company_with_provisioned_books(seeded):
         assert VoucherNumber.query.count() >= 14, \
             "voucher number series were not seeded"
 
-    # It shows on the page, and Open Books switches the session into it.
-    page = sa.get("/superadmin/my-companies/")
+    # It shows on the portal, and entering it switches the session.
+    page = sa.get("/portal/")
     assert b"SA Own Books" in page.data
-    assert f"/company/switch/{cid}".encode() in page.data
     sa.get(f"/company/switch/{cid}")
     with sa.session_transaction() as sess:
         assert sess.get("company_id") == cid
 
 
-def test_my_companies_rejects_a_bad_slug_and_a_duplicate(seeded):
-    from shared.models.company import Company
+# ── The hub belongs to a company ────────────────────────────────────────────
+
+def test_the_console_offers_no_way_into_the_erp_hub(seeded):
+    """The console runs outside any company; the hub only means something
+    once one has been picked, so it must not be linked from here."""
     sa = _super()
-    sa.post("/superadmin/my-companies/",
-            data={"name": "Bad Slug Co", "slug": "Not A Slug"})
-    with flask_app.app_context():
-        assert Company.query.filter_by(name="Bad Slug Co").first() is None
-
-    slug = f"sadupe-{_suffix()}"
-    sa.post("/superadmin/my-companies/", data={"name": "First", "slug": slug})
-    sa.post("/superadmin/my-companies/", data={"name": "Second", "slug": slug})
-    with flask_app.app_context():
-        assert Company.query.filter_by(slug=slug).count() == 1
+    for path in ("/superadmin/", "/superadmin/users/", "/superadmin/companies/"):
+        page = sa.get(path)
+        assert page.status_code == 200
+        assert b'href="/dashboard/"' not in page.data, \
+            f"{path} still offers a way into a company-less ERP Hub"
 
 
-def test_my_companies_is_super_admin_only(seeded):
-    emp, _ = _login("emp@solarkon.com", "emp123")
-    assert emp.get("/superadmin/my-companies/").status_code == 403
+def test_hub_sends_a_user_with_no_company_to_the_portal(seeded):
+    """Every tile on the hub opens some company's books, and entitlement is
+    a property of the company — with none active there is nothing to show."""
+    email = f"nohub_{_suffix()}@example.com"
+    _create_user(email)
+    c, _ = _login(email, "pw12345")
+    resp = c.get("/dashboard/")
+    assert resp.status_code == 302
+    assert resp.headers["Location"].endswith("/portal/"), \
+        "a company-less user must be sent to pick a company, not to the hub"
+
+
+def test_hub_is_branded_with_the_company_not_the_product(seeded):
+    email = f"hubname_{_suffix()}@example.com"
+    uid = _create_user(email)
+    cid = _create_company("Brandy Traders", f"brandy-{_suffix()}",
+                          created_by=uid)
+    _add_membership(cid, uid, role="admin")
+    c, _ = _login(email, "pw12345")
+    c.get(f"/company/switch/{cid}")
+
+    page = c.get("/dashboard/")
+    assert page.status_code == 200
+    assert b"Brandy Traders" in page.data
+    assert b"Accountix" not in page.data, \
+        "the hub must carry the company's name, not the product's"
+
+
+def test_the_shell_shows_which_company_you_are_in(seeded):
+    """Settings used to name only the module, and the topbar switcher drops
+    its label on narrow viewports — so the company was nowhere on screen."""
+    email = f"shellname_{_suffix()}@example.com"
+    uid = _create_user(email)
+    cid = _create_company("Shell Name Co", f"shellname-{_suffix()}",
+                          created_by=uid)
+    _add_membership(cid, uid, role="admin")
+    c, _ = _login(email, "pw12345")
+    c.get(f"/company/switch/{cid}")
+
+    page = c.get("/settings/")
+    assert page.status_code == 200
+    assert b'<h2 title="Shell Name Co">Shell Name Co</h2>' in page.data, \
+        "the sidebar must name the company whose books are open"
 
 
 # ── Module entitlement ──────────────────────────────────────────────────────
