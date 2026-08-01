@@ -1,6 +1,7 @@
 from decimal import Decimal
 from shared.extensions import db
 from shared.models.ledger import JournalEntry, JournalLine, ChartOfAccount
+from shared.tenancy import scoped_get
 
 
 # ── Canonical posting accounts ───────────────────────────────────────────────
@@ -67,7 +68,7 @@ def post_journal_entry(voucher_type, voucher_id, voucher_number, description,
     # Aggregating accounts (levels 1-4) only roll up child balances — a line
     # posted there would double-count against its children in every report.
     for l in lines:
-        acct = ChartOfAccount.query.get(l["account_id"])
+        acct = scoped_get(ChartOfAccount, l["account_id"])
         if acct is None:
             raise ValueError(f"Journal for {voucher_number} references "
                              f"unknown account id {l['account_id']}")
@@ -231,7 +232,7 @@ def party_account(kind, entity_id, name, override_account_id=None):
     per-customer / per-supplier ledgers show real balances.
     """
     if override_account_id:
-        acct = ChartOfAccount.query.get(override_account_id)
+        acct = scoped_get(ChartOfAccount, override_account_id)
         if acct is not None and acct.is_postable:
             return acct
     if entity_id:

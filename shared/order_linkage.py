@@ -9,6 +9,7 @@ difference is which model pair is involved.
 """
 
 from inventory_app.extensions import db
+from shared.tenancy import scoped_get
 
 
 class OverInvoiceError(Exception):
@@ -152,7 +153,7 @@ def check_over_invoicing(side, invoice_items):
     with db.session.no_autoflush:
         tol = _tolerance_pct()
         for oid, qty in wanted.items():
-            oi = OrderItem.query.get(oid)
+            oi = scoped_get(OrderItem, oid)
             if oi is None:
                 continue
             balance = line_balance(oi)
@@ -180,7 +181,7 @@ def apply_writeback(side, invoice_items, sign=1):
         oid = getattr(it, "source_order_item_id", None)
         if not oid:
             continue
-        oi = OrderItem.query.get(oid)
+        oi = scoped_get(OrderItem, oid)
         if oi is None:
             continue
         current = float(oi.invoiced_qty or 0)
@@ -189,7 +190,7 @@ def apply_writeback(side, invoice_items, sign=1):
     for order_id in touched:
         if not order_id:
             continue
-        order = Order.query.get(order_id)
+        order = scoped_get(Order, order_id)
         if order is not None:
             refresh_order_status(order)
     db.session.flush()

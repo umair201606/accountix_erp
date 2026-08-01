@@ -7,6 +7,7 @@ from shared.models.fbr import FBRConfig, FBRInvoiceRecord
 from fbr_app.services.fbr_client import FBRApiClient
 from fbr_app.services.fbr_mapper import build_fbr_invoice
 from inventory_app.models.invoice import InvInvoice
+from shared.tenancy import scoped_get_404
 
 fbr_dashboard_bp = Blueprint("fbr_dashboard", __name__, url_prefix="/fbr",
                              template_folder="../templates/fbr")
@@ -43,7 +44,7 @@ def submit_invoice(invoice_id):
     if not config.is_active or not config.access_token:
         return jsonify({"ok": False, "error": "FBR not configured"}), 400
 
-    invoice = InvInvoice.query.get_or_404(invoice_id)
+    invoice = scoped_get_404(InvInvoice, invoice_id)
     if invoice.voucher_status != "approved":
         return jsonify({"ok": False, "error": "Only approved invoices can be submitted to FBR"}), 400
 
@@ -94,7 +95,7 @@ def validate_invoice(invoice_id):
     if not config.is_active or not config.access_token:
         return jsonify({"ok": False, "error": "FBR not configured"}), 400
 
-    invoice = InvInvoice.query.get_or_404(invoice_id)
+    invoice = scoped_get_404(InvInvoice, invoice_id)
     try:
         payload = build_fbr_invoice(invoice_id)
     except Exception as e:
@@ -141,7 +142,7 @@ def retry_submission(record_id):
 @fbr_dashboard_bp.route("/record/<int:record_id>")
 @login_required
 def view_record(record_id):
-    record = FBRInvoiceRecord.query.get_or_404(record_id)
+    record = scoped_get_404(FBRInvoiceRecord, record_id)
     return jsonify({
         "id": record.id,
         "inv_invoice_id": record.inv_invoice_id,

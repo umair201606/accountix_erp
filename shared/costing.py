@@ -56,6 +56,7 @@ from shared.extensions import db
 from shared.models.stock_ledger import StockLedger
 from shared.models.stock_layer import StockLayer, LayerConsumption
 from shared.models.inventory_settings import InventorySettings
+from shared.tenancy import scoped_get
 
 ZERO = Decimal("0")
 
@@ -191,7 +192,6 @@ def cost_of_issue(product_id, qty):
 
 def _sync_product_stock(product_id):
     from inventory_app.models.product import InvProduct
-    from shared.tenancy import scoped_get
     p = scoped_get(InvProduct, product_id)
     if p is not None:
         # current_stock is a legacy denormalised Integer column kept for
@@ -555,7 +555,7 @@ def consumers_of_voucher(voucher_type, voucher_id):
     out = []
     for c in LayerConsumption.query.filter(
             LayerConsumption.layer_id.in_(layer_ids)).all():
-        ledger_row = StockLedger.query.get(c.out_ledger_id)
+        ledger_row = scoped_get(StockLedger, c.out_ledger_id)
         if ledger_row is not None:
             out.append((ledger_row.voucher_type, ledger_row.voucher_number, _d(c.qty)))
     return out
@@ -621,7 +621,7 @@ def reverse_voucher_stock(voucher_type, voucher_id, allow_variance=False,
     consumptions = LayerConsumption.query.filter(
         LayerConsumption.out_ledger_id.in_(row_ids)).all()
     for c in consumptions:
-        layer = db.session.get(StockLayer, c.layer_id)
+        layer = scoped_get(StockLayer, c.layer_id)
         if layer is not None:
             layer.qty_remaining = _d(layer.qty_remaining) + _d(c.qty)
         db.session.delete(c)

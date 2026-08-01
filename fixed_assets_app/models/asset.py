@@ -179,9 +179,10 @@ class AssetDepreciation(db.Model):
     @property
     def is_live(self):
         from shared.models.ledger import JournalEntry
+        from shared.tenancy import scoped_get
         if not self.journal_entry_id:
             return True
-        je = db.session.get(JournalEntry, self.journal_entry_id)
+        je = scoped_get(JournalEntry, self.journal_entry_id)
         return bool(je and je.is_posted)
 
     def __repr__(self):

@@ -4,6 +4,7 @@ from datetime import datetime
 from flask import current_app
 from shared.extensions import db
 from shared.models.fbr import FBRConfig, FBRInvoiceRecord
+from shared.tenancy import scoped_get_404
 
 
 class FBRApiClient:
@@ -98,7 +99,7 @@ class FBRApiClient:
         return record
 
     def retry_submission(self, record_id, submitted_by):
-        record = FBRInvoiceRecord.query.get_or_404(record_id)
+        record = scoped_get_404(FBRInvoiceRecord, record_id)
         payload = json.loads(record.request_json) if record.request_json else {}
         ok, sc, data = self.submit_invoice(payload)
         record.attempt_count = (record.attempt_count or 0) + 1

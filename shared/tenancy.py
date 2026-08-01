@@ -36,7 +36,7 @@ from contextlib import contextmanager
 from flask import g, has_app_context
 from sqlalchemy import event, inspect as sa_inspect
 from sqlalchemy.sql.base import Executable
-from sqlalchemy.sql.selectable import Join, Select, Subquery
+from sqlalchemy.sql.selectable import AliasedReturnsRows, Join, Select
 from sqlalchemy.orm import with_loader_criteria
 
 from shared.extensions import db
@@ -156,9 +156,16 @@ def _collect_table_names(node, out):
         _collect_table_names(node.left, out)
         _collect_table_names(node.right, out)
         return
-    if isinstance(node, (Select, Subquery)):
+    if isinstance(node, Select):
         for frm in node.get_final_froms():
             _collect_table_names(frm, out)
+        return
+    if isinstance(node, AliasedReturnsRows):
+        # Alias / Subquery / CTE all wrap a selectable via ``.element`` —
+        # recurse into it instead of recording the synthetic alias name
+        # (this is what ``Query.count()`` and other aggregate wrappers
+        # produce, e.g. ``FROM (SELECT ... FROM voucher_numbers) AS anon_1``).
+        _collect_table_names(node.element, out)
         return
     if isinstance(node, Executable):
         return
@@ -268,8 +275,13 @@ def scoped_get(model, pk):
 
     For scoped models filters by (id, company_id). For global models
     (users, roles, ...) falls back to a plain PK lookup.
+
+    Inside ``unscoped()`` this defers to the bypass like the query event does:
+    seeding and backfill reach scoped models through shared posting paths
+    (journals, costing, order write-back), and those must not fail closed in
+    the one mode that has deliberately opted out.
     """
-    if is_scoped_model(model):
+    if is_scoped_model(model) and not _bypassed():
         cid = current_company_id()
         if cid is None:
             raise NoActiveCompanyError(

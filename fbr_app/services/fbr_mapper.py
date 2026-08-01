@@ -3,10 +3,11 @@ from shared.models.fbr import FBRConfig
 from shared.invoice_totals import sales_totals
 from inventory_app.models.invoice import InvInvoice
 from inventory_app.models.customer import InvCustomer
+from shared.tenancy import scoped_get_404
 
 
 def build_fbr_invoice(invoice_id):
-    invoice = InvInvoice.query.get_or_404(invoice_id)
+    invoice = scoped_get_404(InvInvoice, invoice_id)
     config = FBRConfig.get()
     customer = invoice.customer
     items = invoice.items.all()
