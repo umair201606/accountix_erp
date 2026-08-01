@@ -23,31 +23,31 @@ A bare item (not in a group) renders flat above the groups.
 # existing identity now that the markup is shared.
 MODULE_META = {
     "hr": {
-        "label": "Solarkon ERP", "badge": "HR", "letter": "S",
+        "label": "Accountix ERP", "badge": "HR", "letter": "A",
         "brand": "linear-gradient(135deg,#0f5257,#1a7a7a)",
         "badge_bg": "#e0f2f1", "badge_fg": "#0f5257",
         "home": "dashboard",
     },
     "inventory": {
-        "label": "Solarkon Inventory", "badge": "INVENTORY", "letter": "I",
+        "label": "Accountix Inventory", "badge": "INVENTORY", "letter": "I",
         "brand": "linear-gradient(135deg,#7c3aed,#8b5cf6)",
         "badge_bg": "#f3e8ff", "badge_fg": "#7c3aed",
         "home": "inv_auth.dashboard",
     },
     "invoicing": {
-        "label": "Solarkon Invoicing", "badge": "INVOICING", "letter": "V",
+        "label": "Accountix Invoicing", "badge": "INVOICING", "letter": "V",
         "brand": "linear-gradient(135deg,#0d9488,#14b8a6)",
         "badge_bg": "#ccfbf1", "badge_fg": "#0d9488",
         "home": "invoicing.dashboard",
     },
     "finance": {
-        "label": "Solarkon Finance", "badge": "FINANCE", "letter": "F",
+        "label": "Accountix Finance", "badge": "FINANCE", "letter": "F",
         "brand": "linear-gradient(135deg,#1d4ed8,#3b82f6)",
         "badge_bg": "#dbeafe", "badge_fg": "#1d4ed8",
         "home": "finance.dashboard",
     },
     "accounting": {
-        "label": "Solarkon Accounting", "badge": "ACCOUNTING", "letter": "A",
+        "label": "Accountix Accounting", "badge": "ACCOUNTING", "letter": "A",
         "brand": "linear-gradient(135deg,#0f5257,#1a7a7a)",
         "badge_bg": "#e0f2f1", "badge_fg": "#0f5257",
         "home": "accounting.dashboard",
@@ -59,13 +59,13 @@ MODULE_META = {
         "home": "fbr_dashboard.dashboard",
     },
     "settings": {
-        "label": "Solarkon Settings", "badge": "SETTINGS", "letter": "S",
+        "label": "Accountix Settings", "badge": "SETTINGS", "letter": "A",
         "brand": "linear-gradient(135deg,#475569,#64748b)",
         "badge_bg": "#f1f5f9", "badge_fg": "#475569",
         "home": "settings.index",
     },
     "fixed_assets": {
-        "label": "Solarkon Fixed Assets", "badge": "FA", "letter": "F",
+        "label": "Accountix Fixed Assets", "badge": "FA", "letter": "F",
         "brand": "linear-gradient(135deg,#b91c1c,#dc2626)",
         "badge_bg": "#fef2f2", "badge_fg": "#b91c1c",
         "home": "fa_auth.dashboard",

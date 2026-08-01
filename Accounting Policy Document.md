@@ -2,7 +2,7 @@
 
 ## General Ledger Transaction Reference — All Modules
 
-**ERP:** Solarkon ERP  
+**ERP:** Accountix ERP  
 **Date:** July 2026  
 **Basis:** Accrual accounting, double-entry, periodic inventory (historic cost)
 
