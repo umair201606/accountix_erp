@@ -259,7 +259,7 @@ def test_invite_accept_remove_lifecycle(seeded):
     from shared.models.company import CompanyInvitation, CompanyMembership
 
     default_id = _default_company_id()
-    admin = _login("admin@solarkon.com", "admin123")
+    admin = _login("admin@gmail.com", "admin123")
 
     # 1. Inviting a user who is ALREADY a member is refused (spec).
     with flask_app.app_context():
@@ -367,7 +367,7 @@ def test_cross_company_product_isolation(seeded):
         "company B must not resolve company A's product id"
 
     # Company A admin: the same product is still visible in A.
-    a_admin = _login("admin@solarkon.com", "admin123")
+    a_admin = _login("admin@gmail.com", "admin123")
     resp = a_admin.get("/inventory/products/")
     assert resp.status_code == 200
     assert b"ISO-PROD" in resp.data, \

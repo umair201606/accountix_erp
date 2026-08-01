@@ -37,7 +37,7 @@ from shared.models.invoice_template import (
     sample_context, _STRING_OPTIONS, DISPLAY_CHOICES)
 from shared.models.ledger import ChartOfAccount
 from shared.permissions import MODULES, ACTIONS
-from shared.tenancy import current_company_id
+from shared.tenancy import current_company_id, scoped_get, scoped_get_404
 
 settings_bp = Blueprint("settings", __name__, url_prefix="/settings")
 
@@ -156,7 +156,7 @@ def index():
         ctx["sales_templates"] = InvoiceTemplate.query.filter_by(type="sales").order_by(InvoiceTemplate.name).all()
         ctx["purchase_templates"] = InvoiceTemplate.query.filter_by(type="purchase").order_by(InvoiceTemplate.name).all()
     elif tab == "rights":
-        ctx["users"] = User.query.order_by(User.full_name).all()
+        ctx["users"] = _company_users()
         ctx["modules"] = MODULES
         ctx["configured"] = {uid for (uid,) in
                              db.session.query(UserPermission.user_id).distinct()}
@@ -302,7 +302,7 @@ def close_period(id):
     denied = _require("periods")
     if denied:
         return denied
-    p = AccountingPeriod.query.get_or_404(id)
+    p = scoped_get_404(AccountingPeriod, id)
     p.is_open, p.is_closed, p.closed_at = False, True, datetime.utcnow()
     db.session.commit()
     flash(f"Period {p.period_name} closed.", "success")
@@ -315,7 +315,7 @@ def reopen_period(id):
     denied = _require("periods")
     if denied:
         return denied
-    p = AccountingPeriod.query.get_or_404(id)
+    p = scoped_get_404(AccountingPeriod, id)
     p.is_open, p.is_closed, p.closed_at = True, False, None
     db.session.commit()
     flash(f"Period {p.period_name} reopened.", "success")
@@ -575,7 +575,7 @@ def select_document_template(doc):
     s = ReportSettings.get()
     template_id = request.form.get("template_id", type=int) or None
     if template_id:
-        t = InvoiceTemplate.query.get(template_id)
+        t = scoped_get(InvoiceTemplate, template_id)
         if not t or t.type != doc:
             flash("Invalid template.", "error")
             return redirect(url_for("settings.index", tab=doc))
@@ -693,7 +693,7 @@ def edit_template(id):
     denied = _require("templates")
     if denied:
         return denied
-    t = InvoiceTemplate.query.get_or_404(id)
+    t = scoped_get_404(InvoiceTemplate, id)
     if request.method == "POST":
         name, design, accent, opts, custom_body, is_default = _read_template_form(t.type)
         if not name:
@@ -730,7 +730,7 @@ def delete_template(id):
     denied = _require("templates")
     if denied:
         return denied
-    t = InvoiceTemplate.query.get_or_404(id)
+    t = scoped_get_404(InvoiceTemplate, id)
     was_default, doc_type = t.is_default, t.type
     db.session.delete(t)
     db.session.flush()
@@ -747,6 +747,40 @@ def delete_template(id):
 
 
 # ── Rights & access (admin only) ────────────────────────────────────────────
+# Users are global rows, so tenancy cannot scope them for us: every user id
+# that arrives from the URL or fills the list must be narrowed to the active
+# company by hand, or an admin of one company could manage another's staff.
+
+
+def _company_users():
+    """Users this company's admin may manage: its active members, by name."""
+    cid = current_company_id()
+    if cid is None:
+        return []
+    return (User.query.join(CompanyMembership, db.and_(
+        CompanyMembership.user_id == User.id,
+        CompanyMembership.company_id == cid,
+        CompanyMembership.status == CompanyMembership.ACTIVE))
+        .order_by(User.full_name).all())
+
+
+def _managed_user_or_404(uid):
+    """A user the current admin may act on: an active member of the active
+    company. Unlike ``get_member`` this has no super-admin bypass — a platform
+    account must not become editable (password included) from a tenant's
+    settings screen just by putting its id in the URL.
+    """
+    cid = current_company_id()
+    if cid is None:
+        abort(404)
+    u = User.query.get(uid)
+    if u is None or u.membership_in(cid) is None:
+        abort(404)
+    if getattr(u, "is_super_admin", False) and not getattr(
+            current_user, "is_super_admin", False):
+        abort(403)
+    return u
+
 
 @settings_bp.route("/users/<int:uid>/rights", methods=["GET", "POST"])
 @login_required
@@ -754,7 +788,7 @@ def user_rights(uid):
     denied = _require("rights")
     if denied:
         return denied
-    u = User.query.get_or_404(uid)
+    u = _managed_user_or_404(uid)
 
     if request.method == "POST":
         new_pw = request.form.get("new_password", "")
@@ -797,7 +831,7 @@ def reset_rights(uid):
     denied = _require("rights")
     if denied:
         return denied
-    u = User.query.get_or_404(uid)
+    u = _managed_user_or_404(uid)
     UserPermission.query.filter_by(user_id=u.id).delete()
     db.session.commit()
     flash(f"Rights reset for {u.full_name} — unrestricted section access again.",
@@ -811,7 +845,7 @@ def toggle_active(uid):
     denied = _require("rights")
     if denied:
         return denied
-    u = User.query.get_or_404(uid)
+    u = _managed_user_or_404(uid)
     if u.id == current_user.id:
         flash("You cannot deactivate your own account.", "error")
         return redirect(url_for("settings.index", tab="rights"))
@@ -1058,7 +1092,8 @@ def invitations():
 @settings_bp.route("/invitations/<int:invitation_id>/accept", methods=["POST"])
 @login_required
 def accept_invitation(invitation_id):
-    back = redirect(url_for("settings.invitations"))
+    back = redirect(request.form.get("next")
+                    or url_for("settings.invitations"))
     inv = CompanyInvitation.query.get_or_404(invitation_id)
     if inv.email != current_user.email:
         abort(404)
@@ -1087,13 +1122,15 @@ def accept_invitation(invitation_id):
     db.session.commit()
     session["company_id"] = company.id
     flash(f"Welcome to {company.name}.", "success")
-    return redirect(url_for("dashboard.hub"))
+    return redirect(request.form.get("next")
+                    or url_for("dashboard.hub"))
 
 
 @settings_bp.route("/invitations/<int:invitation_id>/decline", methods=["POST"])
 @login_required
 def decline_invitation(invitation_id):
-    back = redirect(url_for("settings.invitations"))
+    back = redirect(request.form.get("next")
+                    or url_for("settings.invitations"))
     inv = CompanyInvitation.query.get_or_404(invitation_id)
     if inv.email != current_user.email:
         abort(404)

@@ -56,7 +56,10 @@ def employee(seeded):
 
 @pytest.fixture
 def admin(seeded):
-    return _client_as("admin@solarkon.com")
+    """SYSADMIN — the seeded company admin of the default company. Not
+    admin@solarkon.com: despite the address that account is an ordinary user
+    with no company at all, so it cannot exercise any admin path."""
+    return _client_as("admin@gmail.com")
 
 
 def test_employee_has_no_finance_or_admin_access(seeded):
@@ -86,7 +89,7 @@ def test_admin_sees_every_section(seeded):
     from shared.models.base import User
     from shared.routes.settings import visible_sections, SECTIONS
     with flask_app.app_context():
-        u = User.query.filter(User.email.ilike("admin@solarkon.com")).first()
+        u = User.query.filter(User.email.ilike("admin@gmail.com")).first()
         assert len(visible_sections(u)) == len(SECTIONS)
 
 
@@ -159,16 +162,26 @@ def test_employee_cannot_change_valuation_method(employee):
 
 # ── Financial periods ───────────────────────────────────────────────────────
 
-def test_employee_cannot_change_fiscal_year_rule(employee):
+def _period_count():
+    """Count periods inside the default company's context.
+
+    AccountingPeriod is tenant-scoped, so a bare app context has no company
+    and the scoping engine fails the query closed. Counting without setting a
+    company would otherwise total every company's periods at once."""
     from shared.models.company_settings import AccountingPeriod
+    from shared.tenancy import set_current_company
     with flask_app.app_context():
-        before = AccountingPeriod.query.count()
+        set_current_company(_company_id())
+        return AccountingPeriod.query.count()
+
+
+def test_employee_cannot_change_fiscal_year_rule(employee):
+    before = _period_count()
 
     employee.post("/settings/periods/rule", data={"start_month": "7",
                                                    "start_day": "1"})
 
-    with flask_app.app_context():
-        assert AccountingPeriod.query.count() == before
+    assert _period_count() == before
 
 
 # ── Report structure ────────────────────────────────────────────────────────
@@ -218,7 +231,7 @@ def test_employee_cannot_grant_themselves_module_access(employee):
 
 
 def test_employee_cannot_reset_another_users_rights(employee):
-    admin_uid = _user_id("admin@solarkon.com")
+    admin_uid = _user_id("admin@gmail.com")
     resp = employee.post(f"/settings/users/{admin_uid}/reset-rights")
     # Redirected away rather than performing the reset.
     assert resp.status_code == 302
@@ -227,7 +240,7 @@ def test_employee_cannot_reset_another_users_rights(employee):
 
 def test_employee_cannot_deactivate_an_admin(employee):
     from shared.models.base import User
-    admin_uid = _user_id("admin@solarkon.com")
+    admin_uid = _user_id("admin@gmail.com")
 
     employee.post(f"/settings/users/{admin_uid}/toggle-active")
 
@@ -237,7 +250,7 @@ def test_employee_cannot_deactivate_an_admin(employee):
 
 def test_admin_cannot_deactivate_self(admin):
     from shared.models.base import User
-    admin_uid = _user_id("admin@solarkon.com")
+    admin_uid = _user_id("admin@gmail.com")
 
     admin.post(f"/settings/users/{admin_uid}/toggle-active")
 

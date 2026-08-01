@@ -29,8 +29,11 @@ def _can_manage_users():
 
 @auth_bp.route("/login", methods=["GET", "POST"])
 def login():
+    from shared.routes.portal import should_redirect_to_portal
     if current_user.is_authenticated:
-        return redirect(url_for("dashboard.hub"))
+        return redirect(url_for("portal.index")
+                        if should_redirect_to_portal()
+                        else url_for("dashboard.hub"))
     if request.method == "POST":
         # Users sign in with their User ID; the email still works as a
         # fallback because login_id defaults to the email.
@@ -46,7 +49,11 @@ def login():
             user.last_login = datetime.utcnow()
             db.session.commit()
             next_page = request.args.get("next")
-            return redirect(next_page or url_for("dashboard.hub"))
+            if next_page:
+                return redirect(next_page)
+            return redirect(url_for("portal.index")
+                            if should_redirect_to_portal()
+                            else url_for("dashboard.hub"))
         flash("Invalid email or password.", "danger")
     return render_template("login.html")
 

@@ -62,7 +62,7 @@ def login_page(page, flask_server):
 @pytest.fixture
 def admin_page(page, flask_server):
     page.goto(f"{BASE_URL}/auth/login")
-    page.fill("#login", "admin@solarkon.com")
+    page.fill("#login", "admin@gmail.com")
     page.fill("#password", "admin123")
     page.click("button[type='submit']")
     page.wait_for_url("**/dashboard/**")
@@ -90,7 +90,7 @@ def admin_mobile(browser, flask_server):
     ctx = browser.new_context(viewport={"width": 375, "height": 812})
     p = ctx.new_page()
     p.goto(f"{BASE_URL}/auth/login")
-    p.fill("#login", "admin@solarkon.com")
+    p.fill("#login", "admin@gmail.com")
     p.fill("#password", "admin123")
     p.click("button[type='submit']")
     p.wait_for_url("**/dashboard/**")

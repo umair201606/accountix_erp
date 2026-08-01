@@ -196,6 +196,10 @@
                 {% if company and company.id == c.id %}<span class="check">&#10003;</span>{% endif %}
               </a>
               {% endfor %}
+              <a href="{{ url_for('portal.index') }}" role="menuitem">
+                <span class="company-switch-dot">&#9776;</span>
+                <span>My Companies</span>
+              </a>
               {% if current_user.is_super_admin %}
               <a href="{{ url_for('superadmin.index') }}" role="menuitem">
                 <span class="company-switch-dot" style="background:#7c3aed;">&#9733;</span>

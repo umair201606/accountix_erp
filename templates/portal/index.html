@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>My Companies — Accountix ERP</title>
+<style>
+  /* Tokens per DESIGN.md: navy structure on a near-white page, borders for
+     separation, one solid navy action per view. */
+  :root {
+    --primary: #002045;
+    --primary-container: #1a365d;
+    --on-primary: #ffffff;
+    --bg: #f6f9ff;
+    --surface: #ffffff;
+    --surface-low: #eef4fc;
+    --surface-variant: #dde3eb;
+    --on-surface: #161c22;
+    --on-surface-variant: #43474e;
+    --outline: #74777f;
+    --outline-variant: #c4c6cf;
+    --error: #ba1a1a;
+    --error-container: #ffdad6;
+    --tertiary: #003f25;
+    --tertiary-fixed: #9ff5c1;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body {
+    font-family: Inter, "Segoe UI", system-ui, -apple-system, Arial, sans-serif;
+    background: var(--bg); color: var(--on-surface);
+    font-size: 14px; line-height: 20px; min-height: 100vh;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { text-decoration: none; }
+  .topbar { background: var(--primary); color: var(--on-primary); padding: 14px 24px; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  .brand { display: flex; align-items: center; gap: 10px; font-size: 16px; font-weight: 700; letter-spacing: -.01em; color: var(--on-primary); }
+  .mark { width: 30px; height: 30px; border-radius: 8px; background: var(--surface); color: var(--primary); display: grid; place-items: center; font-size: 14px; font-weight: 700; flex: none; }
+  .top-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .top-actions .who { font-size: 13px; color: #c9d6e6; margin-right: 4px; }
+  .btn { display: inline-flex; align-items: center; gap: 6px; padding: 10px 16px; border-radius: 8px; border: 1px solid transparent; cursor: pointer; font: inherit; font-size: 13px; font-weight: 600; text-decoration: none; transition: background .15s, border-color .15s; }
+  .btn-blue { background: var(--primary); color: var(--on-primary); }
+  .btn-blue:hover { background: var(--primary-container); }
+  .btn-ghost { background: transparent; color: var(--on-primary); border-color: rgba(255,255,255,.35); }
+  .btn-ghost:hover { background: rgba(255,255,255,.1); }
+  .btn-line { background: var(--surface); color: var(--on-surface); border-color: var(--outline-variant); }
+  .btn-line:hover { background: var(--surface-low); }
+  .btn-sm { padding: 6px 12px; font-size: 12px; }
+  .wrap { max-width: 1000px; margin: 0 auto; padding: 28px 24px 64px; }
+  h1 { font-size: 24px; line-height: 32px; font-weight: 700; letter-spacing: -.01em; color: var(--primary); }
+  .sub { color: var(--on-surface-variant); margin: 6px 0 24px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; }
+  .card { background: var(--surface); border: 1px solid var(--outline-variant); border-radius: 16px; padding: 20px; display: flex; flex-direction: column; gap: 10px; }
+  .card h3 { font-size: 15px; font-weight: 600; color: var(--primary); }
+  .meta { color: var(--on-surface-variant); font-size: 13px; display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  .badge { display: inline-block; padding: 2px 10px; border-radius: 9999px; font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }
+  .badge-admin, .badge-manager, .badge-employee { background: var(--surface-variant); color: var(--on-surface-variant); }
+  .badge-off { background: var(--error-container); color: var(--error); }
+  .badge-on { background: var(--tertiary-fixed); color: var(--tertiary); }
+  .card .enter { margin-top: auto; align-self: flex-start; }
+  .section { margin-top: 32px; }
+  .section h2 { font-size: 16px; font-weight: 600; color: var(--primary); margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+  .section h2 .count { background: var(--surface-variant); color: var(--on-surface-variant); font-size: 12px; font-weight: 600; padding: 1px 9px; border-radius: 9999px; }
+  .empty { background: var(--surface-low); border: 1px dashed var(--outline-variant); border-radius: 16px; padding: 20px; color: var(--on-surface-variant); }
+  .create { background: var(--surface); border: 1px solid var(--outline-variant); border-radius: 16px; padding: 20px; margin-top: 8px; }
+  .create form { display: grid; grid-template-columns: 1fr 1fr auto; gap: 12px; align-items: end; }
+  .field label { display: block; font-size: 12px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--on-surface-variant); margin-bottom: 6px; }
+  .field input { width: 100%; padding: 10px 12px; font: inherit; font-size: 14px; border: 1px solid var(--outline-variant); border-radius: 8px; background: var(--surface); color: var(--on-surface); outline: none; transition: border-color .15s; }
+  .field input::placeholder { color: var(--outline); }
+  .field input:focus { border-color: var(--primary); }
+  .quota { font-size: 13px; color: var(--on-surface-variant); margin-top: 12px; }
+  .invite-form { display: flex; gap: 8px; flex-wrap: wrap; margin-top: auto; }
+  .flash { padding: 10px 14px; border-radius: 8px; margin-bottom: 16px; font-size: 13px; }
+  .flash.success { background: var(--tertiary-fixed); color: var(--tertiary); }
+  .flash.error, .flash.danger { background: var(--error-container); color: var(--error); }
+  .flash.info { background: var(--surface-low); color: var(--on-surface-variant); }
+  @media (max-width: 640px) {
+    .create form { grid-template-columns: 1fr; }
+    .topbar { padding: 12px 16px; }
+    .wrap { padding: 20px 16px 48px; }
+    h1 { font-size: 20px; line-height: 28px; }
+  }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <span class="brand"><span class="mark">A</span> Accountix ERP</span>
+  <div class="top-actions">
+    <span class="who">{{ current_user.full_name or current_user.email }}</span>
+    {% if current_user.is_super_admin %}
+    <a class="btn btn-ghost btn-sm" href="{{ url_for('superadmin.index') }}">Super Admin Console</a>
+    {% endif %}
+    <a class="btn btn-ghost btn-sm" href="{{ url_for('auth.logout') }}">Logout</a>
+  </div>
+</div>
+
+<div class="wrap">
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% for cat, msg in messages %}
+      <div class="flash {{ cat }}">{{ msg }}</div>
+    {% endfor %}
+  {% endwith %}
+
+  <h1>My Companies</h1>
+  <p class="sub">Choose a company to open its books, or create a new one. Invitations from other users appear below.</p>
+
+  <div class="create">
+    <form method="post" action="{{ url_for('portal.create') }}">
+      <div class="field">
+        <label for="cname">Company name</label>
+        <input id="cname" name="name" placeholder="Acme Corporation" required>
+      </div>
+      <div class="field">
+        <label for="cslug">Company address</label>
+        <input id="cslug" name="slug" placeholder="acme-corp" required>
+      </div>
+      <button class="btn btn-blue" type="submit">Create Company</button>
+    </form>
+    <div class="quota">You own {{ quota_used }} of {{ quota_total }} companies.</div>
+  </div>
+
+  <div class="section">
+    <h2>Companies I created <span class="count">{{ owned|length }}</span></h2>
+    {% if owned %}
+    <div class="grid">
+      {% for c in owned %}
+      <div class="card">
+        <h3>{{ c.name }}</h3>
+        <div class="meta">
+          <span>{{ c.slug }}</span>
+          <span>{{ c.plan_name|default('free') }}</span>
+          {% if not c.is_active %}<span class="badge badge-off">suspended</span>{% endif %}
+        </div>
+        <a class="btn btn-line btn-sm enter" href="{{ url_for('company_switch', company_id=c.id, next='/dashboard/') }}">Open books &rarr;</a>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty">You have not created any companies yet.</div>
+    {% endif %}
+  </div>
+
+  <div class="section">
+    <h2>Companies where I have a role <span class="count">{{ memberships|length }}</span></h2>
+    {% if memberships %}
+    <div class="grid">
+      {% for m in memberships %}
+      {% set c = membership_company(m) %}
+      {% if c %}
+      <div class="card">
+        <h3>{{ c.name }}</h3>
+        <div class="meta">
+          <span class="badge badge-{{ role_name(m.role_id) }}">{{ role_name(m.role_id) }}</span>
+          <span>{{ m.status }}</span>
+        </div>
+        {% if m.status == 'active' %}
+        <a class="btn btn-line btn-sm enter" href="{{ url_for('company_switch', company_id=c.id, next='/dashboard/') }}">Open books &rarr;</a>
+        {% endif %}
+      </div>
+      {% endif %}
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty">No companies have given you a role yet.</div>
+    {% endif %}
+  </div>
+
+  <div class="section">
+    <h2>Invitations <span class="count">{{ invites|length }}</span></h2>
+    {% if invites %}
+    <div class="grid">
+      {% for inv in invites %}
+      <div class="card">
+        <h3>{{ inv.company.name if inv.company else 'Unknown company' }}</h3>
+        <div class="meta">
+          <span class="badge badge-{{ role_name(inv.role_id) }}">{{ role_name(inv.role_id) }}</span>
+        </div>
+        <div class="invite-form">
+          <form method="post" action="{{ url_for('settings.accept_invitation', invitation_id=inv.id) }}">
+            <input type="hidden" name="next" value="{{ url_for('portal.index') }}">
+            <button class="btn btn-blue btn-sm" type="submit">Accept</button>
+          </form>
+          <form method="post" action="{{ url_for('settings.decline_invitation', invitation_id=inv.id) }}">
+            <input type="hidden" name="next" value="{{ url_for('portal.index') }}">
+            <button class="btn btn-line btn-sm" type="submit">Decline</button>
+          </form>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty">No pending invitations.</div>
+    {% endif %}
+  </div>
+</div>
+</body>
+</html>

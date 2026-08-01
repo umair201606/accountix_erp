@@ -4,7 +4,7 @@ import traceback as _tb
 
 sys.path.insert(0, os.path.dirname(__file__))
 
-from flask import Flask, redirect, url_for, request
+from flask import Flask, redirect, render_template, url_for, request
 from flask_login import current_user, login_required
 from werkzeug.exceptions import HTTPException
 
@@ -49,6 +49,9 @@ def _create_app():
 
     from shared.routes.dashboard import dashboard_bp
     app.register_blueprint(dashboard_bp)
+
+    from shared.routes.portal import portal_bp
+    app.register_blueprint(portal_bp)
 
     from shared.routes.settings import settings_bp
     app.register_blueprint(settings_bp)
@@ -136,11 +139,17 @@ def _create_app():
 
     app.add_template_filter(_format_amount, name="amount_format")
 
+    # Public landing page. Signed-in users never see it — they go where they
+    # would have gone from login, so a stray "/" in the address bar does not
+    # dump a working user back onto marketing copy.
     @app.route("/")
-    def index():
+    def landing():
         if current_user.is_authenticated:
-            return redirect(url_for("dashboard.hub"))
-        return redirect(url_for("auth.login"))
+            from shared.routes.portal import should_redirect_to_portal
+            return redirect(url_for("portal.index")
+                            if should_redirect_to_portal()
+                            else url_for("dashboard.hub"))
+        return render_template("landing.html")
 
     # Company switcher: sets the session key _set_company_context reads, so the
     # next request runs scoped to that company. Only valid for an ACTIVE
@@ -986,7 +995,12 @@ def _bootstrap_default_company(db):
     set_current_company(company.id)
 
     # Legacy users -> memberships (idempotent).
+    # ADM001 is excluded on purpose: it is a plain demo user that owns no
+    # company, so signing in as it lands on an empty portal instead of
+    # continuing straight into the default company's books.
     for u in User.query.all():
+        if u.employee_code == "ADM001":
+            continue
         if CompanyMembership.query.filter_by(
                 company_id=company.id, user_id=u.id).first():
             continue
@@ -1004,6 +1018,33 @@ def _bootstrap_default_company(db):
     sysadmin = User.query.filter_by(employee_code="SYSADMIN").first()
     if sysadmin is not None:
         sysadmin.is_super_admin = True
+
+    # ADM001 used to be seeded as a company admin of the default company.
+    # Admin duties live on SYSADMIN alone now, so an already-seeded database
+    # is corrected here — the seeding below only ever creates missing rows and
+    # would leave an existing ADM001 privileged forever.
+    #
+    # Still holding the admin role is the "not yet normalised" signal, so this
+    # runs exactly once per database: after the demotion the condition is
+    # false, and a membership someone grants ADM001 later is left alone.
+    admin_role = Role.query.filter_by(name=Role.ADMIN).first()
+    emp_role = Role.query.filter_by(name=Role.EMPLOYEE).first()
+    adm = User.query.filter_by(employee_code="ADM001").first()
+    if adm is not None and emp_role is not None and admin_role is not None \
+            and adm.role_id == admin_role.id:
+        adm.role_id = emp_role.id
+        adm.is_super_admin = False
+        adm.designation = "Employee"
+        # Module access back to the ordinary-user default (HR self-service
+        # only), matching the other seeded employees.
+        adm.has_hr_access = True
+        for flag in ("has_inventory_access", "has_invoicing_access",
+                     "has_finance_access", "has_accounting_access",
+                     "has_fbr_access", "has_fixed_assets_access"):
+            setattr(adm, flag, False)
+        CompanyMembership.query.filter_by(
+            user_id=adm.id, company_id=company.id).delete()
+        print("NORMALISED ADM001 -> plain user, no company membership")
 
     GlobalLimits.get()
     db.session.commit()
@@ -1073,7 +1114,8 @@ def _seed_all_data(app):
         from fixed_assets_app.models.asset import AssetCategory as FAssetCat
         FAssetCat.seed()
 
-        for prefix in ["PI", "PR", "CONS", "SCRAP", "ADJ", "ST", "CPV", "CRV", "BPV", "BRV", "JV", "PRL", "FA-TRF", "INV-FA"]:
+        from shared.company_setup import VOUCHER_PREFIXES
+        for prefix in VOUCHER_PREFIXES:
             if not VoucherNumber.query.filter_by(prefix=prefix).first():
                 db.session.add(VoucherNumber(prefix=prefix, next_number=1))
 
@@ -1115,7 +1157,11 @@ def _seed_all_data(app):
             # module, manageable only via ERP hub Settings. Created once; a
             # changed password is never reset by seeding.
             ("SYSADMIN", "admin@gmail.com", "Administrator", admin_role.id, "admin123", True, True, "System Administrator"),
-            ("ADM001", "admin@solarkon.com", "System Admin", admin_role.id, "admin123", True, True, "Administrator"),
+            # ADM001 is an ordinary user despite the historical "admin@"
+            # address — admin duties belong to SYSADMIN. It is also left out
+            # of the default company's memberships in
+            # _bootstrap_default_company, so it signs in to an empty portal.
+            ("ADM001", "admin@solarkon.com", "System Admin", emp_role.id, "admin123", True, False, "Employee"),
             ("MGR002", "manager@solarkon.com", "Manager User", mgr_role.id, "mgr123", True, True, "Manager"),
             ("EMP001", "emp@solarkon.com", "Employee User", emp_role.id, "emp123", True, False, "Employee"),
             ("EMP002", "john.doe@solarkon.com", "John Doe", emp_role.id, "emp123", True, False, "Employee"),

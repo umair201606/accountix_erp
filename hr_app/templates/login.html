@@ -1,30 +1,171 @@
-{% extends "layouts/base.html" %}
-{% block title %}Login - Solarkon ERP{% endblock %}
-{% block login_content %}
-<div class="login-container">
-    <div class="login-card">
-        <div class="login-header">
-            <h1>Solarkon ERP</h1>
-        </div>
-        {% with messages = get_flashed_messages(with_categories=true) %}
-        {% if messages %}
-        {% for category, message in messages %}
-        <div class="flash-{{ category }}">{{ message }}</div>
-        {% endfor %}
-        {% endif %}
-        {% endwith %}
-        <form method="POST" class="login-form">
-            <div class="form-group">
-                <label for="login">User ID</label>
-                <input type="text" id="login" name="login" required placeholder="Your user ID (or email)">
-            </div>
-            <div class="form-group">
-                <label for="password">Password</label>
-                <input type="password" id="password" name="password" required placeholder="Enter password">
-            </div>
-            <button type="submit" class="btn btn-primary btn-block">Sign In</button>
-        </form>
-        
+{# Staff sign-in. Standalone rather than inside app_shell: the shell's chrome
+   assumes an authenticated user, and this page shares its look with the public
+   landing page instead.
+
+   The `login` and `password` element ids are a DOM contract — tests/e2e drives
+   sign-in through them (DESIGN.md §4). Do not rename them. #}
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sign in — Accountix ERP</title>
+<style>
+  :root {
+    --primary: #002045;
+    --primary-container: #1a365d;
+    --on-primary: #ffffff;
+    --bg: #f6f9ff;
+    --surface: #ffffff;
+    --surface-low: #eef4fc;
+    --surface-variant: #dde3eb;
+    --on-surface: #161c22;
+    --on-surface-variant: #43474e;
+    --outline: #74777f;
+    --outline-variant: #c4c6cf;
+    --error: #ba1a1a;
+    --error-container: #ffdad6;
+    --tertiary: #003f25;
+    --tertiary-fixed: #9ff5c1;
+    --shadow: 0 4px 6px -1px rgba(0,0,0,.1), 0 2px 4px -1px rgba(0,0,0,.06);
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body {
+    font-family: Inter, "Segoe UI", system-ui, -apple-system, Arial, sans-serif;
+    background: var(--bg); color: var(--on-surface);
+    font-size: 14px; line-height: 20px; min-height: 100vh;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: inherit; text-decoration: none; }
+
+  .split { min-height: 100vh; display: grid; grid-template-columns: 1fr 1fr; }
+
+  /* Left: brand panel. The one large navy area in the product, and it carries
+     no data — so it frames rather than competes. */
+  .panel {
+    background: var(--primary); color: var(--on-primary);
+    padding: 48px; display: flex; flex-direction: column; gap: 32px;
+  }
+  .brand { display: flex; align-items: center; gap: 10px; font-size: 16px; font-weight: 700; letter-spacing: -.01em; }
+  .mark { width: 32px; height: 32px; border-radius: 8px; background: var(--surface); color: var(--primary); display: grid; place-items: center; font-size: 15px; font-weight: 700; flex: none; }
+  .panel-body { margin-top: auto; }
+  .panel-body h2 { font-size: 28px; line-height: 36px; font-weight: 700; letter-spacing: -.01em; max-width: 12em; }
+  .panel-body p { margin-top: 14px; color: #c9d6e6; font-size: 15px; line-height: 24px; max-width: 26em; }
+  .panel-list { margin-top: auto; padding-top: 32px; display: grid; gap: 12px; }
+  .panel-list div { display: flex; align-items: flex-start; gap: 10px; color: #c9d6e6; font-size: 13px; line-height: 20px; }
+  .tick { width: 18px; height: 18px; border-radius: 9999px; background: var(--tertiary-fixed); color: var(--tertiary); display: grid; place-items: center; font-size: 11px; font-weight: 700; flex: none; margin-top: 1px; }
+
+  /* Right: the form. */
+  .form-side { display: grid; place-items: center; padding: 32px 24px; }
+  .card { width: 100%; max-width: 380px; }
+  .card h1 { font-size: 24px; line-height: 32px; font-weight: 700; letter-spacing: -.01em; color: var(--primary); }
+  .card .sub { margin-top: 6px; color: var(--on-surface-variant); }
+
+  form { margin-top: 26px; }
+  .field { margin-bottom: 16px; }
+  label {
+    display: block; margin-bottom: 6px;
+    font-size: 12px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase;
+    color: var(--on-surface-variant);
+  }
+  input {
+    width: 100%; padding: 11px 12px; font: inherit; font-size: 14px;
+    border: 1px solid var(--outline-variant); border-radius: 8px;
+    background: var(--surface); color: var(--on-surface); outline: none;
+    transition: border-color .15s;
+  }
+  input::placeholder { color: var(--outline); }
+  input:focus { border-color: var(--primary); }
+
+  button {
+    width: 100%; margin-top: 4px; padding: 12px 20px; border: 0; border-radius: 8px;
+    background: var(--primary); color: var(--on-primary);
+    font: inherit; font-size: 14px; font-weight: 600; cursor: pointer;
+    transition: background .15s;
+  }
+  button:hover { background: var(--primary-container); }
+
+  .flash { padding: 10px 12px; border-radius: 8px; margin-bottom: 16px; font-size: 13px; }
+  .flash-danger, .flash-error { background: var(--error-container); color: var(--error); }
+  .flash-success { background: var(--tertiary-fixed); color: var(--tertiary); }
+  .flash-info { background: var(--surface-low); color: var(--on-surface-variant); }
+
+  .card-foot {
+    margin-top: 24px; padding-top: 18px; border-top: 1px solid var(--outline-variant);
+    display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+    font-size: 13px; color: var(--on-surface-variant);
+  }
+  .card-foot a { font-weight: 600; color: var(--primary); }
+  .card-foot a:hover { text-decoration: underline; }
+
+  /* Responsive: the brand panel collapses to a slim header strip. */
+  @media (max-width: 860px) {
+    .split { grid-template-columns: 1fr; min-height: 0; }
+    .panel { padding: 20px 24px; flex-direction: row; align-items: center; gap: 16px; }
+    .panel-body, .panel-list { display: none; }
+    .form-side { padding: 40px 24px; }
+  }
+  @media (max-width: 400px) {
+    .panel { padding: 16px; }
+    .form-side { padding: 28px 16px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="split">
+  <aside class="panel">
+    <a class="brand" href="{{ url_for('landing') }}">
+      <span class="mark">A</span> Accountix ERP
+    </a>
+    <div class="panel-body">
+      <h2>One sign-in for every set of books you work in.</h2>
+      <p>Stock, invoicing, accounting, payroll, fixed assets and FBR filing —
+         posting to one ledger, company by company.</p>
     </div>
+    <div class="panel-list">
+      <div><span class="tick">&#10003;</span> Pick your company after signing in</div>
+      <div><span class="tick">&#10003;</span> Rights follow your role in each company</div>
+      <div><span class="tick">&#10003;</span> New companies open with their books ready</div>
+    </div>
+  </aside>
+
+  <main class="form-side">
+    <div class="card">
+      <h1>Sign in</h1>
+      <p class="sub">Use the User ID your administrator issued you.</p>
+
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+          <div style="margin-top:20px;">
+          {% for category, message in messages %}
+            <div class="flash flash-{{ category }}">{{ message }}</div>
+          {% endfor %}
+          </div>
+        {% endif %}
+      {% endwith %}
+
+      <form method="POST">
+        <div class="field">
+          <label for="login">User ID</label>
+          <input type="text" id="login" name="login" required autofocus
+                 autocomplete="username" placeholder="Your user ID (or email)">
+        </div>
+        <div class="field">
+          <label for="password">Password</label>
+          <input type="password" id="password" name="password" required
+                 autocomplete="current-password" placeholder="Enter password">
+        </div>
+        <button type="submit">Sign In</button>
+      </form>
+
+      <div class="card-foot">
+        <a href="{{ url_for('landing') }}">&larr; Back to home</a>
+        <a href="{{ url_for('superadmin.login') }}">Super admin console</a>
+      </div>
+    </div>
+  </main>
 </div>
-{% endblock %}
+
+</body>
+</html>

@@ -6,9 +6,11 @@ users, roles) are GLOBAL: no tenancy scoping, no unscoped() needed.
 import random
 import string
 
+from datetime import datetime
+
 from flask import (Blueprint, abort, flash, redirect, render_template,
                    request, url_for)
-from flask_login import current_user, login_required
+from flask_login import current_user, login_required, login_user
 
 from shared.extensions import db
 from shared.models.base import Role, User
@@ -21,6 +23,35 @@ superadmin_bp = Blueprint("superadmin", __name__, url_prefix="/superadmin")
 def _require_super_admin():
     if not current_user.is_authenticated or not current_user.is_super_admin:
         abort(403)
+
+
+@superadmin_bp.route("/login", methods=["GET", "POST"])
+def login():
+    """Separate door to the platform console. Same credentials as /auth/login
+    — there is one user table — but it refuses anyone without the super admin
+    flag and lands straight on the console instead of a company's books.
+
+    A tenant who finds this URL and signs in correctly is still told the same
+    thing as a wrong password: confirming "your password is right, you are just
+    not a super admin" would turn this page into a super-admin oracle.
+    """
+    if current_user.is_authenticated and current_user.is_super_admin:
+        return redirect(url_for("superadmin.index"))
+    if request.method == "POST":
+        login_id = (request.form.get("login") or "").strip()
+        password = request.form.get("password", "")
+        user = (User.query.filter(
+            db.func.lower(User.login_id) == login_id.lower()).first()
+            or User.query.filter_by(email=login_id.lower()).first())
+        if (user and user.check_password(password)
+                and user.is_active and user.is_super_admin):
+            login_user(user)
+            user.last_login = datetime.utcnow()
+            db.session.commit()
+            return redirect(url_for("superadmin.index"))
+        flash("Those credentials do not open the super admin console.",
+              "error")
+    return render_template("superadmin/login.html")
 
 
 def _random_password(length=10):
