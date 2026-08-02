@@ -38,6 +38,8 @@ def register_hr_blueprints(app):
         if current_user.is_admin() or current_user.is_manager():
             from .models.attendance import Attendance
             from shared.models.base import User
+            from shared.models.company import CompanyMembership
+            from shared.tenancy import current_company_id
             from sqlalchemy import func, extract, case
             import calendar
             if db.engine.name == "sqlite":
@@ -54,7 +56,11 @@ def register_hr_blueprints(app):
                 extract("year", Attendance.date) == date.today().year,
                 weekday_filter
             ).group_by("year", "week").order_by("year", "week").all()
-            emp_count = User.query.filter_by(is_active=True).count()
+            emp_count = (User.query.join(CompanyMembership, db.and_(
+                CompanyMembership.user_id == User.id,
+                CompanyMembership.company_id == current_company_id(),
+                CompanyMembership.status == CompanyMembership.ACTIVE))
+                .filter(User.is_active == True).count())  # noqa: E712
             chart_data = []
             for r in yearly:
                 wk = int(r.week)

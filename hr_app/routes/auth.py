@@ -182,6 +182,39 @@ def user_list():
 # reach any books. It is gone rather than patched.
 
 
+def _active_company_creator():
+    """user_id of the person who created the active company, or None."""
+    from shared.models.company import Company
+    from shared.tenancy import current_company_id
+    cid = current_company_id()
+    if cid is None:
+        return None
+    company = Company.query.get(cid)
+    return company.created_by if company else None
+
+
+def _company_managers():
+    """Members of the ACTIVE company whose membership role is manager.
+
+    Roles live on the membership (Settings changes them per company), while
+    the legacy global role column is a fallback only — filtering the manager
+    dropdown on the global role would list managers from other companies and
+    miss the ones promoted here.
+    """
+    from shared.models.company import CompanyMembership
+    from shared.tenancy import current_company_id
+    cid = current_company_id()
+    manager_role = Role.query.filter_by(name=Role.MANAGER).first()
+    if cid is None or manager_role is None:
+        return []
+    return (User.query.join(CompanyMembership, db.and_(
+        CompanyMembership.user_id == User.id,
+        CompanyMembership.company_id == cid,
+        CompanyMembership.status == CompanyMembership.ACTIVE,
+        CompanyMembership.role_id == manager_role.id))
+        .order_by(User.full_name).all())
+
+
 def _unassigned_members():
     """Active members of this company who are not yet employees here.
 
@@ -220,8 +253,7 @@ def member_assign():
         return render_template(
             "auth/member_assign.html",
             pending=_unassigned_members(),
-            managers=User.employees().filter(
-                User.role_obj.has(name=Role.MANAGER)).all())
+            managers=_company_managers())
 
     if request.method == "POST":
         uid = request.form.get("user_id", type=int)
@@ -258,8 +290,15 @@ def member_assign():
         u.phone = request.form.get("phone", "").strip() or u.phone
         u.manager_id = request.form.get("manager_id", type=int) or None
         if not u.employee_code:
-            # Legacy global column, still read by payroll and attendance.
-            u.employee_code = emp_code
+            # Legacy global column, still read by payroll and attendance. It
+            # is globally unique, so only write it when nobody else holds
+            # this code — two companies may both use EMP100 for different
+            # people, and a global collision would 500 the assignment.
+            taken_globally = User.query.filter(
+                User.employee_code == emp_code,
+                User.id != u.id).first()
+            if not taken_globally:
+                u.employee_code = emp_code
         if not u.date_of_joining:
             u.date_of_joining = datetime.utcnow().date()
         db.session.flush()
@@ -284,9 +323,25 @@ def user_edit(uid):
         flash("Admin accounts are managed from ERP hub Settings.", "danger")
         return redirect(url_for("auth.user_list"))
     roles = Role.query.all()
-    managers = User.query.filter(User.role_obj.has(name=Role.MANAGER), User.id != uid).all()
+    managers = [m for m in _company_managers() if m.id != uid]
+    from shared.tenancy import current_company_id
+    cid = current_company_id()
+    membership = u.membership_in(cid) if cid is not None else None
     if request.method == "POST":
-        u.email = request.form.get("email", u.email).strip().lower()
+        from shared.models.company import CompanyMembership
+        new_email = request.form.get("email", u.email).strip().lower()
+        if not new_email:
+            flash("Email is required.", "danger")
+            return render_template("auth/user_form.html", roles=roles,
+                                   managers=managers, user=u,
+                                   membership=membership)
+        if User.query.filter(User.email == new_email,
+                             User.id != u.id).first():
+            flash("That email is already in use.", "danger")
+            return render_template("auth/user_form.html", roles=roles,
+                                   managers=managers, user=u,
+                                   membership=membership)
+        u.email = new_email
         u.full_name = request.form.get("full_name", u.full_name).strip()
         new_role_id = int(request.form.get("role_id", u.role_id))
         admin_role = Role.query.filter_by(name=Role.ADMIN).first()
@@ -294,7 +349,22 @@ def user_edit(uid):
         if not current_user.is_admin() and admin_role and new_role_id == admin_role.id:
             flash("Only admin can assign the admin role.", "danger")
             return redirect(url_for("auth.user_edit", uid=uid))
-        u.role_id = new_role_id
+        # Role is a property of the membership, not of the global user row.
+        # Writing the global column would look saved but change nothing.
+        if u.id == current_user.id and membership is not None \
+                and membership.role_id != new_role_id:
+            flash("You cannot change your own role.", "danger")
+            return redirect(url_for("auth.user_edit", uid=uid))
+        if membership is not None:
+            creator = _active_company_creator()
+            if creator is not None and u.id == creator \
+                    and membership.role_id != new_role_id:
+                flash("The company owner's role is fixed and cannot be "
+                      "changed.", "danger")
+                return redirect(url_for("auth.user_edit", uid=uid))
+            membership.role_id = new_role_id
+        else:
+            u.role_id = new_role_id
         u.manager_id = request.form.get("manager_id", type=int) or None
         u.designation = request.form.get("designation", "").strip()
         u.department = request.form.get("department", "").strip()
@@ -304,12 +374,16 @@ def user_edit(uid):
         if password:
             if len(password) < 4:
                 flash("Password must be at least 4 characters.", "danger")
-                return render_template("auth/user_form.html", roles=roles, managers=managers, user=u)
+                return render_template("auth/user_form.html", roles=roles,
+                                       managers=managers, user=u,
+                                       membership=membership)
             u.set_password(password)
         db.session.commit()
         flash(f"User {u.full_name} updated.", "success")
         return redirect(url_for("auth.user_list"))
-    return render_template("auth/user_form.html", roles=roles, managers=managers, user=u)
+    return render_template("auth/user_form.html", roles=roles,
+                           managers=managers, user=u,
+                           membership=membership)
 
 
 @auth_bp.route("/users/<int:uid>/delete", methods=["POST"])

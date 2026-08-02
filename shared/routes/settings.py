@@ -1092,7 +1092,8 @@ def invitations():
 @settings_bp.route("/invitations/<int:invitation_id>/accept", methods=["POST"])
 @login_required
 def accept_invitation(invitation_id):
-    back = redirect(request.form.get("next")
+    from shared.security import safe_local_url
+    back = redirect(safe_local_url(request.form.get("next"))
                     or url_for("settings.invitations"))
     inv = CompanyInvitation.query.get_or_404(invitation_id)
     if inv.email != current_user.email:
@@ -1134,14 +1135,16 @@ def accept_invitation(invitation_id):
     db.session.commit()
     session["company_id"] = company.id
     flash(f"Welcome to {company.name}.", "success")
-    return redirect(request.form.get("next")
+    from shared.security import safe_local_url
+    return redirect(safe_local_url(request.form.get("next"))
                     or url_for("dashboard.hub"))
 
 
 @settings_bp.route("/invitations/<int:invitation_id>/decline", methods=["POST"])
 @login_required
 def decline_invitation(invitation_id):
-    back = redirect(request.form.get("next")
+    from shared.security import safe_local_url
+    back = redirect(safe_local_url(request.form.get("next"))
                     or url_for("settings.invitations"))
     inv = CompanyInvitation.query.get_or_404(invitation_id)
     if inv.email != current_user.email:

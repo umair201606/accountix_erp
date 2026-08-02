@@ -72,7 +72,17 @@ def calendar():
         team_ids = [current_user.id]
         if current_user.manager_id:
             from ..models.user import User
-            team = User.query.filter_by(manager_id=current_user.manager_id).all()
+            from shared.models.company import CompanyMembership
+            from shared.tenancy import current_company_id
+            cid = current_company_id()
+            if cid is not None:
+                team = (User.query.join(CompanyMembership, db.and_(
+                    CompanyMembership.user_id == User.id,
+                    CompanyMembership.company_id == cid,
+                    CompanyMembership.status == CompanyMembership.ACTIVE))
+                    .filter(User.manager_id == current_user.manager_id).all())
+            else:
+                team = []
             team_ids = [u.id for u in team] + [current_user.id]
         team_leaves = [lr for lr in company_leaves if lr.user_id in team_ids]
         entries = [{"date": lr.start_date, "title": f"{lr.user.full_name} - Out of Office",

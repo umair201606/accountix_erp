@@ -36,7 +36,7 @@ def index():
     if current_user.is_admin():
         reports = User.employees().filter(User.is_active == True, User.id != current_user.id).order_by(User.full_name).all()
     else:
-        reports = User.query.filter_by(manager_id=current_user.id, is_active=True).all()
+        reports = current_user.reports_of()
     pending_leaves = LeaveRequest.query.filter(
         LeaveRequest.user_id.in_([u.id for u in reports]),
         LeaveRequest.status == "pending"
@@ -57,7 +57,7 @@ def approvals():
         return redirect(url_for("dashboard"))
     leave_approvals = LeaveApproval.query.filter_by(approver_id=current_user.id, status="pending").all()
     ts_approvals = TimesheetApproval.query.filter_by(approver_id=current_user.id, status="pending").all()
-    my_reports = [u.id for u in User.query.filter_by(manager_id=current_user.id, is_active=True).all()]
+    my_reports = [u.id for u in current_user.reports_of()]
     loan_approvals = LoanAdvanceRequest.query.filter(
         LoanAdvanceRequest.user_id.in_(my_reports),
         LoanAdvanceRequest.status == "pending"
@@ -167,7 +167,7 @@ def team():
     if current_user.is_admin():
         reports = User.employees().filter(User.is_active == True, User.id != current_user.id).order_by(User.full_name).all()
     else:
-        reports = User.query.filter_by(manager_id=current_user.id, is_active=True).all()
+        reports = current_user.reports_of()
     return render_template("mss/team.html", members=reports)
 
 
@@ -177,7 +177,7 @@ def team_availability():
     if not _require_manager():
         return jsonify({"error": "Access denied"}), 403
     today = date.today()
-    reports = User.query.filter_by(manager_id=current_user.id, is_active=True).all()
+    reports = current_user.reports_of()
     statuses = []
     for u in reports:
         from ..models.attendance import Attendance
@@ -209,7 +209,7 @@ def team_calendar():
         last_day = date(year + 1, 1, 1) - timedelta(days=1)
     else:
         last_day = date(year, month + 1, 1) - timedelta(days=1)
-    reports = User.query.filter_by(manager_id=current_user.id, is_active=True).all()
+    reports = current_user.reports_of()
     report_ids = [u.id for u in reports]
     leaves = LeaveRequest.query.filter(
         LeaveRequest.user_id.in_(report_ids),

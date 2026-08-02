@@ -59,14 +59,23 @@ def login_page(page, flask_server):
     return page
 
 
+def _enter_first_company(page):
+    """Login lands on the company portal now (portal-first), so open the
+    first company's books ('Open books' link) to reach the hub, which is
+    where these fixtures used to land directly."""
+    page.wait_for_url("**/portal/**")
+    page.locator("a.enter").first.click()
+    page.wait_for_url("**/dashboard/**")
+    return page
+
+
 @pytest.fixture
 def admin_page(page, flask_server):
     page.goto(f"{BASE_URL}/auth/login")
     page.fill("#login", "admin@gmail.com")
     page.fill("#password", "admin123")
     page.click("button[type='submit']")
-    page.wait_for_url("**/dashboard/**")
-    return page
+    return _enter_first_company(page)
 
 
 @pytest.fixture
@@ -75,8 +84,7 @@ def hr_user_page(page, flask_server):
     page.fill("#login", "emp@solarkon.com")
     page.fill("#password", "emp123")
     page.click("button[type='submit']")
-    page.wait_for_url("**/dashboard/**")
-    return page
+    return _enter_first_company(page)
 
 
 @pytest.fixture
@@ -93,6 +101,6 @@ def admin_mobile(browser, flask_server):
     p.fill("#login", "admin@gmail.com")
     p.fill("#password", "admin123")
     p.click("button[type='submit']")
-    p.wait_for_url("**/dashboard/**")
+    _enter_first_company(p)
     yield p
     ctx.close()

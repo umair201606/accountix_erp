@@ -169,6 +169,35 @@ class User(UserMixin, db.Model):
             q = q.filter(CompanyMembership.role_id != admin_role.id)
         return q
 
+    def reports_of(self):
+        """Active members of the ACTIVE company who report to this user.
+
+        ``manager_id`` lives on the global users table, so a bare
+        ``User.query.filter_by(manager_id=...)`` would hand a manager the
+        names of staff from every company that shares that manager_id. The
+        membership join narrows it to this company. [] when no company is
+        active.
+        """
+        from shared.tenancy import current_company_id
+        from shared.models.company import CompanyMembership
+        cid = current_company_id()
+        if cid is None:
+            return []
+        return (User.query.join(CompanyMembership, db.and_(
+            CompanyMembership.user_id == User.id,
+            CompanyMembership.company_id == cid,
+            CompanyMembership.status == CompanyMembership.ACTIVE))
+            .filter(User.manager_id == self.id,
+                    User.is_active == True).all())  # noqa: E712
+
+    @property
+    def company_role_name(self):
+        """Role name inside the active company ('' when none). Display
+        helper for lists where the membership role and the legacy global
+        role disagree."""
+        from shared.tenancy import current_company_id
+        return self.role_in(current_company_id())
+
     def set_password(self, password):
         self.password_hash = generate_password_hash(password)
 
