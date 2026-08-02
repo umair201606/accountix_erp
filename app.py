@@ -169,6 +169,7 @@ def _create_app():
     def company_switch(company_id):
         from flask import session as _session, flash
         from shared.models.company import CompanyMembership
+        from shared.security import safe_local_url
         m = CompanyMembership.query.filter_by(
             company_id=company_id, user_id=current_user.id,
             status=CompanyMembership.ACTIVE).first()
@@ -176,8 +177,8 @@ def _create_app():
             flash("You don't have access to that company.", "error")
             return redirect(url_for("dashboard.hub"))
         _session["company_id"] = company_id
-        nxt = request.args.get("next")
-        if nxt and nxt.startswith("/") and not nxt.startswith("//"):
+        nxt = safe_local_url(request.args.get("next"))
+        if nxt:
             return redirect(nxt)
         return redirect(url_for("dashboard.hub"))
 

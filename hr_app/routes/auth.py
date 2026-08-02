@@ -3,6 +3,7 @@ from flask import Blueprint, render_template, redirect, url_for, request, flash,
 from flask_login import login_user, logout_user, login_required, current_user
 from ..extensions import db, csrf
 from shared.tenancy import get_member
+from shared.security import safe_local_url
 from ..models.user import User, Role
 from ..models.communication import Notification, NotificationRecipient
 
@@ -48,7 +49,7 @@ def login():
             login_user(user)
             user.last_login = datetime.utcnow()
             db.session.commit()
-            next_page = request.args.get("next")
+            next_page = safe_local_url(request.args.get("next"))
             if next_page:
                 return redirect(next_page)
             return redirect(url_for("portal.index")

@@ -141,6 +141,41 @@ def test_login_lands_on_portal_for_companyless_user(seeded):
     assert c.get("/portal/").status_code == 200
 
 
+@pytest.mark.parametrize("target", [
+    "https://evil.example/phishing",
+    "//evil.example/phishing",
+    "/\\evil.example/phishing",
+])
+def test_login_rejects_unsafe_next_redirect(seeded, target):
+    email = f"redirect_{_suffix()}@example.com"
+    _create_user(email)
+
+    c = flask_app.test_client()
+    resp = c.post(
+        "/auth/login",
+        data={"login": email, "password": "pw12345"},
+        query_string={"next": target},
+    )
+
+    assert resp.status_code == 302
+    assert resp.headers["Location"].endswith("/portal/")
+    assert "evil.example" not in resp.headers["Location"]
+
+
+def test_login_allows_local_next_redirect(seeded):
+    email = f"local_redirect_{_suffix()}@example.com"
+    _create_user(email)
+
+    c = flask_app.test_client()
+    resp = c.post(
+        "/auth/login?next=/portal/",
+        data={"login": email, "password": "pw12345"},
+    )
+
+    assert resp.status_code == 302
+    assert resp.headers["Location"].endswith("/portal/")
+
+
 def test_login_lands_on_portal_even_with_one_company(seeded):
     """No shortcut for single-company users. Skipping the picker made login
     mean two different things depending on a count the user cannot see, and
