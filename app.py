@@ -160,6 +160,15 @@ def _create_app():
                             else url_for("dashboard.hub"))
         return render_template("landing.html")
 
+    # Private platform-operator entry point. It is intentionally not linked
+    # from the public landing page, customer login, portal, or app shell.
+    @app.route("/admin")
+    @app.route("/admin/")
+    def admin_entry():
+        if current_user.is_authenticated and current_user.is_super_admin:
+            return redirect(url_for("superadmin.index"))
+        return redirect(url_for("superadmin.login"))
+
     # Company switcher: sets the session key _set_company_context reads, so the
     # next request runs scoped to that company. Only valid for an ACTIVE
     # membership of the target company — otherwise _set_company_context would

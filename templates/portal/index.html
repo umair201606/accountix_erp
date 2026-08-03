@@ -86,9 +86,6 @@
   <span class="brand"><span class="mark">A</span> Accountix ERP</span>
   <div class="top-actions">
     <span class="who">{{ current_user.full_name or current_user.email }}</span>
-    {% if current_user.is_super_admin %}
-    <a class="btn btn-ghost btn-sm" href="{{ url_for('superadmin.index') }}">Super Admin Console</a>
-    {% endif %}
     <a class="btn btn-ghost btn-sm" href="{{ url_for('auth.logout') }}">Logout</a>
   </div>
 </div>

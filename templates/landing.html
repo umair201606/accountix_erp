@@ -155,8 +155,7 @@
   }
   @media (max-width: 560px) {
     .wrap { padding: 0 16px; }
-    /* At 320px the brand plus both header actions overflow the viewport. The
-       super admin link drops out here rather than wrapping the header to two
+    /* At 320px the public header must stay compact rather than wrapping to two
        rows — it is still reachable from the closing CTA and the footer, and
        it is not the door most visitors want. */
     .nav { gap: 8px; }
@@ -184,7 +183,6 @@
       <a href="#why">Why Accountix</a>
     </nav>
     <div class="nav-actions">
-      <a class="btn btn-ghost btn-sm" href="{{ url_for('superadmin.login') }}">Super admin</a>
       <a class="btn btn-primary btn-sm" href="{{ url_for('auth.login') }}">Sign in</a>
     </div>
   </div>
@@ -340,10 +338,9 @@
   <div class="wrap" style="padding-top:64px;">
     <div class="close-cta">
       <h2>Ready to open your books?</h2>
-      <p>Sign in to reach your company portal. Platform operators can manage companies, users and global limits from the super admin console.</p>
+      <p>Sign in to reach your company portal and open the books you work in.</p>
       <div class="cta">
         <a class="btn btn-primary" href="{{ url_for('auth.login') }}">Sign in</a>
-        <a class="btn btn-secondary" href="{{ url_for('superadmin.login') }}">Super admin console</a>
       </div>
     </div>
   </div>
@@ -354,7 +351,6 @@
     <span class="brand" style="font-size:14px;"><span class="mark" style="width:24px;height:24px;font-size:12px;">S</span> Accountix ERP</span>
     <span class="sep">
       <a href="{{ url_for('auth.login') }}">Sign in</a>
-      <a href="{{ url_for('superadmin.login') }}">Super admin</a>
     </span>
   </div>
 </footer>

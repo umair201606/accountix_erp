@@ -209,12 +209,6 @@
                 <span class="company-switch-dot">&#9776;</span>
                 <span>My Companies</span>
               </a>
-              {% if current_user.is_super_admin %}
-              <a href="{{ url_for('superadmin.index') }}" role="menuitem">
-                <span class="company-switch-dot" style="background:#7c3aed;">&#9733;</span>
-                <span>Super Admin</span>
-              </a>
-              {% endif %}
             </div>
           </div>
           <span class="mod-badge" style="font-size:11px;background:{{ meta.badge_bg }};color:{{ meta.badge_fg }};padding:2px 8px;border-radius:4px;font-weight:600;">{{ meta.badge }}</span>

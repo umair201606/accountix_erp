@@ -407,18 +407,19 @@ def test_invitation_accept_and_decline_return_to_portal(seeded):
 
 # ── Super admin link ────────────────────────────────────────────────────────
 
-def test_super_admin_portal_link_only_for_super_admins(seeded):
-    """Asserted on the href, not the link text: the label is copy and has
-    already been reworded once, but the destination is the actual contract."""
+def test_super_admin_is_not_exposed_in_customer_portal(seeded):
+    """Customer-facing portal pages do not advertise the operator console."""
     super_c, _ = _login("admin@gmail.com", "admin123")
     page = super_c.get("/portal/")
     assert page.status_code == 200
-    assert b'href="/superadmin/"' in page.data
+    assert b"Super Admin" not in page.data
+    assert b"/superadmin" not in page.data
 
     emp_c, _ = _login("emp@solarkon.com", "emp123")
     page = emp_c.get("/portal/")
     assert page.status_code == 200
-    assert b'href="/superadmin/"' not in page.data
+    assert b"Super Admin" not in page.data
+    assert b"/superadmin" not in page.data
 
 
 # ── Landing page ────────────────────────────────────────────────────────────
@@ -429,7 +430,22 @@ def test_landing_page_is_public(seeded):
     page = flask_app.test_client().get("/")
     assert page.status_code == 200
     assert b"/auth/login" in page.data
-    assert b"/superadmin/login" in page.data
+    assert b"/superadmin" not in page.data
+    assert b"Super admin" not in page.data
+
+
+def test_private_admin_entry_is_not_linked_but_remains_available(seeded):
+    c = flask_app.test_client()
+    resp = c.get("/admin")
+    assert resp.status_code == 302
+    assert resp.headers["Location"].endswith("/superadmin/login")
+
+    resp = c.post("/superadmin/login",
+                  data={"login": "admin@gmail.com", "password": "admin123"})
+    assert resp.status_code == 302
+    resp = c.get("/admin")
+    assert resp.status_code == 302
+    assert resp.headers["Location"].endswith("/superadmin/")
 
 
 def test_landing_redirects_signed_in_users(seeded):
