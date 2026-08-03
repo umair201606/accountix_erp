@@ -43,6 +43,12 @@ def login():
         user = (User.query.filter(db.func.lower(User.login_id) == login_id.lower()).first()
                 or User.query.filter_by(email=login_id.lower()).first())
         if user and user.check_password(password):
+            # Super Admin accounts have a separate private entry point. Keep
+            # the response identical to a bad login so this form cannot be
+            # used to discover which accounts are platform operators.
+            if user.is_super_admin:
+                flash("Invalid email or password.", "danger")
+                return render_template("login.html")
             if not user.is_active:
                 flash("Your account has been deactivated.", "danger")
                 return render_template("login.html")

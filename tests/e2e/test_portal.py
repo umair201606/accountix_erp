@@ -476,6 +476,16 @@ def test_superadmin_login_admits_super_admins(seeded):
     assert c.get("/superadmin/").status_code == 200
 
 
+def test_super_admin_is_refused_from_customer_login(seeded):
+    c = flask_app.test_client()
+    resp = c.post("/auth/login",
+                  data={"login": "admin@gmail.com", "password": "admin123"})
+    assert resp.status_code == 200
+    assert b"Invalid email or password." in resp.data
+    with c.session_transaction() as sess:
+        assert not sess.get("_user_id")
+
+
 def test_superadmin_login_refuses_non_super_admins(seeded):
     """Correct credentials for an ordinary user must not open the console,
     and must not sign them in either — otherwise this page would quietly
