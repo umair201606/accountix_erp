@@ -104,11 +104,29 @@
 .vbtn-e:hover{background:#f0fdfa}
 .ap-banner{background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:10px 16px;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center;font-size:13px;color:#166534}
 .grid-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px}
+.vcard-title{color:#1e293b;font-size:12px;font-weight:800;letter-spacing:.02em;text-transform:none}
+.vcard-subtitle{margin-left:7px;color:#94a3b8;font-size:10.5px;font-weight:500;letter-spacing:0;text-transform:none}
+.vdoc-badge{padding:4px 8px;border-radius:999px;background:#eff6ff;color:#1d4ed8;font-size:10px;font-weight:800;letter-spacing:.06em}
+.vtype-pills{padding:4px;border:1px solid #e2e8f0;border-radius:9px;background:#f8fafc}
+.vtype-pill{flex:1;min-width:112px;border-radius:6px!important;border:1px solid transparent!important}
+.vtype-pill:hover:not(:disabled){background:#fff;border-color:#cbd5e1!important;color:#0f5257}
+.vtype-pill.active{box-shadow:0 2px 5px rgba(15,82,87,.12)}
+.vtb-w{border:1px solid #eef2f7;border-radius:8px}
+.vtb{min-width:760px}
 @media(max-width:760px){
   .grid-3{grid-template-columns:1fr}
+  .vtype-pills{gap:4px}
   .vtype-pill{padding:7px 12px;font-size:11.5px}
+  .vtype-pill{min-width:calc(50% - 2px);border:1px solid transparent!important}
   .vsum-line{justify-content:space-between}
   .vbtn{flex:1;justify-content:center}
+}
+@media(max-width:420px){
+  .vtype-pill{min-width:100%;padding:8px 10px}
+  .vtype-pill small{display:inline;margin-left:4px;font-size:9px}
+  .vab{padding:12px;gap:7px}
+  .vbtn{width:100%;flex:none}
+  .kbd-hint{display:none}
 }
 @media print{
   .sidebar,.topbar,.vtype-pills,.grid-acts,.vab,.row-acts,.ac-dd,.kbd-hint,.app-flash-wrap{display:none!important}
@@ -135,8 +153,15 @@
   </div>
   {% endif %}
 
+  {# Removed: the workflow banner added noise above the form. #}
+  <!--
+    <span class="flow-separator" aria-hidden="true">→</span>
+    <div class="flow-step"><span class="flow-step-no">2</span><div class="flow-step-copy"><strong>Add transaction lines</strong><span>Search accounts and enter amounts</span></div></div>
+    <span class="flow-separator" aria-hidden="true">→</span>
+    -->
+
   <div class="vcard">
-    <div class="vcard-h">Voucher</div>
+    <div class="vcard-h"><span><span class="vcard-title">Voucher details</span><span class="vcard-subtitle">Header and transaction context</span></span><span class="vdoc-badge">{{ vtype }}</span></div>
     <div class="vcard-b">
       <div class="vtype-pills" style="margin-bottom:14px;">
         {% for vt, vn in [('CPV','Cash Payment'),('CRV','Cash Receipt'),('BPV','Bank Payment'),('BRV','Bank Receipt'),('JV','Journal')] %}
@@ -175,7 +200,7 @@
 
   <div class="vcard">
     <div class="vcard-h">
-      <span>Entries</span>
+      <span><span class="vcard-title">Entries</span><span class="vcard-subtitle">Add the accounts affected by this voucher</span></span>
       <span id="jvBalanceChip"></span>
     </div>
     <div class="vtb-w">

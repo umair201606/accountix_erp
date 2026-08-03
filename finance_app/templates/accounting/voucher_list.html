@@ -2,95 +2,176 @@
 {% block title %}Vouchers - Accounting{% endblock %}
 {% block extra_css %}
 <style>
-.bdg{display:inline-block;padding:2px 10px;font-size:11px;font-weight:700;border-radius:10px}
-.bdg-unapproved{background:#f1f5f9;color:#64748b}
-.bdg-approved{background:#dcfce7;color:#16a34a}
-.lbl{display:block;font-size:10.5px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px}
-.sel{padding:7px 10px;font-size:13px;border:1px solid #d8d3c4;border-radius:3px;background:#fff;outline:none;font-family:inherit;color:#1b2a2e}
-.sel:focus{border-color:#0f5257}
+.voucher-page{max-width:1280px;margin:0 auto}
+.voucher-hero{display:flex;align-items:flex-end;justify-content:space-between;gap:18px;margin-bottom:22px;flex-wrap:wrap}
+.voucher-hero-copy{min-width:220px}
+.voucher-kicker{margin:0 0 5px;color:var(--primary);font-size:11px;font-weight:800;letter-spacing:.12em;text-transform:uppercase}
+.voucher-hero h1{margin:0;color:var(--ink);font-size:26px;letter-spacing:-.02em}
+.voucher-hero p{margin:6px 0 0;color:var(--muted);font-size:13px}
+.voucher-hero-actions{display:flex;gap:8px;align-items:center}
+.voucher-hero-actions .btn{white-space:nowrap}
+.voucher-filters{border:1px solid var(--line);border-radius:14px;background:var(--paper);box-shadow:0 8px 20px rgba(15,23,42,.04);margin-bottom:18px;overflow:hidden}
+.voucher-filters-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 18px;border-bottom:1px solid var(--line);background:linear-gradient(90deg,#f8fafc,#fff)}
+.voucher-filters-title{display:flex;align-items:center;gap:9px;color:var(--ink);font-size:13px;font-weight:800}
+.filter-dot{width:8px;height:8px;border-radius:50%;background:var(--primary);box-shadow:0 0 0 4px rgba(29,78,216,.1)}
+.voucher-filters-hint{color:var(--muted);font-size:11px}
+.voucher-filters-body{padding:16px 18px}
+.voucher-filter-form{display:grid;grid-template-columns:145px 125px minmax(280px,1fr) auto;gap:13px;align-items:end}
+.filter-field{min-width:0}
+.lbl{display:block;margin:0 0 6px;color:var(--muted);font-size:10px;font-weight:800;letter-spacing:.09em;text-transform:uppercase}
+.sel{width:100%;min-height:38px;padding:8px 11px;border:1px solid var(--line);border-radius:8px;background:#fff;color:var(--ink);font-family:inherit;font-size:13px;outline:none}
+.sel:focus{border-color:var(--primary);box-shadow:0 0 0 3px rgba(29,78,216,.1)}
+.period-field{min-width:0}
+.voucher-page .period-filter-component{min-width:0;max-width:100%}
+.voucher-page .period-toggle{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));width:100%;margin-bottom:12px}
+.voucher-page .period-toggle label{justify-content:center;min-width:0;padding:7px 6px;text-align:center;white-space:normal}
+.voucher-page .period-fields select{max-width:100%!important}
+.filter-actions{display:flex;gap:7px;align-items:center;padding-bottom:1px}
+.filter-actions .btn{min-height:38px;white-space:nowrap}
+.voucher-results{border:1px solid var(--line);border-radius:14px;background:var(--paper);box-shadow:0 8px 20px rgba(15,23,42,.04);overflow:hidden}
+.results-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:15px 18px;border-bottom:1px solid var(--line);background:#fff}
+.results-title{display:flex;align-items:center;gap:10px;color:var(--ink);font-size:14px;font-weight:800}
+.result-count{display:inline-flex;align-items:center;justify-content:center;min-width:28px;height:24px;padding:0 8px;border-radius:999px;background:#eff6ff;color:var(--primary);font-size:11px;font-weight:800}
+.results-note{color:var(--muted);font-size:11px}
+.voucher-table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
+.voucher-table{width:100%;border-collapse:collapse;min-width:820px}
+.voucher-table th{padding:11px 14px;background:#f8fafc;color:var(--muted);font-size:10px;font-weight:800;letter-spacing:.07em;text-align:left;text-transform:uppercase;white-space:nowrap}
+.voucher-table td{padding:13px 14px;border-top:1px solid #eef2f7;color:var(--ink);font-size:12.5px;vertical-align:middle}
+.voucher-table tbody tr{transition:background .12s ease}
+.voucher-table tbody tr:hover{background:#f8fbff}
+.voucher-link{color:var(--primary);font-weight:800;text-decoration:none;white-space:nowrap}
+.voucher-link:hover{text-decoration:underline}
+.voucher-type{display:inline-flex;align-items:center;justify-content:center;min-width:38px;padding:4px 8px;border-radius:6px;background:#eff6ff;color:#1d4ed8;font-size:10px;font-weight:800;letter-spacing:.04em}
+.voucher-date{color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap}
+.voucher-account{max-width:210px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.voucher-status{display:inline-flex;align-items:center;gap:5px;padding:4px 8px;border-radius:999px;font-size:10px;font-weight:800;white-space:nowrap}
+.voucher-status::before{content:"";width:5px;height:5px;border-radius:50%;background:currentColor}
+.voucher-status-unapproved{background:#fff7ed;color:#c2410c}
+.voucher-status-approved{background:#ecfdf5;color:#15803d}
+.voucher-muted{color:var(--muted)}
+.voucher-view{display:inline-flex;align-items:center;justify-content:center;min-height:30px;padding:5px 12px;border:1px solid var(--line);border-radius:7px;color:var(--ink);font-size:11px;font-weight:800;text-decoration:none;white-space:nowrap}
+.voucher-view:hover{border-color:var(--primary);color:var(--primary);background:#eff6ff}
+.voucher-empty{padding:48px 20px!important;text-align:center;color:var(--muted)!important}
+.voucher-empty-icon{display:flex;align-items:center;justify-content:center;width:42px;height:42px;margin:0 auto 10px;border-radius:12px;background:#eff6ff;color:var(--primary);font-size:20px}
+.voucher-empty strong{display:block;color:var(--ink);font-size:14px;margin-bottom:4px}
+.voucher-empty a{display:inline-block;margin-top:12px;color:var(--primary);font-weight:800;text-decoration:none}
+@media(max-width:900px){
+  .voucher-filter-form{grid-template-columns:1fr 1fr}
+  .period-field{grid-column:1/-1}
+  .filter-actions{justify-content:flex-start}
+}
+@media(max-width:560px){
+  .voucher-page{margin:0 -2px}
+  .voucher-hero{align-items:stretch;margin-bottom:16px}
+  .voucher-hero h1{font-size:22px}
+  .voucher-hero-actions{width:100%}
+  .voucher-hero-actions .btn{width:100%;justify-content:center}
+  .voucher-filters-head,.results-head{align-items:flex-start;flex-direction:column;padding:14px}
+  .voucher-filters-body{padding:14px}
+  .voucher-filter-form{grid-template-columns:1fr}
+  .period-field{grid-column:auto}
+  .voucher-page .period-toggle label{font-size:11px;padding:7px 3px}
+  .filter-actions{width:100%;padding:0}
+  .filter-actions .btn{flex:1;justify-content:center}
+  .voucher-table{min-width:0}
+  .voucher-table thead{display:none}
+  .voucher-table,.voucher-table tbody,.voucher-table tr,.voucher-table td{display:block;width:100%}
+  .voucher-table tbody tr{padding:13px 14px;border-top:1px solid #eef2f7}
+  .voucher-table tbody tr:first-child{border-top:0}
+  .voucher-table td{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:6px 0;border:0;text-align:right}
+  .voucher-table td::before{content:attr(data-label);color:var(--muted);font-size:10px;font-weight:800;letter-spacing:.07em;text-align:left;text-transform:uppercase}
+  .voucher-table td:first-child{padding-top:0}
+  .voucher-table td:last-child{padding-bottom:0}
+  .voucher-table td.voucher-empty{display:block;padding:34px 10px!important;text-align:center}
+  .voucher-table td.voucher-empty::before{display:none}
+  .voucher-account{max-width:58%;}
+}
 </style>
 {% endblock %}
 {% block page_title %}Accounting Vouchers{% endblock %}
 {% block content %}
-<div class="wrap">
-  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:8px;">
-    <a href="{{ url_for('accounting.voucher_form') }}" class="btn btn-primary">+ New Voucher</a>
+<div class="voucher-page">
+  <div class="voucher-hero">
+    <div class="voucher-hero-copy">
+      <p class="voucher-kicker">Accounting / Transactions</p>
+      <h1>Vouchers</h1>
+      <p>Review, filter, and open every cash, bank, and journal transaction.</p>
+    </div>
+    <div class="voucher-hero-actions">
+      <a href="{{ url_for('accounting.voucher_form') }}" class="btn btn-primary">+ New Voucher</a>
+    </div>
   </div>
 
-  <div class="card">
-    <div class="card-h">Filters</div>
-    <div class="card-b">
-      <form method="GET" style="display:flex;gap:12px;flex-wrap:wrap;align-items:end;">
-        <div>
-          <label class="lbl">Voucher Type</label>
-          <select name="vtype" class="sel" style="width:140px">
-            <option value="">All Types</option>
+  <section class="voucher-filters" aria-labelledby="voucherFiltersTitle">
+    <div class="voucher-filters-head">
+      <div class="voucher-filters-title"><span class="filter-dot" aria-hidden="true"></span><span id="voucherFiltersTitle">Filter vouchers</span></div>
+      <span class="voucher-filters-hint">Narrow the list by type, status, or period</span>
+    </div>
+    <div class="voucher-filters-body">
+      <form method="GET" class="voucher-filter-form">
+        <div class="filter-field">
+          <label class="lbl" for="voucherTypeFilter">Voucher type</label>
+          <select id="voucherTypeFilter" name="vtype" class="sel">
+            <option value="">All types</option>
             {% for vt in ['CPV','CRV','BPV','BRV','JV'] %}
             <option value="{{ vt }}" {{ 'selected' if filters.vtype == vt else '' }}>{{ vt }}</option>
             {% endfor %}
           </select>
         </div>
-        <div>
-          <label class="lbl">Status</label>
-          <select name="status" class="sel" style="width:120px">
-            <option value="">All</option>
+        <div class="filter-field">
+          <label class="lbl" for="voucherStatusFilter">Status</label>
+          <select id="voucherStatusFilter" name="status" class="sel">
+            <option value="">All statuses</option>
             <option value="unapproved" {{ 'selected' if filters.status == 'unapproved' else '' }}>Unapproved</option>
             <option value="approved" {{ 'selected' if filters.status == 'approved' else '' }}>Approved</option>
           </select>
         </div>
-        <div style="min-width:360px;">
+        <div class="period-field">
           {% with filter_mode=filter_mode, selected_period_id=selected_period_id, periods=periods, from_val=from_str, to_val=to_str %}
           {% include "accounting/_period_filter.html" %}
           {% endwith %}
         </div>
-        <div style="display:flex;gap:6px;align-items:end;padding-bottom:4px;">
+        <div class="filter-actions">
           <button type="submit" class="btn btn-sm btn-primary">Filter</button>
           <a href="{{ url_for('accounting.voucher_list') }}" class="btn btn-sm btn-outline">Clear</a>
         </div>
       </form>
     </div>
-  </div>
+  </section>
 
-  <div class="card">
-    <div class="card-h">Vouchers <span class="bdg bdg-unapproved">{{ vouchers|length }}</span></div>
-    <div class="tb-w">
-      <table class="tb">
+  <section class="voucher-results" aria-labelledby="voucherResultsTitle">
+    <div class="results-head">
+      <div class="results-title"><span id="voucherResultsTitle">Voucher register</span><span class="result-count">{{ vouchers|length }}</span></div>
+      <span class="results-note">Click a voucher number to open its details</span>
+    </div>
+    <div class="voucher-table-wrap">
+      <table class="voucher-table">
         <thead>
           <tr>
-            <th>Voucher #</th>
-            <th>Type</th>
-            <th>Date</th>
-            <th>Cash/Bank</th>
-            <th>Status</th>
-            <th>Created By</th>
-            <th>Approved By</th>
-            <th style="width:80px">Action</th>
+            <th>Voucher #</th><th>Type</th><th>Date</th><th>Cash / Bank</th><th>Status</th><th>Created by</th><th>Approved by</th><th>Action</th>
           </tr>
         </thead>
         <tbody>
           {% for v in vouchers %}
           <tr>
-            <td><a href="{{ url_for('accounting.voucher_form', id=v.id) }}" style="font-weight:600;color:var(--primary);text-decoration:none;">{{ v.voucher_number }}</a></td>
-            <td><span class="bdg" style="background:#eef2ff;color:#4338ca;">{{ v.voucher_type }}</span></td>
-            <td>{{ v.voucher_date.strftime('%Y-%m-%d %H:%M') if v.voucher_date else '' }}</td>
-            <td>{{ v.cash_bank_account.name if v.cash_bank_account else '-' }}</td>
-            <td>
-              {% if v.status == 'unapproved' %}
-              <span class="bdg bdg-unapproved">Unapproved</span>
-              {% elif v.status == 'approved' %}
-              <span class="bdg bdg-approved">Approved</span>
-              {% endif %}
+            <td data-label="Voucher #"><a href="{{ url_for('accounting.voucher_form', id=v.id) }}" class="voucher-link">{{ v.voucher_number }}</a></td>
+            <td data-label="Type"><span class="voucher-type">{{ v.voucher_type }}</span></td>
+            <td data-label="Date"><span class="voucher-date">{{ v.voucher_date.strftime('%Y-%m-%d %H:%M') if v.voucher_date else '' }}</span></td>
+            <td data-label="Cash / Bank"><span class="voucher-account">{{ v.cash_bank_account.name if v.cash_bank_account else '-' }}</span></td>
+            <td data-label="Status">
+              {% if v.status == 'unapproved' %}<span class="voucher-status voucher-status-unapproved">Unapproved</span>
+              {% elif v.status == 'approved' %}<span class="voucher-status voucher-status-approved">Approved</span>{% endif %}
             </td>
-            <td>{{ v.creator.full_name if v.creator else '' }}</td>
-            <td>{{ v.approver.full_name if v.approver else '' }}</td>
-            <td><a href="{{ url_for('accounting.voucher_form', id=v.id) }}" class="btn btn-o" style="padding:4px 14px;font-size:12px;">View</a></td>
+            <td data-label="Created by"><span class="voucher-muted">{{ v.creator.full_name if v.creator else '-' }}</span></td>
+            <td data-label="Approved by"><span class="voucher-muted">{{ v.approver.full_name if v.approver else '-' }}</span></td>
+            <td data-label="Action"><a href="{{ url_for('accounting.voucher_form', id=v.id) }}" class="voucher-view">View details</a></td>
           </tr>
           {% else %}
-          <tr><td colspan="8" style="text-align:center;padding:30px;color:var(--light);">No vouchers found.</td></tr>
+          <tr><td colspan="8" class="voucher-empty"><span class="voucher-empty-icon" aria-hidden="true">▤</span><strong>No vouchers found</strong><span>Try changing the filters or create a new voucher.</span><br><a href="{{ url_for('accounting.voucher_form') }}">Create a voucher →</a></td></tr>
           {% endfor %}
         </tbody>
       </table>
     </div>
-  </div>
+  </section>
 </div>
 {% endblock %}

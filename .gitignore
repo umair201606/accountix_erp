@@ -19,3 +19,6 @@ test_pl*
 
 # Secrets — super admin credentials, never push
 user_password.txt
+
+# PowerShell module analysis cache (accidental local folder)
+Microsoft/
