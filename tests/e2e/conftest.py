@@ -71,10 +71,14 @@ def _enter_first_company(page):
 
 @pytest.fixture
 def admin_page(page, flask_server):
-    page.goto(f"{BASE_URL}/auth/login")
+    """Super admin logs in through the super admin door, then enters the
+    first company's books (the regular form rejects super admins)."""
+    page.goto(f"{BASE_URL}/superadmin/login")
     page.fill("#login", "admin@gmail.com")
     page.fill("#password", "admin123")
     page.click("button[type='submit']")
+    page.wait_for_url("**/superadmin/**")
+    page.goto(f"{BASE_URL}/portal/")
     return _enter_first_company(page)
 
 
@@ -97,10 +101,12 @@ def mobile_page(page, flask_server):
 def admin_mobile(browser, flask_server):
     ctx = browser.new_context(viewport={"width": 375, "height": 812})
     p = ctx.new_page()
-    p.goto(f"{BASE_URL}/auth/login")
+    p.goto(f"{BASE_URL}/superadmin/login")
     p.fill("#login", "admin@gmail.com")
     p.fill("#password", "admin123")
     p.click("button[type='submit']")
+    p.wait_for_url("**/superadmin/**")
+    p.goto(f"{BASE_URL}/portal/")
     _enter_first_company(p)
     yield p
     ctx.close()

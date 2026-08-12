@@ -20,7 +20,10 @@ body { background:#f0f2f5; display:flex; align-items:center; justify-content:cen
 .flash.error { background:#fee2e2; color:#dc2626; border:1px solid #fecaca; }
 .flash.info { background:#dbeafe; color:#1d4ed8; border:1px solid #bfdbfe; }
 .flash.success { background:#dcfce7; color:#16a34a; border:1px solid #bbf7d0; }
-.demo-info { margin-top:20px; padding:14px; background:#f8f9ff; border-radius:8px; font-size:12px; color:#555; border:1px solid #e8eaff; }
+  .signup-link { margin-top:16px; text-align:center; font-size:13px; color:#666; }
+  .signup-link a { color:#6c63ff; font-weight:600; }
+  .signup-link a:hover { text-decoration:underline; }
+  .demo-info { margin-top:20px; padding:14px; background:#f8f9ff; border-radius:8px; font-size:12px; color:#555; border:1px solid #e8eaff; }
 .demo-info strong { color:#1a1a2e; }
 .demo-info code { background:#eef0ff; padding:1px 5px; border-radius:4px; font-size:11px; }
 </style>
@@ -45,6 +48,14 @@ body { background:#f0f2f5; display:flex; align-items:center; justify-content:cen
     </div>
     <button type="submit" class="btn-primary">Sign In</button>
   </form>
+  <div style="margin-top:14px;text-align:center;">
+    <div style="position:relative;margin-bottom:14px;">
+      <div style="position:absolute;top:50%;left:0;right:0;height:1px;background:#e5e7eb;"></div>
+      <span style="position:relative;background:#fff;padding:0 10px;font-size:12px;color:#9ca3af;">or</span>
+    </div>
+    <a href="{{ url_for('signup') }}" class="btn-primary" style="width:100%;background:#1d4ed8;text-decoration:none;display:block;text-align:center;box-sizing:border-box;">Request Platform Access</a>
+  </div>
+  <p class="signup-link" style="margin-top:12px;">Don't have an account? <a href="{{ url_for('signup') }}">Submit a request</a></p>
   <div class="demo-info">
     <strong>Demo Credentials:</strong><br>
     <code>admin@solarkon.com</code> / <code>admin123</code> (Full Access)<br>

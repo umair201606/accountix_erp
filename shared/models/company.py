@@ -154,6 +154,11 @@ class CompanyInvitation(db.Model):
 
     company = db.relationship("Company", backref="invitations")
 
+    def role_name(self):
+        from shared.models.base import Role
+        r = Role.query.get(self.role_id) if self.role_id else None
+        return r.name if r else ""
+
 
 class GlobalLimits(db.Model):
     """Super-admin set global quota defaults; companies.max_members overrides
@@ -191,3 +196,77 @@ class GlobalLimits(db.Model):
         """How many companies this user may belong to. No global default
         exists for joining, so an unset override means unlimited."""
         return getattr(user, "max_companies_joined", None)
+
+
+class RegistrationRequest(db.Model):
+    """A visitor's request for platform access.
+
+    Lives outside any company (global table). The super admin reviews pending
+    requests and either creates the account (allow) or blocks the email. The
+    request tracks whether it has been seen and its current status so the
+    console can surface what needs attention."""
+    __tablename__ = "registration_requests"
+
+    PENDING = "pending"
+    SEEN = "seen"
+    APPROVED = "approved"
+    BLOCKED = "blocked"
+    DELETED = "deleted"
+
+    id = db.Column(db.Integer, primary_key=True)
+    full_name = db.Column(db.String(120), nullable=False)
+    email = db.Column(db.String(120), nullable=False, index=True)
+    phone = db.Column(db.String(30), nullable=True, index=True)
+    # Stored only until approval, then cleared. Never kept for blocked/deleted.
+    password_hash = db.Column(db.String(255), nullable=False)
+    company_name = db.Column(db.String(200), nullable=True)
+    notes = db.Column(db.Text, nullable=True)
+    status = db.Column(db.String(15), default=PENDING, nullable=False, index=True)
+    seen = db.Column(db.Boolean, default=False, nullable=False)
+    reviewed_by = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
+    reviewed_at = db.Column(db.DateTime, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    reviewer = db.relationship("User", foreign_keys=[reviewed_by])
+
+    @staticmethod
+    def email_exists(email):
+        """An active user or a non-blocked request already holds this email."""
+        from shared.models.base import User
+        return (User.query.filter_by(email=email.lower()).first() is not None
+                or RegistrationRequest.query.filter(
+                    RegistrationRequest.email == email.lower(),
+                    RegistrationRequest.status.in_(
+                        [RegistrationRequest.PENDING,
+                         RegistrationRequest.SEEN,
+                         RegistrationRequest.APPROVED])).first() is not None)
+
+    @staticmethod
+    def phone_exists(phone):
+        """An active user or a pending/seen/approved request holds this phone."""
+        if not phone:
+            return False
+        from shared.models.base import User
+        user_has = User.query.filter_by(phone=phone).first() is not None
+        req_has = RegistrationRequest.query.filter(
+            RegistrationRequest.phone == phone,
+            RegistrationRequest.status.in_(
+                [RegistrationRequest.PENDING,
+                 RegistrationRequest.SEEN,
+                 RegistrationRequest.APPROVED])).first() is not None
+        return user_has or req_has
+
+    @staticmethod
+    def pending_count():
+        return RegistrationRequest.query.filter(
+            RegistrationRequest.status.in_(
+                [RegistrationRequest.PENDING,
+                 RegistrationRequest.SEEN])).count()
+
+    def set_password(self, password):
+        from werkzeug.security import generate_password_hash
+        self.password_hash = generate_password_hash(password)
+
+    def check_password(self, password):
+        from werkzeug.security import check_password_hash
+        return check_password_hash(self.password_hash, password)

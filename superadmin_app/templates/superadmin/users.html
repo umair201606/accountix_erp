@@ -1,16 +1,21 @@
 {% extends "superadmin/base.html" %}
 {% block title %}Users - Super Admin{% endblock %}
 {% block content %}
-<h2 style="margin:0 0 16px;font-size:20px;">Manage Users</h2>
 
-<div class="sa-card" style="margin-bottom:20px;">
-  <h3>Create User</h3>
-  <p class="hint">Accounts are only ever created from this console. Everywhere else works with people who already exist: a company invites a registered email from its Settings, and HR fills in employee details once the invitation is accepted.</p>
+<h1 class="sa-page-title">Manage Users</h1>
+
+<div class="sa-card">
+  <div class="sa-card-header">
+    <div>
+      <h3 class="sa-card-title">Create User</h3>
+      <p class="sa-card-subtitle">Accounts are only ever created from this console. Everywhere else works with people who already exist: a company invites a registered email from its Settings, and HR fills in employee details once the invitation is accepted.</p>
+    </div>
+  </div>
   <form method="POST" action="{{ url_for('superadmin.users') }}">
     <div class="fgrid">
       <div class="fgroup">
         <label class="lbl">Email</label>
-        <input type="email" name="email" class="inp" required>
+        <input type="email" name="email" class="inp" required placeholder="user@example.com">
       </div>
       <div class="fgroup">
         <label class="lbl">Full Name</label>
@@ -18,7 +23,7 @@
       </div>
       <div class="fgroup">
         <label class="lbl">Password</label>
-        <input type="text" name="password" class="inp" required>
+        <input type="text" name="password" class="inp" required placeholder="at least 4 characters">
       </div>
     </div>
     <div class="sa-actions">
@@ -28,14 +33,23 @@
 </div>
 
 <div class="sa-card">
-  <h3>All Users</h3>
-  <p class="hint">Default company creation limit is {{ limits.max_companies_per_user }} per user; open a user to override it.</p>
-  <div class="tbl-scroll">
+  <div class="sa-card-header">
+    <div>
+      <h3 class="sa-card-title">All Users</h3>
+      <p class="sa-card-subtitle">Default company creation limit is {{ limits.max_companies_per_user }} per user; open a user to override it.</p>
+    </div>
+    <a href="{{ url_for('superadmin.users') }}" class="btn btn-sm btn-ghost" style="visibility:hidden;">&nbsp;</a>
+  </div>
+  <div class="tbl-wrap">
     <table class="sa-tbl">
       <thead>
         <tr>
-          <th>Email</th><th>Full Name</th><th>Super Admin</th>
-          <th>Account</th><th>Companies</th><th></th>
+          <th>Email</th>
+          <th>Full Name</th>
+          <th>Super Admin</th>
+          <th>Account</th>
+          <th>Companies</th>
+          <th></th>
         </tr>
       </thead>
       <tbody>
@@ -45,10 +59,10 @@
           <td>
             <a href="{{ url_for('superadmin.user_detail', user_id=u.id) }}">{{ u.full_name }}</a>
             {% if u.id == current_user.id %}
-            <span style="font-size:12px;color:#94a3b8;">(you)</span>
+            <span style="font-size:11.5px;color:var(--text-muted);margin-left:4px;">(you)</span>
             {% endif %}
           </td>
-          <td>
+           <td>
             {% if u.is_super_admin %}<span class="pill pill-sa">yes</span>
             {% else %}<span class="pill pill-off">no</span>{% endif %}
           </td>
@@ -58,14 +72,39 @@
           </td>
           <td>{{ mc }}</td>
           <td>
-            <a class="btn btn-sm" href="{{ url_for('superadmin.user_detail', user_id=u.id) }}">Manage</a>
+            <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;">
+              {% if u.is_super_admin and u.id != current_user.id %}
+              <form method="POST" action="{{ url_for('superadmin.toggle_super', user_id=u.id) }}" onsubmit="return confirm('Revoke super admin access for {{ u.full_name }}?');">
+                <button type="submit" class="btn btn-sm btn-danger" title="Revoke super admin access">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6L6 18"/><path d="M6 6l12 12"/></svg>
+                  Revoke SA
+                </button>
+              </form>
+              {% elif not u.is_super_admin %}
+              <form method="POST" action="{{ url_for('superadmin.toggle_super', user_id=u.id) }}">
+                <button type="submit" class="btn btn-sm" title="Grant super admin access">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
+                  Grant SA
+                </button>
+              </form>
+              {% endif %}
+              <a class="btn btn-sm" href="{{ url_for('superadmin.user_detail', user_id=u.id) }}">Manage</a>
+            </div>
           </td>
         </tr>
         {% else %}
-        <tr><td colspan="6" style="text-align:center;color:#94a3b8;padding:24px;">No users yet.</td></tr>
+        <tr>
+          <td colspan="6">
+            <div class="empty-state">
+              <div class="empty-state-icon">&#128100;</div>
+              No users yet.
+            </div>
+          </td>
+        </tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
 </div>
+
 {% endblock %}

@@ -14,11 +14,22 @@ from flask_login import current_user, login_required, login_user
 
 from shared.extensions import db
 from shared.models.base import Role, User
-from shared.models.company import (Company, CompanyMembership,
-                                   GlobalLimits)
+from shared.models.company import (Company, CompanyInvitation,
+                                   CompanyMembership, GlobalLimits,
+                                   RegistrationRequest)
 from shared.permissions import MODULES
 
 superadmin_bp = Blueprint("superadmin", __name__, url_prefix="/superadmin")
+
+
+@superadmin_bp.app_context_processor
+def _inject_pending_count():
+    """Make the pending-request count available to every super admin template
+    (for the nav badge) without each route having to pass it."""
+    from flask_login import current_user
+    if current_user.is_authenticated and current_user.is_super_admin:
+        return {"pending_count": RegistrationRequest.pending_count()}
+    return {"pending_count": 0}
 
 
 def _require_super_admin():
@@ -223,6 +234,175 @@ def company_edit(company_id):
     )
 
 
+@superadmin_bp.route("/my-companies/", methods=["GET", "POST"])
+@login_required
+def my_companies():
+    """The super admin's own books — the same view every user gets on /portal/,
+    but inside the console's layout so it is not a second page to maintain.
+
+    A super admin is still a person who can own companies and be invited into
+    others; this is that screen."""
+    _require_super_admin()
+    if request.method == "POST":
+        from shared.routes.portal import SLUG_RE
+        name = request.form.get("name", "").strip()
+        slug = request.form.get("slug", "").strip().lower()
+        if not name:
+            flash("Company name is required.", "error")
+            return redirect(url_for("superadmin.my_companies"))
+        if not slug or not SLUG_RE.match(slug):
+            flash("Company address must be 2-62 characters: lowercase "
+                  "letters, digits and hyphens only.", "error")
+            return redirect(url_for("superadmin.my_companies"))
+        if Company.query.filter_by(slug=slug).first():
+            flash("That company address is already taken.", "error")
+            return redirect(url_for("superadmin.my_companies"))
+        limits = GlobalLimits.get()
+        cap = limits.company_limit_for(current_user)
+        if current_user.owns_company_count() >= cap:
+            flash(f"You have reached your company creation limit ({cap}).",
+                  "error")
+            return redirect(url_for("superadmin.my_companies"))
+
+        company = Company(name=name, slug=slug, is_active=True,
+                          plan_name="free", created_by=current_user.id)
+        db.session.add(company)
+        db.session.flush()
+        admin_role = Role.query.filter_by(name=Role.ADMIN).first()
+        if admin_role:
+            db.session.add(CompanyMembership(
+                company_id=company.id, user_id=current_user.id,
+                role_id=admin_role.id, status=CompanyMembership.ACTIVE))
+        db.session.commit()
+
+        from shared.company_setup import provision_company
+        from shared.tenancy import set_current_company
+        provision_company(company.id)
+        set_current_company(company.id)
+        from flask import session as flask_session
+        flask_session["company_id"] = company.id
+        flash(f"Company '{company.name}' created — its books are ready.",
+              "success")
+        return redirect(url_for("dashboard.hub"))
+
+    owned = Company.query.filter_by(
+        created_by=current_user.id).order_by(Company.name).all()
+    memberships = CompanyMembership.query.filter_by(
+        user_id=current_user.id, status=CompanyMembership.ACTIVE).order_by(
+        CompanyMembership.id).all()
+    invites = CompanyInvitation.query.filter_by(
+        email=current_user.email,
+        status=CompanyInvitation.SENT).all()
+    limits = GlobalLimits.get()
+    return render_template(
+        "superadmin/my_companies.html",
+        owned=owned,
+        memberships=memberships,
+        invites=invites,
+        quota_total=limits.company_limit_for(current_user),
+        quota_used=len(owned),
+        active_member_count=_active_member_count,
+    )
+
+
+@superadmin_bp.route("/requests/", methods=["GET"])
+@login_required
+def requests():
+    """Access requests — visitors who asked for platform access. Review,
+    approve (creates the account) or block."""
+    _require_super_admin()
+    all_reqs = RegistrationRequest.query.order_by(
+        RegistrationRequest.created_at.desc()).all()
+    pending = sum(1 for r in all_reqs
+                  if r.status in (RegistrationRequest.PENDING,
+                                  RegistrationRequest.SEEN))
+    approved = sum(1 for r in all_reqs
+                   if r.status == RegistrationRequest.APPROVED)
+    blocked = sum(1 for r in all_reqs
+                  if r.status == RegistrationRequest.BLOCKED)
+
+    # Mark unseen pending requests as seen on this page view.
+    for r in all_reqs:
+        if r.status == RegistrationRequest.PENDING and not r.seen:
+            r.seen = True
+    if any(r.status == RegistrationRequest.PENDING and not r.seen
+           for r in all_reqs):
+        db.session.commit()
+
+    return render_template(
+        "superadmin/requests.html",
+        requests=all_reqs,
+        pending_count=pending,
+        approved_count=approved,
+        blocked_count=blocked,
+    )
+
+
+@superadmin_bp.route("/requests/<int:request_id>/<action>", methods=["POST"])
+@login_required
+def request_action(request_id, action):
+    """Approve, block or unblock a registration request."""
+    _require_super_admin()
+    req = RegistrationRequest.query.get(request_id)
+    if req is None:
+        abort(404)
+
+    if action == "approve":
+        if req.status == RegistrationRequest.APPROVED:
+            flash("This request was already approved.", "info")
+            return redirect(url_for("superadmin.requests"))
+        # Create the user account from the request.
+        emp_role = Role.query.filter_by(name=Role.EMPLOYEE).first()
+        if emp_role is None:
+            flash("Roles are not seeded yet.", "error")
+            return redirect(url_for("superadmin.requests"))
+        u = User(
+            employee_code=_next_employee_code(),
+            email=req.email,
+            login_id=req.email,
+            full_name=req.full_name,
+            phone=req.phone,
+            role_id=emp_role.id,
+            is_active=True,
+            has_hr_access=True,
+        )
+        u.set_password_prehashed(req.password_hash)
+        db.session.add(u)
+        req.status = RegistrationRequest.APPROVED
+        req.seen = True
+        req.reviewed_by = current_user.id
+        req.reviewed_at = datetime.utcnow()
+        db.session.commit()
+        flash(f"Access granted to {req.full_name} ({req.email}). "
+              f"They can now sign in.", "success")
+
+    elif action == "block":
+        req.status = RegistrationRequest.BLOCKED
+        req.seen = True
+        req.reviewed_by = current_user.id
+        req.reviewed_at = datetime.utcnow()
+        db.session.commit()
+        flash(f"Request from {req.full_name} ({req.email}) blocked.", "success")
+
+    elif action == "unblock":
+        req.status = RegistrationRequest.SEEN
+        req.reviewed_by = current_user.id
+        req.reviewed_at = datetime.utcnow()
+        db.session.commit()
+        flash(f"Request from {req.full_name} unblocked. "
+              f"Back to review queue.", "success")
+
+    elif action == "delete":
+        db.session.delete(req)
+        db.session.commit()
+        flash("Request deleted.", "success")
+
+    else:
+        flash("Unknown action.", "error")
+
+    return redirect(url_for("superadmin.requests"))
+
+
 @superadmin_bp.route("/companies/<int:company_id>/members/<int:membership_id>"
                      "/block", methods=["POST"])
 @login_required
@@ -251,13 +431,6 @@ def member_block(company_id, membership_id):
     db.session.commit()
     flash(f"{user.full_name if user else 'Member'} {msg}.", "success")
     return redirect(url_for("superadmin.company_edit", company_id=company_id))
-
-
-# A super admin's own books are not a special case: they use the same portal
-# (/portal/) as every other user, with the same quota, provisioning and
-# company switch. The console used to carry a second copy of that page; two
-# "My Companies" screens for one person is one too many, so the console's
-# nav now just links to the portal.
 
 
 @superadmin_bp.route("/users/", methods=["GET", "POST"])

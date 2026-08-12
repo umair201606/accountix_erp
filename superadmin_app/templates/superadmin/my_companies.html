@@ -1,0 +1,180 @@
+{% extends "superadmin/base.html" %}
+{% block title %}My Books - Super Admin{% endblock %}
+{% block content %}
+
+<h1 class="sa-page-title">My Books</h1>
+
+<div class="sa-card">
+  <div class="sa-card-header">
+    <div>
+      <h3 class="sa-card-title">Create Company</h3>
+      <p class="sa-card-subtitle">Create a new company. You'll be its admin and its books will be provisioned automatically. Your creation limit is {{ quota_total }} — you've used {{ quota_used }}.</p>
+    </div>
+  </div>
+  <form method="POST" action="{{ url_for('superadmin.my_companies') }}">
+    <div class="fgrid">
+      <div class="fgroup">
+        <label class="lbl">Company Name</label>
+        <input type="text" name="name" class="inp" required placeholder="Acme Corp">
+      </div>
+      <div class="fgroup">
+        <label class="lbl">Company Address (slug)</label>
+        <input type="text" name="slug" class="inp" required placeholder="acme-corp" pattern="[a-z0-9][a-z0-9-]{1,60}">
+        <p class="field-hint">Lowercase letters, numbers, hyphens. 2–62 characters. This becomes the company's permanent address.</p>
+      </div>
+    </div>
+    <div class="sa-actions">
+      <button type="submit" class="btn btn-p" {{ 'disabled' if quota_used >= quota_total }}>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
+        Create Company
+      </button>
+      {% if quota_used >= quota_total %}
+      <span class="field-hint" style="margin:0;color:var(--warning);">You've reached your creation limit.</span>
+      {% endif %}
+    </div>
+  </form>
+</div>
+
+{% if owned %}
+<div class="sa-card">
+  <div class="sa-card-header">
+    <div>
+      <h3 class="sa-card-title">Companies I Created</h3>
+      <p class="sa-card-subtitle">Companies you set up. Click "Open books" to enter.</p>
+    </div>
+  </div>
+  <div class="tbl-wrap">
+    <table class="sa-tbl">
+      <thead>
+        <tr>
+          <th>Company</th>
+          <th>Slug</th>
+          <th>Plan</th>
+          <th>Members</th>
+          <th>Status</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for c in owned %}
+        <tr>
+          <td><strong>{{ c.name }}</strong></td>
+          <td><code>{{ c.slug }}</code></td>
+          <td>{{ c.plan_name or 'free' }}</td>
+          <td>{{ active_member_count(c.id) }}</td>
+          <td>
+            {% if c.is_active %}<span class="pill pill-on">active</span>
+            {% else %}<span class="pill pill-off">inactive</span>{% endif %}
+          </td>
+          <td>
+            <a class="btn btn-sm btn-p" href="{{ url_for('company_switch', company_id=c.id) }}">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2 20h20"/><path d="M5 20V8l7-4 7 4v12"/><path d="M9 20v-6h6v6"/></svg>
+              Open Books
+            </a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+{% if memberships %}
+<div class="sa-card">
+  <div class="sa-card-header">
+    <div>
+      <h3 class="sa-card-title">Companies I Belong To</h3>
+      <p class="sa-card-subtitle">Companies where another admin assigned you a role.</p>
+    </div>
+  </div>
+  <div class="tbl-wrap">
+    <table class="sa-tbl">
+      <thead>
+        <tr>
+          <th>Company</th>
+          <th>Role</th>
+          <th>Members</th>
+          <th>Status</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for m in memberships %}
+        {% set c = m.company %}
+        <tr>
+          <td><strong>{{ c.name if c else '—' }}</strong></td>
+          <td>{{ m.role_name() }}</td>
+          <td>{{ active_member_count(c.id) if c else '—' }}</td>
+          <td>
+            {% if c.is_active %}<span class="pill pill-on">active</span>
+            {% else %}<span class="pill pill-off">inactive</span>{% endif %}
+          </td>
+          <td>
+            <a class="btn btn-sm btn-p" href="{{ url_for('company_switch', company_id=c.id) }}">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2 20h20"/><path d="M5 20V8l7-4 7 4v12"/><path d="M9 20v-6h6v6"/></svg>
+              Open Books
+            </a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+{% if invites %}
+<div class="sa-card">
+  <div class="sa-card-header">
+    <div>
+      <h3 class="sa-card-title">Pending Invitations</h3>
+      <p class="sa-card-subtitle">Companies that have invited you. Accept to join, or decline to ignore.</p>
+    </div>
+  </div>
+  <div class="tbl-wrap">
+    <table class="sa-tbl">
+      <thead>
+        <tr>
+          <th>Company</th>
+          <th>Role offered</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for inv in invites %}
+        {% set c = inv.company %}
+        <tr>
+          <td><strong>{{ c.name if c else '—' }}</strong></td>
+          <td>{{ inv.role_name() }}</td>
+          <td>
+            <div style="display:flex;gap:8px;justify-content:flex-end;">
+              <form method="POST" action="{{ url_for('settings.accept_invitation', invitation_id=inv.id) }}">
+                <input type="hidden" name="next" value="{{ url_for('superadmin.my_companies') }}">
+                <button type="submit" class="btn btn-sm btn-p">Accept</button>
+              </form>
+              <form method="POST" action="{{ url_for('settings.decline_invitation', invitation_id=inv.id) }}">
+                <input type="hidden" name="next" value="{{ url_for('superadmin.my_companies') }}">
+                <button type="submit" class="btn btn-sm">Decline</button>
+              </form>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+{% if not owned and not memberships and not invites %}
+<div class="sa-card">
+  <div class="empty-state">
+    <div class="empty-state-icon" style="font-size:40px;">&#127970;</div>
+    <p style="font-weight:600;color:var(--text);margin-bottom:4px;">No companies yet</p>
+    <p style="max-width:400px;margin:0 auto;">Create your first company above, or wait for an invitation from another company's admin.</p>
+  </div>
+</div>
+{% endif %}
+
+{% endblock %}

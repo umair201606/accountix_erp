@@ -1,0 +1,101 @@
+{% extends "superadmin/base.html" %}
+{% block title %}Access Requests - Super Admin{% endblock %}
+{% block content %}
+
+<h1 class="sa-page-title">Access Requests</h1>
+
+{% if pending_count > 0 %}
+<div class="sa-stats" style="margin-bottom:24px;">
+  <div class="sa-stat" style="border-left: 3px solid var(--warning);">
+    <div class="sa-stat-value" style="color:var(--warning);">{{ pending_count }}</div>
+    <div class="sa-stat-label">Pending Review</div>
+  </div>
+  <div class="sa-stat" style="border-left: 3px solid var(--success);">
+    <div class="sa-stat-value" style="color:var(--success);">{{ approved_count }}</div>
+    <div class="sa-stat-label">Approved</div>
+  </div>
+  <div class="sa-stat" style="border-left: 3px solid var(--danger);">
+    <div class="sa-stat-value" style="color:var(--danger);">{{ blocked_count }}</div>
+    <div class="sa-stat-label">Blocked</div>
+  </div>
+</div>
+{% endif %}
+
+{% if requests %}
+<div class="sa-card">
+  <div class="sa-card-header">
+    <div>
+      <h3 class="sa-card-title">All Requests</h3>
+      <p class="sa-card-subtitle">Review, approve or block visitor registration requests. Approving creates the account and lets them sign in.</p>
+    </div>
+  </div>
+  <div class="tbl-wrap">
+    <table class="sa-tbl">
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Email</th>
+          <th>Phone</th>
+          <th>Company</th>
+          <th>Requested</th>
+          <th>Status</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in requests %}
+        <tr class="{{ 'sa-row-new' if not r.seen and r.status == 'pending' }}" style="{{ 'background:#fffbe6;' if not r.seen and r.status == 'pending' else '' }}">
+          <td><strong>{{ r.full_name }}</strong></td>
+          <td>{{ r.email }}</td>
+          <td>{{ r.phone or '—' }}</td>
+          <td>{{ r.company_name or '—' }}</td>
+          <td style="white-space:nowrap;">{{ r.created_at.strftime('%d %b %Y') }}</td>
+          <td>
+            {% if r.status == 'pending' %}<span class="pill pill-warning">pending</span>
+            {% elif r.status == 'seen' %}<span class="pill pill-sa">seen</span>
+            {% elif r.status == 'approved' %}<span class="pill pill-on">approved</span>
+            {% elif r.status == 'blocked' %}<span class="pill pill-danger">blocked</span>
+            {% else %}<span class="pill pill-off">{{ r.status }}</span>{% endif %}
+          </td>
+          <td>
+            {% if r.status in ['pending', 'seen'] %}
+            <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;">
+              <form method="POST" action="{{ url_for('superadmin.request_action', request_id=r.id, action='approve') }}">
+                <button type="submit" class="btn btn-sm btn-p">Approve</button>
+              </form>
+              <form method="POST" action="{{ url_for('superadmin.request_action', request_id=r.id, action='block') }}">
+                <button type="submit" class="btn btn-sm btn-danger">Block</button>
+              </form>
+            </div>
+            {% elif r.status == 'blocked' %}
+            <form method="POST" action="{{ url_for('superadmin.request_action', request_id=r.id, action='unblock') }}">
+              <button type="submit" class="btn btn-sm">Unblock</button>
+            </form>
+            {% elif r.status == 'approved' %}
+            <span style="font-size:12px;color:var(--text-muted);">Account created</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% if r.notes %}
+        <tr>
+          <td colspan="7" style="padding:0 12px 8px;font-size:12px;color:var(--text-secondary);background:#fafbfc;">
+            <strong>Note:</strong> {{ r.notes }}
+          </td>
+        </tr>
+        {% endif %}
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% else %}
+<div class="sa-card">
+  <div class="empty-state">
+    <div class="empty-state-icon" style="font-size:40px;">&#128233;</div>
+    <p style="font-weight:600;color:var(--text);margin-bottom:4px;">No requests yet</p>
+    <p style="max-width:400px;margin:0 auto;">When visitors request access, their submissions will appear here for review.</p>
+  </div>
+</div>
+{% endif %}
+
+{% endblock %}

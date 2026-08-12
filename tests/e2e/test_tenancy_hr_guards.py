@@ -110,6 +110,16 @@ def _login(email, password):
     return c
 
 
+def _login_super_admin(email, password):
+    """Super admins are refused by the regular form; use their own door."""
+    c = flask_app.test_client()
+    c.post("/superadmin/login", data={"login": email, "password": password},
+           follow_redirects=True)
+    with c.session_transaction() as sess:
+        assert sess.get("_user_id"), f"super admin login failed for {email}"
+    return c
+
+
 @pytest.fixture(scope="module")
 def seeded():
     with flask_app.app_context():
@@ -126,7 +136,7 @@ def test_invite_accept_next_cannot_open_redirect(seeded):
     from shared.models.company import CompanyInvitation
 
     default_id = _default_company_id()
-    admin = _login("admin@gmail.com", "admin123")
+    admin = _login_super_admin("admin@gmail.com", "admin123")
     inv_email = f"tgr_{_suffix()}@example.com"
     _create_user(inv_email)
     admin.post("/settings/invite", data={"email": inv_email,
@@ -170,7 +180,7 @@ def test_invite_decline_next_cannot_open_redirect(seeded):
     from shared.models.company import CompanyInvitation
 
     default_id = _default_company_id()
-    admin = _login("admin@gmail.com", "admin123")
+    admin = _login_super_admin("admin@gmail.com", "admin123")
     inv_email = f"tgd_{_suffix()}@example.com"
     _create_user(inv_email)
     admin.post("/settings/invite", data={"email": inv_email,
@@ -251,7 +261,7 @@ def test_user_edit_role_writes_membership_not_global(seeded):
     from shared.models.base import Role, User
     from shared.models.company import CompanyMembership
 
-    admin = _login("admin@gmail.com", "admin123")
+    admin = _login_super_admin("admin@gmail.com", "admin123")
     emp_uid = _uid("emp@solarkon.com")
     with flask_app.app_context():
         mgr_role = Role.query.filter_by(name=Role.MANAGER).first()
@@ -307,7 +317,7 @@ def test_user_edit_cannot_demote_self(seeded):
     from shared.models.base import Role
     from shared.models.company import CompanyMembership
 
-    admin = _login("admin@gmail.com", "admin123")
+    admin = _login_super_admin("admin@gmail.com", "admin123")
     admin_uid = _uid("admin@gmail.com")
     with flask_app.app_context():
         emp_role = Role.query.filter_by(name=Role.EMPLOYEE).first()
@@ -332,7 +342,7 @@ def test_user_edit_duplicate_email_refused(seeded):
     from shared.extensions import db
     from shared.models.base import Role, User
 
-    admin = _login("admin@gmail.com", "admin123")
+    admin = _login_super_admin("admin@gmail.com", "admin123")
     emp_uid = _uid("emp@solarkon.com")
     with flask_app.app_context():
         emp_role = Role.query.filter_by(name=Role.EMPLOYEE).first()
@@ -375,7 +385,7 @@ def test_member_assign_global_code_collision_guarded(seeded):
     _add_membership(bid, y_uid, role="employee")
     _add_membership(bid, _uid("admin@gmail.com"), role="admin")
 
-    admin = _login("admin@gmail.com", "admin123")
+    admin = _login_super_admin("admin@gmail.com", "admin123")
     assert admin.get(f"/company/switch/{bid}").status_code == 302
     resp = admin.post("/auth/members/assign", data={
         "user_id": str(y_uid), "employee_code": "EMP100",

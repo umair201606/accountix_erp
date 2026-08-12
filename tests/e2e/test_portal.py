@@ -101,6 +101,19 @@ def _login(email, password):
     return c, resp
 
 
+def _login_super_admin(email, password):
+    """Log in through the super admin door — the regular form rejects
+    super admins so they can't be used to discover which accounts are
+    platform operators."""
+    c = flask_app.test_client()
+    resp = c.post("/superadmin/login",
+                  data={"login": email, "password": password})
+    assert resp.status_code == 302, f"super admin login failed for {email}"
+    with c.session_transaction() as sess:
+        assert sess.get("_user_id"), f"super admin login failed for {email}"
+    return c, resp
+
+
 @pytest.fixture(scope="module")
 def seeded():
     with flask_app.app_context():
@@ -198,7 +211,7 @@ def test_default_company_is_owned_by_the_seeded_admin(seeded):
         assert default.created_by == sysadmin.id, \
             "the default company must record its admin as its creator"
 
-    c, _ = _login("admin@gmail.com", "admin123")
+    c, _ = _login_super_admin("admin@gmail.com", "admin123")
     page = c.get("/portal/")
     assert page.status_code == 200
     body = page.data.decode()
@@ -409,7 +422,7 @@ def test_invitation_accept_and_decline_return_to_portal(seeded):
 
 def test_super_admin_is_not_exposed_in_customer_portal(seeded):
     """Customer-facing portal pages do not advertise the operator console."""
-    super_c, _ = _login("admin@gmail.com", "admin123")
+    super_c, _ = _login_super_admin("admin@gmail.com", "admin123")
     page = super_c.get("/portal/")
     assert page.status_code == 200
     assert b"Super Admin" not in page.data

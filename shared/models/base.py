@@ -201,6 +201,10 @@ class User(UserMixin, db.Model):
     def set_password(self, password):
         self.password_hash = generate_password_hash(password)
 
+    def set_password_prehashed(self, password_hash):
+        """Store an already-hashed password (e.g. migrating a request to a user)."""
+        self.password_hash = password_hash
+
     def check_password(self, password):
         return check_password_hash(self.password_hash, password)
 

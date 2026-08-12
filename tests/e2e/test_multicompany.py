@@ -65,6 +65,16 @@ def _login(email, password):
     return c
 
 
+def _login_super_admin(email, password):
+    """Super admins are refused by the regular form; use their own door."""
+    c = flask_app.test_client()
+    c.post("/superadmin/login", data={"login": email, "password": password},
+           follow_redirects=True)
+    with c.session_transaction() as sess:
+        assert sess.get("_user_id"), f"super admin login failed for {email}"
+    return c
+
+
 def _create_user(email, full_name=None, password="pw12345", role="employee"):
     """Create a user row directly. Returns the user id. No membership is
     created — callers decide which companies (if any) the user belongs to."""
@@ -158,7 +168,7 @@ def test_superadmin_portal_access_and_company_creation(seeded):
     from shared.models.company import Company, GlobalLimits
 
     # Super admin (seeded) can open the portal.
-    super_ = _login("admin@gmail.com", "admin123")
+    super_ = _login_super_admin("admin@gmail.com", "admin123")
     assert super_.get("/superadmin/").status_code == 200
 
     # Create a company with a brand-new admin user.
@@ -264,7 +274,7 @@ def test_invite_accept_remove_lifecycle(seeded):
     from shared.models.company import CompanyInvitation, CompanyMembership
 
     default_id = _default_company_id()
-    admin = _login("admin@gmail.com", "admin123")
+    admin = _login_super_admin("admin@gmail.com", "admin123")
 
     # 1. Inviting a user who is ALREADY a member is refused (spec).
     with flask_app.app_context():
@@ -372,7 +382,7 @@ def test_cross_company_product_isolation(seeded):
         "company B must not resolve company A's product id"
 
     # Company A admin: the same product is still visible in A.
-    a_admin = _login("admin@gmail.com", "admin123")
+    a_admin = _login_super_admin("admin@gmail.com", "admin123")
     resp = a_admin.get("/inventory/products/")
     assert resp.status_code == 200
     assert b"ISO-PROD" in resp.data, \

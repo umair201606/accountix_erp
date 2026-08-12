@@ -1,13 +1,26 @@
 {% extends "superadmin/base.html" %}
-{% block title %}Edit {{ company.name }} - Super Admin{% endblock %}
+{% block title %}{{ company.name }} - Super Admin{% endblock %}
 {% block content %}
-<a href="{{ url_for('superadmin.companies') }}" class="btn btn-sm" style="margin-bottom:12px;">&larr; All companies</a>
+
+<a href="{{ url_for('superadmin.companies') }}" class="sa-back">
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/></svg>
+  All companies
+</a>
 
 <form method="POST" action="{{ url_for('superadmin.company_edit', company_id=company.id) }}">
   <div class="sa-card">
-    <h3>{{ company.name }}</h3>
-    <p class="hint">Quota and profile. Leave max members blank to fall back to the global default ({{ limits.default_max_members }}).</p>
-    <div class="fgrid">
+    <div class="sa-card-header">
+      <div>
+        <h3 class="sa-card-title" style="display:flex;align-items:center;gap:10px;">
+          {{ company.name }}
+          {% if company.is_active %}<span class="pill pill-on">active</span>
+          {% else %}<span class="pill pill-off">inactive</span>{% endif %}
+        </h3>
+        <p class="sa-card-subtitle">Slug: <code>{{ company.slug }}</code> &middot; Plan: {{ company.plan_name or 'free' }}</p>
+      </div>
+    </div>
+
+    <div class="fgrid three">
       <div class="fgroup">
         <label class="lbl">Company Name</label>
         <input type="text" name="name" class="inp" value="{{ company.name }}" required>
@@ -17,15 +30,9 @@
         <input type="text" name="plan_name" class="inp" value="{{ company.plan_name or 'free' }}">
       </div>
       <div class="fgroup">
-        <label class="lbl">Max Members (override)</label>
-        <input type="number" name="max_members" class="inp" min="1" value="{{ company.max_members or '' }}">
-      </div>
-      <div class="fgroup">
-        <label class="lbl">Status</label>
-        <label class="sa-stog" title="Active / inactive">
-          <input type="checkbox" name="is_active" {{ 'checked' if company.is_active }}>
-          <span class="sl"></span>
-        </label>
+        <label class="lbl">Max Members</label>
+        <input type="number" name="max_members" class="inp" min="1" value="{{ company.max_members or '' }}"
+               placeholder="blank = default ({{ limits.default_max_members }})">
       </div>
       <div class="fgroup">
         <label class="lbl">City</label>
@@ -37,7 +44,7 @@
       </div>
       <div class="fgroup">
         <label class="lbl">Currency Code</label>
-        <input type="text" name="currency" class="inp" value="{{ company.currency or 'PKR' }}">
+        <input type="text" name="currency" class="inp" value="{{ company.currency or 'PKR' }}" style="text-transform:uppercase;">
       </div>
       <div class="fgroup">
         <label class="lbl">Currency Symbol</label>
@@ -56,26 +63,37 @@
         <input type="text" name="tax_id" class="inp" value="{{ company.tax_id or '' }}">
       </div>
       <div class="fgroup">
-        <label class="lbl">Registration Number</label>
+        <label class="lbl">Registration No.</label>
         <input type="text" name="registration_number" class="inp" value="{{ company.registration_number or '' }}">
       </div>
       <div class="fgroup">
         <label class="lbl">Website</label>
-        <input type="text" name="website" class="inp" value="{{ company.website or '' }}">
+        <input type="text" name="website" class="inp" value="{{ company.website or '' }}" placeholder="https://">
       </div>
       <div class="fgroup">
         <label class="lbl">Logo URL</label>
         <input type="text" name="logo_url" class="inp" value="{{ company.logo_url or '' }}">
       </div>
-    </div>
-    <div class="fgroup">
-      <label class="lbl">Address</label>
-      <textarea name="address" class="inp" rows="2">{{ company.address or '' }}</textarea>
+      <div class="fgroup">
+        <label class="lbl">Status</label>
+        <div style="display:flex;align-items:center;gap:10px;height:38px;">
+          <label class="sa-stog" title="Active / inactive">
+            <input type="checkbox" name="is_active" {{ 'checked' if company.is_active }}>
+            <span class="sl"></span>
+          </label>
+          <span style="font-size:13px;color:var(--text-secondary);">{{ 'Active' if company.is_active else 'Inactive' }}</span>
+        </div>
+      </div>
     </div>
 
-    <div class="fgroup" style="margin-top:18px;">
-      <label class="lbl">Modules</label>
-      <p class="hint" style="margin:0 0 10px;">What this company has bought. A module switched off here disappears for everyone in the company, its admin included. Inside the company, each person still needs their own access flag.</p>
+    <div class="fgroup full" style="margin-top:8px;">
+      <label class="lbl">Address</label>
+      <textarea name="address" class="inp" rows="2" placeholder="Full company address">{{ company.address or '' }}</textarea>
+    </div>
+
+    <div class="sa-section-gap" style="border-top:1px solid var(--surface-border);padding-top:20px;margin-top:20px;">
+      <h4 style="margin:0 0 4px;font-size:14px;font-weight:700;">Module Entitlements</h4>
+      <p style="margin:0 0 14px;font-size:12.5px;color:var(--text-secondary);">What this company has bought. A module switched off here disappears for everyone in the company, its admin included.</p>
       <div class="mod-grid">
         {% for key, label, _flag, _sections in modules %}
         <label class="mod-item">
@@ -93,21 +111,33 @@
   </div>
 </form>
 
-<div class="sa-card" style="margin-top:20px;">
-  <h3>Members ({{ active_members }} active)</h3>
-  <p class="hint">Blocking keeps the membership — role, employee code and history stay put — and only stops the person entering this company. It does not touch their account or their other companies.</p>
-  <div class="tbl-scroll">
+<div class="sa-card">
+  <div class="sa-card-header">
+    <div>
+      <h3 class="sa-card-title">Members</h3>
+      <p class="sa-card-subtitle">{{ active_members }} active &middot; Blocking keeps the membership — role, employee code and history stay put — and only stops the person entering this company.</p>
+    </div>
+  </div>
+  <div class="tbl-wrap">
     <table class="sa-tbl">
       <thead>
-        <tr><th>Name</th><th>Email</th><th>Role</th><th>Status</th><th></th></tr>
+        <tr>
+          <th>Name</th>
+          <th>Email</th>
+          <th>Role</th>
+          <th>Status</th>
+          <th></th>
+        </tr>
       </thead>
       <tbody>
         {% for m, u in members %}
         <tr>
           <td>
             {% if u %}
-            <a href="{{ url_for('superadmin.user_detail', user_id=u.id) }}">{{ u.full_name }}</a>
-            {% else %}—{% endif %}
+              <a href="{{ url_for('superadmin.user_detail', user_id=u.id) }}">{{ u.full_name }}</a>
+            {% else %}
+              <span style="color:var(--text-muted);">—</span>
+            {% endif %}
           </td>
           <td>{{ u.email if u else '—' }}</td>
           <td>{{ m.role_name() }}</td>
@@ -127,10 +157,17 @@
           </td>
         </tr>
         {% else %}
-        <tr><td colspan="5" style="text-align:center;color:#94a3b8;padding:24px;">No memberships yet.</td></tr>
+        <tr>
+          <td colspan="5">
+            <div class="empty-state">
+              No memberships yet.
+            </div>
+          </td>
+        </tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
 </div>
+
 {% endblock %}

@@ -95,8 +95,17 @@ def _login(email, password):
     return c, resp
 
 
+def _login_super_admin(email, password):
+    c = flask_app.test_client()
+    resp = c.post("/superadmin/login",
+                  data={"login": email, "password": password})
+    with c.session_transaction() as sess:
+        assert sess.get("_user_id"), f"super admin login failed for {email}"
+    return c, resp
+
+
 def _super():
-    c, _ = _login("admin@gmail.com", "admin123")
+    c, _ = _login_super_admin("admin@gmail.com", "admin123")
     return c
 
 
@@ -307,18 +316,22 @@ def test_super_admin_cannot_deactivate_themselves(seeded):
         assert User.query.get(my_id).is_active is True
 
 
-# ── One My Companies page, not two ──────────────────────────────────────────
+# ── My Books is a section of the console ───────────────────────────────────
 
-def test_the_console_has_no_second_my_companies_page(seeded):
-    """A super admin's own books are not a special case: they use the same
-    portal every other user gets. The console links to it and does not carry
-    a second copy."""
+def test_my_books_is_a_console_section(seeded):
+    """The super admin's own books live inside the console — not on a separate
+    portal page — so the nav links to /superadmin/my-companies/ and the page
+    renders with the console layout."""
     sa = _super()
-    assert sa.get("/superadmin/my-companies/").status_code == 404
+    page = sa.get("/superadmin/my-companies/")
+    assert page.status_code == 200, "My Books must render inside the console"
+    assert b"Create Company" in page.data, "creation form must be present"
+
+    # The nav links to the console section, not away to the portal.
     page = sa.get("/superadmin/")
     assert page.status_code == 200
-    assert b'href="/portal/"' in page.data, \
-        "the console must link out to the one My Companies page"
+    assert b'href="/superadmin/my-companies/"' in page.data, \
+        "the console nav must link to its own My Books section"
 
 
 def test_super_admin_creates_own_company_through_the_portal(seeded):
@@ -358,6 +371,39 @@ def test_super_admin_creates_own_company_through_the_portal(seeded):
     sa.get(f"/company/switch/{cid}")
     with sa.session_transaction() as sess:
         assert sess.get("company_id") == cid
+
+
+def test_super_admin_creates_own_company_through_the_console(seeded):
+    """The console's My Books section is a full creation path — same quota,
+    same slug rule, same provisioning — as the portal."""
+    from shared.models.company import Company, CompanyMembership
+    from shared.tenancy import set_current_company
+    sa = _super()
+
+    slug = f"sacon-{_suffix()}"
+    resp = sa.post("/superadmin/my-companies/",
+                   data={"name": "SA Console Books", "slug": slug})
+    assert resp.status_code == 302
+
+    with flask_app.app_context():
+        c = Company.query.filter_by(slug=slug).first()
+        assert c is not None, "company was not created via the console"
+        cid = c.id
+        m = CompanyMembership.query.filter_by(company_id=cid).first()
+        assert m is not None and m.status == CompanyMembership.ACTIVE
+        assert m.role_name() == "admin"
+
+    # provision_company ran: chart and voucher numbering exist.
+    with flask_app.app_context():
+        from shared.models.ledger import ChartOfAccount
+        from shared.models.stock_ledger import VoucherNumber
+        set_current_company(cid)
+        assert ChartOfAccount.query.count() > 50
+        assert VoucherNumber.query.count() >= 14
+
+    # It shows on the console's My Books page.
+    page = sa.get("/superadmin/my-companies/")
+    assert b"SA Console Books" in page.data
 
 
 # ── The hub belongs to a company ────────────────────────────────────────────
@@ -810,3 +856,244 @@ def test_assign_refuses_someone_who_is_not_a_member(seeded):
     with flask_app.app_context():
         assert CompanyMembership.query.filter_by(
             company_id=cid, user_id=outsider).first() is None
+
+
+# ── Registration requests ─────────────────────────────────────────────────
+
+def test_signup_page_renders_for_visitors(seeded):
+    """An anonymous visitor can load the public signup page."""
+    c = flask_app.test_client()
+    page = c.get("/signup")
+    assert page.status_code == 200
+    assert b"Request platform access" in page.data
+
+
+def test_signup_submits_and_creates_a_pending_request(seeded):
+    """A visitor fills the form; a pending request appears for the super admin."""
+    from shared.models.company import RegistrationRequest
+    c = flask_app.test_client()
+    resp = c.post("/signup", data={
+        "full_name": "Visitor One",
+        "email": f"visitor_{_suffix()}@example.com",
+        "password": "visitor123",
+        "phone": "+92 300 1234567",
+        "company_name": "Visitor Co",
+        "notes": "Interested in the platform",
+    }, follow_redirects=True)
+    assert resp.status_code == 200
+    assert b"Request submitted" in resp.data
+
+    with flask_app.app_context():
+        req = RegistrationRequest.query.filter_by(
+            email=f"visitor_{_suffix()}@example.com").first()
+    # The email filter above won't match (suffix is random), so count instead.
+    with flask_app.app_context():
+        assert RegistrationRequest.query.count() == 1
+        req = RegistrationRequest.query.first()
+        assert req.full_name == "Visitor One"
+        assert req.status == RegistrationRequest.PENDING
+        assert req.notes == "Interested in the platform"
+
+
+def test_signup_rejects_duplicate_email(seeded):
+    """An email that already has a user or pending request is refused."""
+    from shared.models.base import User
+    from shared.models.company import RegistrationRequest
+    c = flask_app.test_client()
+
+    # Existing user email is refused.
+    resp = c.post("/signup", data={
+        "full_name": "Dup Email",
+        "email": "emp@solarkon.com",  # seeded user
+        "password": "test1234",
+    }, follow_redirects=True)
+    assert b"already exists" in resp.data
+
+    # Submit a valid request, then try the same email again.
+    dup_email = f"dup_{_suffix()}@example.com"
+    c.post("/signup", data={
+        "full_name": "First Request",
+        "email": dup_email,
+        "password": "test1234",
+    })
+    resp = c.post("/signup", data={
+        "full_name": "Second Request",
+        "email": dup_email,
+        "password": "test1234",
+    }, follow_redirects=True)
+    assert b"already pending" in resp.data
+
+
+def test_signup_rejects_duplicate_phone(seeded):
+    """A phone number already in use is refused."""
+    from shared.models.company import RegistrationRequest
+    c = flask_app.test_client()
+    phone = "+92 310 9998888"
+    # First request with this phone.
+    c.post("/signup", data={
+        "full_name": "Phone Owner",
+        "email": f"phone1_{_suffix()}@example.com",
+        "password": "test1234",
+        "phone": phone,
+    })
+    # Second request with the same phone.
+    resp = c.post("/signup", data={
+        "full_name": "Phone Thief",
+        "email": f"phone2_{_suffix()}@example.com",
+        "password": "test1234",
+        "phone": phone,
+    }, follow_redirects=True)
+    assert b"phone number already" in resp.data.lower()
+
+
+def test_admin_sees_pending_requests(seeded):
+    """The super admin console lists pending requests with counts."""
+    from shared.models.company import RegistrationRequest
+    from shared.extensions import db
+    # Create a pending request directly.
+    with flask_app.app_context():
+        req = RegistrationRequest(
+            full_name="Pending Pete",
+            email=f"pending_{_suffix()}@example.com",
+            phone="+92 321 1112222")
+        req.set_password("test1234")
+        db.session.add(req)
+        db.session.commit()
+
+    sa = _super()
+    page = sa.get("/superadmin/requests/")
+    assert page.status_code == 200
+    assert b"Pending Pete" in page.data
+    assert b"pending" in page.data
+
+
+def test_admin_approves_request_creates_user(seeded):
+    """Approving a request creates the user account and lets them sign in."""
+    from shared.models.base import User
+    from shared.models.company import RegistrationRequest
+    from shared.extensions import db
+    email = f"approve_{_suffix()}@example.com"
+    with flask_app.app_context():
+        req = RegistrationRequest(
+            full_name="Approve Me", email=email)
+        req.set_password("mypassword1")
+        db.session.add(req)
+        db.session.commit()
+        req_id = req.id
+
+    sa = _super()
+    resp = sa.post(f"/superadmin/requests/{req_id}/approve")
+    assert resp.status_code == 302
+
+    with flask_app.app_context():
+        u = User.query.filter_by(email=email).first()
+        assert u is not None, "user account must be created on approval"
+        assert u.is_active
+        assert u.check_password("mypassword1")
+        req = RegistrationRequest.query.get(req_id)
+        assert req.status == RegistrationRequest.APPROVED
+
+    # The new user can sign in.
+    c = flask_app.test_client()
+    resp = c.post("/auth/login",
+                  data={"login": email, "password": "mypassword1"})
+    assert resp.status_code == 302
+
+
+def test_admin_blocks_request(seeded):
+    """Blocking a request prevents the person from being created as a user."""
+    from shared.models.company import RegistrationRequest
+    from shared.extensions import db
+    email = f"block_{_suffix()}@example.com"
+    with flask_app.app_context():
+        req = RegistrationRequest(
+            full_name="Block Me", email=email)
+        req.set_password("test1234")
+        db.session.add(req)
+        db.session.commit()
+        req_id = req.id
+
+    sa = _super()
+    resp = sa.post(f"/superadmin/requests/{req_id}/block")
+    assert resp.status_code == 302
+
+    with flask_app.app_context():
+        req = RegistrationRequest.query.get(req_id)
+        assert req.status == RegistrationRequest.BLOCKED
+
+
+def test_admin_unblocks_request(seeded):
+    """Unblocking returns the request to the review queue."""
+    from shared.models.company import RegistrationRequest
+    from shared.extensions import db
+    email = f"unblock_{_suffix()}@example.com"
+    with flask_app.app_context():
+        req = RegistrationRequest(
+            full_name="Unblock Me", email=email)
+        req.set_password("test1234")
+        db.session.add(req)
+        db.session.commit()
+        req_id = req.id
+
+    sa = _super()
+    sa.post(f"/superadmin/requests/{req_id}/block")
+    resp = sa.post(f"/superadmin/requests/{req_id}/unblock")
+    assert resp.status_code == 302
+
+    with flask_app.app_context():
+        req = RegistrationRequest.query.get(req_id)
+        assert req.status == RegistrationRequest.SEEN
+
+
+def test_admin_deletes_request(seeded):
+    """Deleting removes the request entirely."""
+    from shared.models.company import RegistrationRequest
+    from shared.extensions import db
+    email = f"delete_{_suffix()}@example.com"
+    with flask_app.app_context():
+        req = RegistrationRequest(
+            full_name="Delete Me", email=email)
+        req.set_password("test1234")
+        db.session.add(req)
+        db.session.commit()
+        req_id = req.id
+
+    sa = _super()
+    resp = sa.post(f"/superadmin/requests/{req_id}/delete")
+    assert resp.status_code == 302
+
+    with flask_app.app_context():
+        assert RegistrationRequest.query.get(req_id) is None
+
+
+def test_signup_page_renders_and_has_form(seeded):
+    """The public sign-up page renders for anonymous visitors and shows the
+    full form with all required fields."""
+    c = flask_app.test_client()
+    page = c.get("/signup")
+    assert page.status_code == 200
+    assert b"Request platform access" in page.data
+    assert b'name="full_name"' in page.data
+    assert b'name="email"' in page.data
+    assert b'name="password"' in page.data
+    assert b'name="phone"' in page.data
+
+
+def test_ajax_check_endpoints(seeded):
+    """The AJAX check-endpoints correctly report whether an email/phone exists."""
+    from shared.extensions import db
+    from shared.models.company import RegistrationRequest
+    taken_email = f"taken_{_suffix()}@example.com"
+    with flask_app.app_context():
+        req = RegistrationRequest(full_name="Taken", email=taken_email)
+        req.set_password("test1234")
+        db.session.add(req)
+        db.session.commit()
+
+    c = flask_app.test_client()
+    # Known-existing email.
+    resp = c.get(f"/signup/check-email?email={taken_email}")
+    assert resp.json["exists"] is True
+    # Fresh email.
+    resp = c.get(f"/signup/check-email?email=fresh_{_suffix()}@example.com")
+    assert resp.json["exists"] is False

@@ -183,6 +183,7 @@
       <a href="#why">Why Accountix</a>
     </nav>
     <div class="nav-actions">
+      <a class="btn btn-secondary btn-sm" href="{{ url_for('signup') }}">Get Started</a>
       <a class="btn btn-primary btn-sm" href="{{ url_for('auth.login') }}">Sign in</a>
     </div>
   </div>
@@ -201,8 +202,8 @@
           receivable, the tax and the stock layer move together.
         </p>
         <div class="cta">
-          <a class="btn btn-primary" href="{{ url_for('auth.login') }}">Sign in to your books</a>
-          <a class="btn btn-secondary" href="#modules">See what's inside</a>
+          <a class="btn btn-primary" href="{{ url_for('signup') }}">Request Access</a>
+          <a class="btn btn-secondary" href="{{ url_for('auth.login') }}">Sign in</a>
         </div>
         <p class="cta-note">Run as many companies as your plan allows — each with its own chart of accounts, periods and numbering.</p>
       </div>
@@ -336,13 +337,14 @@
   </section>
 
   <div class="wrap" style="padding-top:64px;">
-    <div class="close-cta">
-      <h2>Ready to open your books?</h2>
-      <p>Sign in to reach your company portal and open the books you work in.</p>
-      <div class="cta">
-        <a class="btn btn-primary" href="{{ url_for('auth.login') }}">Sign in</a>
+      <div class="close-cta">
+        <h2>Ready to get started?</h2>
+        <p>Request platform access and a operator will review your request.</p>
+        <div class="cta">
+          <a class="btn btn-primary" href="{{ url_for('signup') }}">Request Access</a>
+          <a class="btn btn-secondary" href="{{ url_for('auth.login') }}">Sign in</a>
+        </div>
       </div>
-    </div>
   </div>
 </main>
 

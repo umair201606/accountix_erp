@@ -160,6 +160,76 @@ def _create_app():
                             else url_for("dashboard.hub"))
         return render_template("landing.html")
 
+    # Public signup page — visitors request platform access here.
+    @app.route("/signup", methods=["GET", "POST"])
+    def signup():
+        from shared.models.base import User
+        from shared.models.company import RegistrationRequest
+        if request.method == "POST":
+            full_name = request.form.get("full_name", "").strip()
+            email = request.form.get("email", "").strip().lower()
+            password = request.form.get("password", "")
+            phone = request.form.get("phone", "").strip()
+            company_name = request.form.get("company_name", "").strip()
+            notes = request.form.get("notes", "").strip()
+
+            if not full_name or not email or not password:
+                flash("Name, email and password are required.", "error")
+                return render_template("auth/signup.html",
+                                       form_data=request.form, submitted=False)
+            if len(password) < 4:
+                flash("Password must be at least 4 characters.", "error")
+                return render_template("auth/signup.html",
+                                       form_data=request.form, submitted=False)
+            if User.query.filter_by(email=email).first():
+                flash("An account with this email already exists. "
+                      "Sign in or use a different email.", "error")
+                return render_template("auth/signup.html",
+                                       form_data=request.form, submitted=False)
+            if RegistrationRequest.email_exists(email):
+                flash("A request with this email is already pending review.",
+                      "error")
+                return render_template("auth/signup.html",
+                                       form_data=request.form, submitted=False)
+            if phone and User.query.filter_by(phone=phone).first():
+                flash("This phone number is already registered.", "error")
+                return render_template("auth/signup.html",
+                                       form_data=request.form, submitted=False)
+            if phone and RegistrationRequest.phone_exists(phone):
+                flash("This phone number already has a pending request.",
+                      "error")
+                return render_template("auth/signup.html",
+                                       form_data=request.form, submitted=False)
+
+            req = RegistrationRequest(
+                full_name=full_name, email=email, phone=phone or None,
+                company_name=company_name or None, notes=notes or None)
+            req.set_password(password)
+            db.session.add(req)
+            db.session.commit()
+            return render_template("auth/signup.html", submitted=True)
+
+        return render_template("auth/signup.html", submitted=False)
+
+    # AJAX endpoints for real-time duplicate checking on the signup form.
+    @app.route("/signup/check-email")
+    def signup_check_email():
+        from shared.models.base import User
+        from shared.models.company import RegistrationRequest
+        email = request.args.get("email", "").strip().lower()
+        exists = (User.query.filter_by(email=email).first() is not None
+                  or RegistrationRequest.email_exists(email))
+        return {"exists": bool(exists)}
+
+    @app.route("/signup/check-phone")
+    def signup_check_phone():
+        from shared.models.base import User
+        from shared.models.company import RegistrationRequest
+        phone = request.args.get("phone", "").strip()
+        exists = (User.query.filter_by(phone=phone).first() is not None
+                  or RegistrationRequest.phone_exists(phone))
+        return {"exists": bool(exists)}
+
     # Private platform-operator entry point. It is intentionally not linked
     # from the public landing page, customer login, portal, or app shell.
     @app.route("/admin")
