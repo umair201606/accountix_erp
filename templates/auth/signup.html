@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%231d4ed8'/><text x='16' y='22' font-size='18' font-family='Arial' font-weight='bold' text-anchor='middle' fill='white'>A</text></svg>">
 <title>Request Access — Accountix ERP</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -157,12 +158,12 @@
       <div class="field-row">
         <div class="field">
           <label for="full_name">Full Name *</label>
-          <input type="text" id="full_name" name="full_name" required
+          <input type="text" id="full_name" name="full_name" required autocomplete="name"
                  placeholder="Your full name" value="{{ form_data.full_name if form_data else '' }}">
         </div>
         <div class="field">
           <label for="email">Email *</label>
-          <input type="email" id="email" name="email" required
+          <input type="email" id="email" name="email" required autocomplete="email"
                  placeholder="you@example.com" value="{{ form_data.email if form_data else '' }}">
           <p class="error-msg" id="email-error">This email is already registered or has a pending request.</p>
         </div>
@@ -170,19 +171,19 @@
       <div class="field-row">
         <div class="field">
           <label for="password">Password *</label>
-          <input type="password" id="password" name="password" required minlength="4"
+          <input type="password" id="password" name="password" required minlength="4" autocomplete="new-password"
                  placeholder="At least 4 characters">
         </div>
         <div class="field">
           <label for="phone">Phone</label>
-          <input type="tel" id="phone" name="phone"
+          <input type="tel" id="phone" name="phone" autocomplete="tel"
                  placeholder="+92 300 1234567" value="{{ form_data.phone if form_data else '' }}">
           <p class="error-msg" id="phone-error">This phone number is already in use.</p>
         </div>
       </div>
       <div class="field">
         <label for="company_name">Company Name</label>
-        <input type="text" id="company_name" name="company_name"
+        <input type="text" id="company_name" name="company_name" autocomplete="organization"
                placeholder="Optional — the company you work for" value="{{ form_data.company_name if form_data else '' }}">
       </div>
       <div class="field">

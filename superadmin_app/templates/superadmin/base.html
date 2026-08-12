@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{% block title %}Super Admin{% endblock %}</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%231d4ed8'/><text x='16' y='22' font-size='18' font-family='Arial' font-weight='bold' text-anchor='middle' fill='white'>A</text></svg>">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -72,6 +73,23 @@
       align-items: center;
       gap: 24px;
       height: 56px;
+    }
+    .sa-menu-btn {
+      display: none;
+      margin-left: auto;
+      background: transparent;
+      border: 1px solid rgba(255,255,255,.25);
+      border-radius: var(--radius);
+      color: var(--on-primary);
+      font-size: 18px;
+      line-height: 1;
+      padding: 7px 11px;
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+    .sa-menu-btn:hover {
+      background: rgba(255,255,255,.1);
+      border-color: rgba(255,255,255,.4);
     }
     .sa-brand {
       display: flex;
@@ -617,7 +635,23 @@
       .sa-stats { grid-template-columns: 1fr 1fr; }
       .sa-header-inner { padding: 0 16px; gap: 12px; }
       .sa-main { padding: 20px 16px 48px; }
-      .sa-nav a { padding: 6px 10px; font-size: 12.5px; }
+      .sa-menu-btn { display: inline-flex; }
+      .sa-nav {
+        display: none;
+        position: absolute;
+        top: 56px;
+        left: 0;
+        right: 0;
+        background: var(--primary);
+        flex-direction: column;
+        align-items: stretch;
+        padding: 8px 16px 14px;
+        box-shadow: 0 10px 20px rgba(0,0,0,.2);
+        gap: 2px;
+      }
+      .sa-nav.open { display: flex; }
+      .sa-nav a { padding: 10px 12px; font-size: 13.5px; }
+      .sa-nav a.active { color: var(--primary); background: var(--on-primary); }
       .sa-user-name { display: none; }
       .sa-card { padding: 18px 16px; }
       .sa-card-header { flex-direction: column; }
@@ -645,7 +679,9 @@
         <span class="sa-brand-icon">A</span>
         Super Admin
       </a>
-      <nav class="sa-nav">
+      <button type="button" class="sa-menu-btn" id="saMenuBtn"
+              aria-label="Toggle navigation" aria-expanded="false">&#9776;</button>
+      <nav class="sa-nav" id="saNav">
         <a href="{{ url_for('superadmin.users') }}" class="{{ 'active' if request.endpoint in ['superadmin.users', 'superadmin.user_detail'] }}">Users</a>
         <a href="{{ url_for('superadmin.companies') }}" class="{{ 'active' if request.endpoint in ['superadmin.companies', 'superadmin.company_edit'] }}">Companies</a>
         <a href="{{ url_for('superadmin.requests') }}" class="{{ 'active' if request.endpoint in ['superadmin.requests', 'superadmin.request_action'] }}">Requests{% if pending_count > 0 %} <span style="background:#fbbf24;color:#1e293b;font-size:10px;font-weight:700;padding:1px 6px;border-radius:999px;">{{ pending_count }}</span>{% endif %}</a>
@@ -662,5 +698,22 @@
     {% include '_flash.html' %}
     {% block content %}{% endblock %}
   </main>
+  <script>
+  (function () {
+    var btn = document.getElementById('saMenuBtn');
+    var nav = document.getElementById('saNav');
+    if (!btn || !nav) return;
+    btn.addEventListener('click', function () {
+      var open = nav.classList.toggle('open');
+      btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    });
+    nav.addEventListener('click', function (e) {
+      if (e.target.tagName === 'A') {
+        nav.classList.remove('open');
+        btn.setAttribute('aria-expanded', 'false');
+      }
+    });
+  })();
+  </script>
 </body>
 </html>

@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Super Admin Console — Accountix ERP</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%231d4ed8'/><text x='16' y='22' font-size='18' font-family='Arial' font-weight='bold' text-anchor='middle' fill='white'>A</text></svg>">
 <meta name="robots" content="noindex">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -230,12 +231,12 @@
     <form method="post">
       <div class="field">
         <label for="login">User ID</label>
-        <input type="text" id="login" name="login" required autofocus
+        <input type="text" id="login" name="login" required autofocus autocomplete="username"
                autocomplete="username" placeholder="Your user ID (or email)">
       </div>
       <div class="field">
         <label for="password">Password</label>
-        <input type="password" id="password" name="password" required
+        <input type="password" id="password" name="password" required autocomplete="current-password"
                autocomplete="current-password" placeholder="Enter password">
       </div>
       <button type="submit" class="submit-btn">Enter console</button>

@@ -22,3 +22,6 @@ user_password.txt
 
 # PowerShell module analysis cache (accidental local folder)
 Microsoft/
+
+# Browser tooling artifacts
+.playwright-mcp/
