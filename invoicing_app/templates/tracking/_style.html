@@ -1,7 +1,8 @@
 {# Shared look for the four Tracking pages. Included from each page's
-   extra_css block so the section reads as one system: same hero, same tiles,
-   same filter card, same table-to-card collapse below 720px. Tokens follow the
-   invoicing module accent (teal) with one colour per direction of money. #}
+   extra_css block so the section reads as one system: no page heading (the top
+   bar already names the page), one wrapping filter bar, and the same
+   table-to-card collapse below 720px. Tokens follow the invoicing module
+   accent (teal) with one colour per direction of money. #}
 <style>
 :root{
   --trk-accent:#0d9488; --trk-accent-dark:#0f766e; --trk-accent-soft:#ccfbf1;
@@ -14,22 +15,7 @@
 .trk{max-width:1320px;margin:0 auto}
 .trk *{box-sizing:border-box}
 
-/* ── Page head ──
-   The old hero + view tabs + stat-tile band cost a full viewport before any
-   row of data appeared. All three are gone; what replaced them lives under
-   "Compact page head + filter bar" below. */
-.trk-kicker{margin:0 0 5px;color:var(--trk-accent-dark);font-size:11px;font-weight:800;
-  letter-spacing:.12em;text-transform:uppercase}
-
-/* ── Ageing bar ── */
-.trk-age-bar{display:flex;height:9px;border-radius:999px;overflow:hidden;background:#eef2f7;
-  margin-top:10px}
-.trk-age-bar span{display:block;height:100%}
-.trk-age-legend{display:flex;flex-wrap:wrap;gap:10px;margin-top:9px}
-.trk-age-legend div{display:inline-flex;align-items:center;gap:5px;color:var(--muted);font-size:11px}
-.trk-age-legend i{width:8px;height:8px;border-radius:2px;display:inline-block}
-
-/* ── Filter card ── */
+/* ── Cards (detail pages only) ── */
 .trk-card{border:1px solid var(--trk-line);border-radius:14px;background:#fff;
   box-shadow:var(--trk-shadow);overflow:hidden;margin-bottom:18px}
 .trk-card-head{display:flex;align-items:center;justify-content:space-between;gap:12px;
@@ -40,8 +26,6 @@
   box-shadow:0 0 0 4px rgba(13,148,136,.13);flex:none}
 .trk-card-hint{color:var(--muted);font-size:11px}
 .trk-card-body{padding:15px 17px}
-.trk-filter-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(178px,1fr));gap:12px;
-  align-items:end}
 .trk-field{min-width:0}
 .trk-lbl{display:block;margin:0 0 6px;color:var(--muted);font-size:10px;font-weight:800;
   letter-spacing:.09em;text-transform:uppercase}
@@ -59,32 +43,29 @@
 .trk-chip input:checked+span{background:var(--trk-accent);border-color:var(--trk-accent);color:#fff}
 .trk-chip input:focus-visible+span{box-shadow:0 0 0 3px rgba(13,148,136,.2)}
 .trk-chip.is-late input:checked+span{background:var(--trk-late);border-color:var(--trk-late)}
-.trk-filter-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center;
-  margin-top:14px;padding-top:13px;border-top:1px dashed var(--trk-line)}
-.trk-filter-actions .btn{min-height:36px}
-.trk-active-note{margin-left:auto;color:var(--muted);font-size:11px}
 
-/* ── Compact page head + filter bar ──
-   These pages are a list and the controls for it, so the controls are one
-   wrapping line rather than a card — a card here just pushed the list itself
-   below the fold. */
-.trk-pagehead{margin:0 0 16px}
-.trk-pagehead h1{margin:2px 0 0;font-size:21px;letter-spacing:-.02em;color:var(--ink)}
-.trk-pagehead .trk-sub{margin:6px 0 0;max-width:74ch;font-size:12.5px;line-height:1.55}
+/* Detail pages only — the list pages have no head at all, since the top bar
+   already names them. */
+.trk-pagehead{margin:0 0 14px}
 .trk-pagehead-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
-.trk-pagehead-row h1{flex:1 1 auto}
+.trk-idline{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px;margin:0;flex:1 1 auto;
+  color:var(--muted);font-size:13px}
+.trk-idline b{color:var(--ink);font-size:17px;font-weight:800;
+  font-variant-numeric:tabular-nums}
+.trk-idline strong{color:var(--ink);font-weight:700}
+.trk-idline .sep{opacity:.4}
 .trk-back{display:inline-block;margin-bottom:4px;color:var(--muted);font-size:11.5px;
   font-weight:700;text-decoration:none}
 .trk-back:hover{color:var(--trk-accent-dark)}
-.trk-bar{display:flex;flex-direction:column;gap:10px;margin:0 0 12px}
-.trk-bar-row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
-.trk-bar-row .trk-select,.trk-bar-row .trk-input{width:auto;min-width:132px;min-height:36px;
+.trk-filterbar{display:flex;flex-direction:column;gap:10px;margin:0 0 12px}
+.trk-filterbar-row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.trk-filterbar-row .trk-select,.trk-filterbar-row .trk-input{width:auto;min-width:132px;min-height:36px;
   font-size:12.5px}
-.trk-bar-row .trk-bar-search{flex:1 1 200px;min-width:170px}
-.trk-bar-row .btn{min-height:36px}
+.trk-filterbar-row .trk-filterbar-search{flex:1 1 200px;min-width:170px}
+.trk-filterbar-row .btn{min-height:36px}
 .trk-count{margin:0 0 12px;color:var(--muted);font-size:11.5px}
 /* Headline figures as a sentence, not a row of cards. */
-.trk-statline{display:flex;flex-wrap:wrap;align-items:baseline;gap:7px;margin:0 0 9px;
+.trk-statline{display:flex;flex-wrap:wrap;align-items:baseline;gap:7px;margin:2px 0 10px;
   color:var(--muted);font-size:12.5px}
 .trk-statline b{color:var(--ink);font-size:15px;font-weight:800;
   font-variant-numeric:tabular-nums}
@@ -293,22 +274,18 @@ td.trk-empty{border-top:1px solid #eef2f7}
 @media(max-width:720px){
   .trk-card-head{flex-direction:column;align-items:flex-start;padding:13px 14px}
   .trk-card-body{padding:14px}
-  .trk-filter-actions .btn{flex:1;justify-content:center}
-  .trk-active-note{margin:6px 0 0;width:100%}
   /* Filter bar on a phone: the chips scroll sideways in one row instead of
      stacking into a wall, and the rest goes two-up so it stays one thumb
      reach rather than a screenful of controls. */
-  .trk-pagehead h1{font-size:19px}
-  .trk-pagehead .trk-sub{font-size:12px}
   .trk-chips{flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch;
     scrollbar-width:none;margin:0 -14px;padding:2px 14px}
   .trk-chips::-webkit-scrollbar{display:none}
   .trk-chip span{padding:8px 14px}
-  .trk-bar-row{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
-  .trk-bar-row .trk-select,.trk-bar-row .trk-input{width:100%;min-width:0;min-height:40px}
-  .trk-bar-row .trk-bar-search{grid-column:1/-1}
-  .trk-bar-row .btn{min-height:40px;justify-content:center}
-  .trk-bar-row .trk-rowbtn{min-height:40px;justify-content:center}
+  .trk-filterbar-row{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+  .trk-filterbar-row .trk-select,.trk-filterbar-row .trk-input{width:100%;min-width:0;min-height:40px}
+  .trk-filterbar-row .trk-filterbar-search{grid-column:1/-1}
+  .trk-filterbar-row .btn{min-height:40px;justify-content:center}
+  .trk-filterbar-row .trk-rowbtn{min-height:40px;justify-content:center}
   /* Tables become cards: each cell shows its own label. */
   .trk-table{min-width:0}
   .trk-table thead{display:none}
@@ -351,9 +328,9 @@ td.trk-empty{border-top:1px solid #eef2f7}
 @media(max-width:420px){
   .trk-amount{font-size:17px}
   .trk-party{white-space:normal}
-  .trk-bar-row{grid-template-columns:1fr}
+  .trk-filterbar-row{grid-template-columns:1fr}
 }
 @media print{
-  .trk-bar,.trk-item-actions,.trk-savebar,.trk-back{display:none!important}
+  .trk-filterbar,.trk-item-actions,.trk-savebar,.trk-back{display:none!important}
 }
 </style>

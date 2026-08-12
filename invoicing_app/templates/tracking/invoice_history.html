@@ -6,17 +6,18 @@
 {% set pct = row.progress if row.progress < 100 else 100 %}
 <div class="trk">
 
+  {# No heading: the top bar already says "Payment history · <invoice>". #}
   <header class="trk-pagehead">
     <a href="{{ url_for(doc_meta.endpoint) }}" class="trk-back">&larr; {{ doc_meta.title }}</a>
     <div class="trk-pagehead-row">
-      <h1>{{ row.number }}</h1>
+      <p class="trk-idline">
+        <strong>{{ row.party_name }}</strong>
+        <span class="sep">·</span> issued {{ row.date_str or '—' }}
+        <span class="sep">·</span> due {{ row.due_str or '—' }}
+        {% if row.overdue_days > 0 %}<span class="trk-age hot">{{ row.overdue_days }} days late</span>{% endif %}
+      </p>
       <a href="{{ edit_url }}" class="trk-rowbtn">Open invoice</a>
     </div>
-    <p class="trk-sub">
-      {{ doc_meta.party_label }} <strong>{{ row.party_name }}</strong> &middot;
-      issued {{ row.date_str or '—' }} &middot; due {{ row.due_str or '—' }}
-      {% if row.overdue_days > 0 %}<span class="trk-age hot" style="margin-left:6px;">{{ row.overdue_days }} days late</span>{% endif %}
-    </p>
   </header>
 
   <div class="trk-card">

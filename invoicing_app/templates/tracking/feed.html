@@ -36,17 +36,8 @@
 {% block content %}
 <div class="trk">
 
-  {# One job on this page: work the feed. Recording vouchers belongs to
-     Accounting, and the two invoice registers are their own sidebar entries —
-     neither is duplicated here. #}
-  <header class="trk-pagehead">
-    <p class="trk-kicker">Invoicing / Payment tracking</p>
-    <h1>Payment &amp; Receipt Feed</h1>
-    <p class="trk-sub">Approved receipts from customers and payments to
-      suppliers, newest first. Assigning one settles invoices — it posts
-      nothing to the ledger.</p>
-  </header>
-
+  {# No page title here: the top bar already names the page, and the list is
+     what the user came for. #}
   {% if stale %}
   {# Assignments that stopped holding because the voucher or invoice behind
      them was edited. The rows are kept rather than auto-deleted so what was
@@ -95,7 +86,7 @@
 
   {# The status chips carry their own counts, which is what the tile row used
      to be for. Everything else folds into one line that wraps. #}
-  <form method="GET" id="feedFilters" class="trk-bar">
+  <form method="GET" id="feedFilters" class="trk-filterbar">
     <div class="trk-chips">
       {% for key, label in [('unassigned','Unassigned'),('partial','Partial'),('review','Re-assign'),('assigned','Assigned'),('forced','No invoice')] %}
       <label class="trk-chip">
@@ -106,7 +97,7 @@
       {% endfor %}
     </div>
 
-    <div class="trk-bar-row">
+    <div class="trk-filterbar-row">
       <select name="flow" class="trk-select" aria-label="Direction">
         <option value="">All directions</option>
         <option value="receipt" {{ 'selected' if filters.flow == 'receipt' }}>Receipts in</option>
@@ -125,7 +116,7 @@
           {% endfor %}
         </optgroup>
       </select>
-      <input type="search" name="q" value="{{ filters.q }}" class="trk-input trk-bar-search"
+      <input type="search" name="q" value="{{ filters.q }}" class="trk-input trk-filterbar-search"
              placeholder="Voucher no. or narration" aria-label="Search" autocomplete="off">
       <input type="date" name="from" value="{{ filters['from'] }}" class="trk-input" aria-label="From date">
       <input type="date" name="to" value="{{ filters.to }}" class="trk-input" aria-label="To date">
@@ -176,7 +167,7 @@
             <div class="trk-amount-sub">{{ 'received' if r.flow == 'receipt' else 'paid' }}</div>
           </div>
           <div class="trk-progress-col">
-            <div class="trk-bar"><i style="width:{{ '%.1f'|format(r.progress if r.progress < 100 else 100) }}%"></i></div>
+            <div class="trk-filterbar"><i style="width:{{ '%.1f'|format(r.progress if r.progress < 100 else 100) }}%"></i></div>
             <div class="trk-progress-legend">
               {# The forced part is broken out: "assigned" would otherwise read
                  as invoice-matched money when a person simply closed it. #}

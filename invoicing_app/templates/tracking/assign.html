@@ -6,16 +6,20 @@
 {% set doc_word = 'sales' if row.doc_type == 'SI' else 'purchase' %}
 <div class="trk">
 
-  {# A detail page: the back link is real navigation, so it stays — the view
-     switcher does not, it lives in the sidebar. #}
+  {# The back link is real navigation so it stays. No heading: the top bar
+     already says "Assign receipt · <voucher>". What is left is the facts of
+     the payment, which the top bar does not carry. #}
   <header class="trk-pagehead">
     <a href="{{ url_for('inv_tracking.feed') }}" class="trk-back">&larr; Payment feed</a>
-    <h1>{{ 'Receipt from' if row.flow == 'receipt' else 'Payment to' }} {{ row.party_name }}</h1>
-    <p class="trk-sub">
+    <p class="trk-idline">
+      <b>{{ row.amount|amount_format(2) }}</b>
+      {{ 'from' if row.flow == 'receipt' else 'to' }}
+      <strong>{{ row.party_name }}</strong>
+      <span class="sep">·</span>
       <span class="trk-vtype">{{ row.voucher_type }}</span>
       <a href="{{ url_for('accounting.voucher_form', id=row.voucher_id) }}" class="trk-vno">{{ row.voucher_number }}</a>
-      &middot; {{ row.date_str }}{% if row.cash_account %} &middot; through {{ row.cash_account }}{% endif %}
-      &middot; {{ row.amount|amount_format(2) }}
+      <span class="sep">·</span> {{ row.date_str }}
+      {%- if row.cash_account %} <span class="sep">·</span> {{ row.cash_account }}{% endif %}
     </p>
   </header>
 

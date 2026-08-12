@@ -6,15 +6,7 @@
 {% set bucket_colors = {'not_due':'#94a3b8','d1_30':'#0d9488','d31_60':'#b45309','d61_90':'#c2410c','d90_plus':'#b91c1c'} %}
 <div class="trk">
 
-  {# A register and the controls for it. The feed and the other side of the
-     ledger are sidebar entries, not something to duplicate here. #}
-  <header class="trk-pagehead">
-    <p class="trk-kicker">{{ doc_meta.kicker }}</p>
-    <h1>{{ doc_meta.title }}</h1>
-    <p class="trk-sub">{{ doc_meta.blurb }} Settled figures come from the receipts
-      and payments assigned in the feed — no ledger balance is changed here.</p>
-  </header>
-
+  {# No page title here: the top bar already names the page. #}
   {# The headline numbers as a line of text rather than a row of cards, plus a
      slim ageing strip: the same information, a fifth of the height. #}
   <div class="trk-statline">
@@ -42,7 +34,7 @@
   </div>
   {% endif %}
 
-  <form method="GET" class="trk-bar">
+  <form method="GET" class="trk-filterbar">
     <div class="trk-chips">
       {% for key, label in [('unpaid','Unpaid'),('partial','Partial'),('paid','Paid')] %}
       <label class="trk-chip">
@@ -56,7 +48,7 @@
       </label>
     </div>
 
-    <div class="trk-bar-row">
+    <div class="trk-filterbar-row">
       {# Five age chips collapsed into one control — it is a single choice in
          practice, and the chips were a whole extra row. #}
       <select name="age" class="trk-select" aria-label="Overdue age">
@@ -71,7 +63,7 @@
         <option value="{{ p.id }}" {{ 'selected' if filters.party_id == p.id }}>{{ p.name }}</option>
         {% endfor %}
       </select>
-      <input type="search" name="q" value="{{ filters.q }}" class="trk-input trk-bar-search"
+      <input type="search" name="q" value="{{ filters.q }}" class="trk-input trk-filterbar-search"
              placeholder="Invoice number" aria-label="Invoice number" autocomplete="off">
       <input type="date" name="from" value="{{ filters['from'] }}" class="trk-input" aria-label="From date">
       <input type="date" name="to" value="{{ filters.to }}" class="trk-input" aria-label="To date">
