@@ -6,23 +6,18 @@
 {% set pct = row.progress if row.progress < 100 else 100 %}
 <div class="trk">
 
-  <div class="trk-hero">
-    <div class="trk-hero-copy">
-      <p class="trk-kicker">{{ doc_meta.kicker }} / {{ 'Sales invoice' if doc_type == 'SI' else 'Purchase invoice' }}</p>
+  <header class="trk-pagehead">
+    <a href="{{ url_for(doc_meta.endpoint) }}" class="trk-back">&larr; {{ doc_meta.title }}</a>
+    <div class="trk-pagehead-row">
       <h1>{{ row.number }}</h1>
-      <p class="trk-sub">
-        {{ doc_meta.party_label }} <strong>{{ row.party_name }}</strong> &middot;
-        issued {{ row.date_str or '—' }} &middot; due {{ row.due_str or '—' }}
-        {% if row.overdue_days > 0 %}<span class="trk-age hot" style="margin-left:6px;">{{ row.overdue_days }} days late</span>{% endif %}
-      </p>
+      <a href="{{ edit_url }}" class="trk-rowbtn">Open invoice</a>
     </div>
-    <div class="trk-hero-actions">
-      <a href="{{ url_for(doc_meta.endpoint) }}" class="btn btn-outline">&larr; Back to tracking</a>
-      <a href="{{ edit_url }}" class="btn btn-outline">Open invoice</a>
-    </div>
-  </div>
-
-  {% include "tracking/_tabs.html" %}
+    <p class="trk-sub">
+      {{ doc_meta.party_label }} <strong>{{ row.party_name }}</strong> &middot;
+      issued {{ row.date_str or '—' }} &middot; due {{ row.due_str or '—' }}
+      {% if row.overdue_days > 0 %}<span class="trk-age hot" style="margin-left:6px;">{{ row.overdue_days }} days late</span>{% endif %}
+    </p>
+  </header>
 
   <div class="trk-card">
     <div class="trk-card-body">

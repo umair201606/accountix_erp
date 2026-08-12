@@ -6,23 +6,18 @@
 {% set doc_word = 'sales' if row.doc_type == 'SI' else 'purchase' %}
 <div class="trk">
 
-  <div class="trk-hero">
-    <div class="trk-hero-copy">
-      <p class="trk-kicker">Invoicing / Payment tracking</p>
-      <h1>{{ 'Receipt from' if row.flow == 'receipt' else 'Payment to' }} {{ row.party_name }}</h1>
-      <p class="trk-sub">
-        <span class="trk-vtype">{{ row.voucher_type }}</span>
-        <a href="{{ url_for('accounting.voucher_form', id=row.voucher_id) }}" class="trk-vno">{{ row.voucher_number }}</a>
-        &middot; {{ row.date_str }}{% if row.cash_account %} &middot; through {{ row.cash_account }}{% endif %}
-        &middot; {{ row.amount|amount_format(2) }}
-      </p>
-    </div>
-    <div class="trk-hero-actions">
-      <a href="{{ url_for('inv_tracking.feed') }}" class="btn btn-outline">&larr; Back to feed</a>
-    </div>
-  </div>
-
-  {% include "tracking/_tabs.html" %}
+  {# A detail page: the back link is real navigation, so it stays — the view
+     switcher does not, it lives in the sidebar. #}
+  <header class="trk-pagehead">
+    <a href="{{ url_for('inv_tracking.feed') }}" class="trk-back">&larr; Payment feed</a>
+    <h1>{{ 'Receipt from' if row.flow == 'receipt' else 'Payment to' }} {{ row.party_name }}</h1>
+    <p class="trk-sub">
+      <span class="trk-vtype">{{ row.voucher_type }}</span>
+      <a href="{{ url_for('accounting.voucher_form', id=row.voucher_id) }}" class="trk-vno">{{ row.voucher_number }}</a>
+      &middot; {{ row.date_str }}{% if row.cash_account %} &middot; through {{ row.cash_account }}{% endif %}
+      &middot; {{ row.amount|amount_format(2) }}
+    </p>
+  </header>
 
   <div class="trk-err" id="trkErr" role="alert" style="margin:0 0 16px;"></div>
 

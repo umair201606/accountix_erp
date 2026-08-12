@@ -36,22 +36,16 @@
 {% block content %}
 <div class="trk">
 
-  <div class="trk-hero">
-    <div class="trk-hero-copy">
-      <p class="trk-kicker">Invoicing / Payment tracking</p>
-      <h1>Payment &amp; Receipt Feed</h1>
-      <p class="trk-sub">Every approved receipt from a customer and payment to a
-        supplier, newest first. Assign each one to the invoices it settles — one
-        invoice or several. Assigning changes no ledger balance: the money was
-        posted when its voucher was approved.</p>
-    </div>
-    <div class="trk-hero-actions">
-      <a href="{{ url_for('accounting.voucher_form', type='CRV') }}" class="btn btn-primary">+ Record receipt</a>
-      <a href="{{ url_for('accounting.voucher_form', type='CPV') }}" class="btn btn-outline">+ Record payment</a>
-    </div>
-  </div>
-
-  {% include "tracking/_tabs.html" %}
+  {# One job on this page: work the feed. Recording vouchers belongs to
+     Accounting, and the two invoice registers are their own sidebar entries —
+     neither is duplicated here. #}
+  <header class="trk-pagehead">
+    <p class="trk-kicker">Invoicing / Payment tracking</p>
+    <h1>Payment &amp; Receipt Feed</h1>
+    <p class="trk-sub">Approved receipts from customers and payments to
+      suppliers, newest first. Assigning one settles invoices — it posts
+      nothing to the ledger.</p>
+  </header>
 
   {% if stale %}
   {# Assignments that stopped holding because the voucher or invoice behind
@@ -99,112 +93,51 @@
   </section>
   {% endif %}
 
-  <div class="trk-tiles">
-    <div class="trk-tile warn">
-      <div class="trk-tile-label">Unassigned</div>
-      <div class="trk-tile-value">{{ summary.unassigned_count }}</div>
-      <div class="trk-tile-foot">{{ summary.unassigned_value|amount_format(0) }} not yet matched</div>
+  {# The status chips carry their own counts, which is what the tile row used
+     to be for. Everything else folds into one line that wraps. #}
+  <form method="GET" id="feedFilters" class="trk-bar">
+    <div class="trk-chips">
+      {% for key, label in [('unassigned','Unassigned'),('partial','Partial'),('review','Re-assign'),('assigned','Assigned'),('forced','No invoice')] %}
+      <label class="trk-chip">
+        <input type="checkbox" name="state" value="{{ key }}" {{ 'checked' if key in filters.state }}>
+        <span>{{ label }}
+          <b>{{ summary[key ~ '_count'] }}</b></span>
+      </label>
+      {% endfor %}
     </div>
-    <div class="trk-tile">
-      <div class="trk-tile-label">Partially assigned</div>
-      <div class="trk-tile-value">{{ summary.partial_count }}</div>
-      <div class="trk-tile-foot">Still carry a balance to match</div>
-    </div>
-    <div class="trk-tile in">
-      <div class="trk-tile-label">Receipts to assign</div>
-      <div class="trk-tile-value">{{ summary.receipts_open_value|amount_format(0) }}</div>
-      <div class="trk-tile-foot">{{ summary.receipts_open }} customer receipt{{ '' if summary.receipts_open == 1 else 's' }}</div>
-    </div>
-    <div class="trk-tile out">
-      <div class="trk-tile-label">Payments to assign</div>
-      <div class="trk-tile-value">{{ summary.payments_open_value|amount_format(0) }}</div>
-      <div class="trk-tile-foot">{{ summary.payments_open }} supplier payment{{ '' if summary.payments_open == 1 else 's' }}</div>
-    </div>
-    <div class="trk-tile">
-      <div class="trk-tile-label">Fully assigned</div>
-      <div class="trk-tile-value">{{ summary.assigned_count }}</div>
-      <div class="trk-tile-foot">
-        {% if summary.forced_count %}
-        <a href="{{ url_for('inv_tracking.feed', state='forced') }}">+ {{ summary.forced_count }} closed with no invoice &rarr;</a>
-        {% elif drafts %}<a href="{{ url_for('accounting.voucher_list', status='unapproved') }}">{{ drafts }} unapproved voucher{{ '' if drafts == 1 else 's' }} &rarr;</a>
-        {% else %}Nothing left to match{% endif %}
-      </div>
-    </div>
-  </div>
 
-  <section class="trk-card trk-filters">
-    <div class="trk-card-head">
-      <div class="trk-card-title"><span class="trk-dot"></span><span>Filter the feed</span></div>
-      <span class="trk-card-hint">Anything still needing a decision is shown by default</span>
+    <div class="trk-bar-row">
+      <select name="flow" class="trk-select" aria-label="Direction">
+        <option value="">All directions</option>
+        <option value="receipt" {{ 'selected' if filters.flow == 'receipt' }}>Receipts in</option>
+        <option value="payment" {{ 'selected' if filters.flow == 'payment' }}>Payments out</option>
+      </select>
+      <select name="party" class="trk-select" aria-label="Customer or supplier">
+        <option value="">All parties</option>
+        <optgroup label="Customers">
+          {% for c in customers %}
+          <option value="customer:{{ c.id }}" {{ 'selected' if filters.party == 'customer:' ~ c.id }}>{{ c.name }}</option>
+          {% endfor %}
+        </optgroup>
+        <optgroup label="Suppliers">
+          {% for s in suppliers %}
+          <option value="supplier:{{ s.id }}" {{ 'selected' if filters.party == 'supplier:' ~ s.id }}>{{ s.name }}</option>
+          {% endfor %}
+        </optgroup>
+      </select>
+      <input type="search" name="q" value="{{ filters.q }}" class="trk-input trk-bar-search"
+             placeholder="Voucher no. or narration" aria-label="Search" autocomplete="off">
+      <input type="date" name="from" value="{{ filters['from'] }}" class="trk-input" aria-label="From date">
+      <input type="date" name="to" value="{{ filters.to }}" class="trk-input" aria-label="To date">
+      <button type="submit" class="btn btn-sm btn-primary">Apply</button>
+      {% if filters.flow or filters.party or filters.q or filters['from'] or filters.to %}
+      <a href="{{ url_for('inv_tracking.feed') }}" class="trk-rowbtn">Reset</a>
+      {% endif %}
     </div>
-    <div class="trk-card-body">
-      <form method="GET" id="feedFilters">
-        <div class="trk-field" style="margin-bottom:14px;">
-          <span class="trk-lbl">Assignment status</span>
-          <div class="trk-chips">
-            {% for key, label in [('unassigned','Unassigned'),('partial','Partially assigned'),('assigned','Fully assigned'),('forced','Closed — no invoice'),('review','Needs re-assignment')] %}
-            <label class="trk-chip">
-              <input type="checkbox" name="state" value="{{ key }}" {{ 'checked' if key in filters.state }}>
-              <span>{{ label }}</span>
-            </label>
-            {% endfor %}
-            <a href="{{ url_for('inv_tracking.feed') }}?state=" class="trk-rowbtn" style="min-height:33px;">Show all</a>
-          </div>
-        </div>
-        <div class="trk-filter-grid">
-          <div class="trk-field">
-            <label class="trk-lbl" for="flowFilter">Direction</label>
-            <select id="flowFilter" name="flow" class="trk-select">
-              <option value="">Receipts &amp; payments</option>
-              <option value="receipt" {{ 'selected' if filters.flow == 'receipt' }}>Receipts from customers</option>
-              <option value="payment" {{ 'selected' if filters.flow == 'payment' }}>Payments to suppliers</option>
-            </select>
-          </div>
-          <div class="trk-field">
-            <label class="trk-lbl" for="partyFilter">Customer / supplier</label>
-            <select id="partyFilter" name="party" class="trk-select">
-              <option value="">All parties</option>
-              <optgroup label="Customers">
-                {% for c in customers %}
-                <option value="customer:{{ c.id }}" {{ 'selected' if filters.party == 'customer:' ~ c.id }}>{{ c.name }}</option>
-                {% endfor %}
-              </optgroup>
-              <optgroup label="Suppliers">
-                {% for s in suppliers %}
-                <option value="supplier:{{ s.id }}" {{ 'selected' if filters.party == 'supplier:' ~ s.id }}>{{ s.name }}</option>
-                {% endfor %}
-              </optgroup>
-            </select>
-          </div>
-          <div class="trk-field">
-            <label class="trk-lbl" for="fromFilter">Voucher date from</label>
-            <input type="date" id="fromFilter" name="from" value="{{ filters['from'] }}" class="trk-input">
-          </div>
-          <div class="trk-field">
-            <label class="trk-lbl" for="toFilter">To</label>
-            <input type="date" id="toFilter" name="to" value="{{ filters.to }}" class="trk-input">
-          </div>
-          <div class="trk-field">
-            <label class="trk-lbl" for="qFilter">Search</label>
-            <input type="search" id="qFilter" name="q" value="{{ filters.q }}" class="trk-input"
-                   placeholder="Voucher no. or narration" autocomplete="off">
-          </div>
-        </div>
-        <div class="trk-filter-actions">
-          <button type="submit" class="btn btn-sm btn-primary">Apply filters</button>
-          <a href="{{ url_for('inv_tracking.feed') }}" class="btn btn-sm btn-outline">Reset</a>
-          <span class="trk-active-note">{{ rows|length }} item{{ '' if rows|length == 1 else 's' }} in view</span>
-        </div>
-      </form>
-    </div>
-  </section>
+  </form>
 
-  <section class="trk-card">
-    <div class="trk-card-head">
-      <div class="trk-card-title"><span class="trk-dot"></span><span>Money in the books</span></div>
-      <span class="trk-card-hint">Sorted by voucher date, latest first</span>
-    </div>
-    <div class="trk-card-body" style="background:#fbfdff;">
+  <p class="trk-count">{{ rows|length }} item{{ '' if rows|length == 1 else 's' }}{% if drafts %} · {{ drafts }} unapproved voucher{{ '' if drafts == 1 else 's' }} not shown{% endif %}</p>
+
       {% if rows %}
       <div class="trk-feed">
         {% for r in rows %}
@@ -285,11 +218,8 @@
           payments appear once their CRV / BRV / CPV / BPV / JV is approved and
           the line hits a customer or supplier account.
           {% if drafts %}There {{ 'is' if drafts == 1 else 'are' }} {{ drafts }} unapproved voucher{{ '' if drafts == 1 else 's' }} waiting.{% endif %}</p>
-        <a href="{{ url_for('accounting.voucher_form', type='CRV') }}" class="btn btn-primary">Record a receipt</a>
       </div>
       {% endif %}
-    </div>
-  </section>
 </div>
 
 {% if can_assign %}

@@ -14,44 +14,12 @@
 .trk{max-width:1320px;margin:0 auto}
 .trk *{box-sizing:border-box}
 
-/* ── Hero ── */
-.trk-hero{display:flex;align-items:flex-end;justify-content:space-between;gap:18px;
-  margin-bottom:20px;flex-wrap:wrap}
-.trk-hero-copy{min-width:240px;flex:1}
+/* ── Page head ──
+   The old hero + view tabs + stat-tile band cost a full viewport before any
+   row of data appeared. All three are gone; what replaced them lives under
+   "Compact page head + filter bar" below. */
 .trk-kicker{margin:0 0 5px;color:var(--trk-accent-dark);font-size:11px;font-weight:800;
   letter-spacing:.12em;text-transform:uppercase}
-.trk-hero h1{margin:0;color:var(--ink);font-size:26px;line-height:1.22;letter-spacing:-.02em}
-.trk-hero p.trk-sub{margin:7px 0 0;color:var(--muted);font-size:13px;max-width:70ch}
-.trk-hero-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-
-/* ── Tabs across the three tracking views ── */
-.trk-tabs{display:flex;gap:6px;margin-bottom:18px;padding:4px;border:1px solid var(--trk-line);
-  border-radius:11px;background:#fff;box-shadow:var(--trk-shadow);overflow-x:auto}
-.trk-tab{display:inline-flex;align-items:center;gap:7px;padding:8px 14px;border-radius:8px;
-  color:var(--muted);font-size:12.5px;font-weight:700;text-decoration:none;white-space:nowrap}
-.trk-tab:hover{background:#f1f5f9;color:var(--ink);text-decoration:none}
-.trk-tab.active{background:var(--trk-accent);color:#fff}
-.trk-tab .n{display:inline-flex;align-items:center;justify-content:center;min-width:20px;height:19px;
-  padding:0 6px;border-radius:999px;background:#f1f5f9;color:var(--muted);font-size:10px;font-weight:800}
-.trk-tab.active .n{background:rgba(255,255,255,.22);color:#fff}
-
-/* ── Stat tiles ── */
-.trk-tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;
-  margin-bottom:18px}
-.trk-tile{position:relative;padding:15px 16px;border:1px solid var(--trk-line);border-radius:13px;
-  background:#fff;box-shadow:var(--trk-shadow);overflow:hidden}
-.trk-tile::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--trk-accent)}
-.trk-tile.in::before{background:var(--trk-in)}
-.trk-tile.out::before{background:var(--trk-out)}
-.trk-tile.late::before{background:var(--trk-late)}
-.trk-tile.warn::before{background:var(--trk-warn)}
-.trk-tile-label{color:var(--muted);font-size:10px;font-weight:800;letter-spacing:.08em;
-  text-transform:uppercase}
-.trk-tile-value{margin-top:5px;color:var(--ink);font-size:23px;font-weight:800;
-  font-variant-numeric:tabular-nums;line-height:1.15;word-break:break-word}
-.trk-tile-value small{font-size:12px;font-weight:700;color:var(--muted)}
-.trk-tile-foot{margin-top:4px;color:var(--muted);font-size:11.5px}
-.trk-tile-foot a{color:var(--trk-accent-dark);font-weight:700}
 
 /* ── Ageing bar ── */
 .trk-age-bar{display:flex;height:9px;border-radius:999px;overflow:hidden;background:#eef2f7;
@@ -95,6 +63,45 @@
   margin-top:14px;padding-top:13px;border-top:1px dashed var(--trk-line)}
 .trk-filter-actions .btn{min-height:36px}
 .trk-active-note{margin-left:auto;color:var(--muted);font-size:11px}
+
+/* ── Compact page head + filter bar ──
+   These pages are a list and the controls for it, so the controls are one
+   wrapping line rather than a card — a card here just pushed the list itself
+   below the fold. */
+.trk-pagehead{margin:0 0 16px}
+.trk-pagehead h1{margin:2px 0 0;font-size:21px;letter-spacing:-.02em;color:var(--ink)}
+.trk-pagehead .trk-sub{margin:6px 0 0;max-width:74ch;font-size:12.5px;line-height:1.55}
+.trk-pagehead-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.trk-pagehead-row h1{flex:1 1 auto}
+.trk-back{display:inline-block;margin-bottom:4px;color:var(--muted);font-size:11.5px;
+  font-weight:700;text-decoration:none}
+.trk-back:hover{color:var(--trk-accent-dark)}
+.trk-bar{display:flex;flex-direction:column;gap:10px;margin:0 0 12px}
+.trk-bar-row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.trk-bar-row .trk-select,.trk-bar-row .trk-input{width:auto;min-width:132px;min-height:36px;
+  font-size:12.5px}
+.trk-bar-row .trk-bar-search{flex:1 1 200px;min-width:170px}
+.trk-bar-row .btn{min-height:36px}
+.trk-count{margin:0 0 12px;color:var(--muted);font-size:11.5px}
+/* Headline figures as a sentence, not a row of cards. */
+.trk-statline{display:flex;flex-wrap:wrap;align-items:baseline;gap:7px;margin:0 0 9px;
+  color:var(--muted);font-size:12.5px}
+.trk-statline b{color:var(--ink);font-size:15px;font-weight:800;
+  font-variant-numeric:tabular-nums}
+.trk-statline .sep{opacity:.45}
+.trk-statline .late{color:var(--trk-late);text-decoration:none}
+.trk-statline .late b{color:var(--trk-late)}
+.trk-statline .late:hover{text-decoration:underline}
+.trk-agestrip{display:flex;height:5px;border-radius:999px;overflow:hidden;background:#eef2f7;
+  margin:0 0 14px}
+.trk-agestrip span{display:block;height:100%}
+/* The register table carries the page on its own, so it needs a border to sit
+   in but not a titled card wrapped around it. */
+.trk-table-plain{border:1px solid var(--trk-line);border-radius:11px;background:#fff;
+  box-shadow:var(--trk-shadow);overflow-x:auto}
+/* The count each status chip carries — this is what the tile row used to be. */
+.trk-chip span b{font-weight:800;font-variant-numeric:tabular-nums;opacity:.62}
+.trk-chip input:checked+span b{opacity:.85}
 
 /* ── Feed items ── */
 .trk-feed{display:grid;gap:11px}
@@ -284,15 +291,24 @@ td.trk-empty{border-top:1px solid #eef2f7}
   .trk-item-actions .btn,.trk-item-actions .trk-rowbtn{flex:1}
 }
 @media(max-width:720px){
-  .trk-hero h1{font-size:21px}
-  .trk-hero-actions{width:100%}
-  .trk-hero-actions .btn{flex:1;justify-content:center}
   .trk-card-head{flex-direction:column;align-items:flex-start;padding:13px 14px}
   .trk-card-body{padding:14px}
-  .trk-tiles{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
-  .trk-tile-value{font-size:19px}
   .trk-filter-actions .btn{flex:1;justify-content:center}
   .trk-active-note{margin:6px 0 0;width:100%}
+  /* Filter bar on a phone: the chips scroll sideways in one row instead of
+     stacking into a wall, and the rest goes two-up so it stays one thumb
+     reach rather than a screenful of controls. */
+  .trk-pagehead h1{font-size:19px}
+  .trk-pagehead .trk-sub{font-size:12px}
+  .trk-chips{flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch;
+    scrollbar-width:none;margin:0 -14px;padding:2px 14px}
+  .trk-chips::-webkit-scrollbar{display:none}
+  .trk-chip span{padding:8px 14px}
+  .trk-bar-row{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+  .trk-bar-row .trk-select,.trk-bar-row .trk-input{width:100%;min-width:0;min-height:40px}
+  .trk-bar-row .trk-bar-search{grid-column:1/-1}
+  .trk-bar-row .btn{min-height:40px;justify-content:center}
+  .trk-bar-row .trk-rowbtn{min-height:40px;justify-content:center}
   /* Tables become cards: each cell shows its own label. */
   .trk-table{min-width:0}
   .trk-table thead{display:none}
@@ -320,12 +336,24 @@ td.trk-empty{border-top:1px solid #eef2f7}
   .trk-timeline{padding-left:24px}
   .trk-ev::before{left:-21px}
 }
+@media(max-width:560px){
+  /* One column, and the amount sits with the party rather than in its own
+     right-hand rail — at this width a rail is two words per line. */
+  .trk-item{grid-template-columns:minmax(0,1fr);grid-template-areas:"main" "amount" "prog" "act";
+    padding:14px 15px 14px 18px;row-gap:11px}
+  .trk-amount-col{text-align:left;display:flex;align-items:baseline;gap:7px}
+  .trk-amount-sub{margin:0}
+  .trk-item-actions{gap:8px}
+  .trk-item-actions .btn,.trk-item-actions .trk-rowbtn{min-height:40px}
+  .trk-attention-head{padding:13px 14px}
+  .trk-attention-head .btn{width:100%;min-height:40px;justify-content:center}
+}
 @media(max-width:420px){
-  .trk-tiles{grid-template-columns:1fr}
   .trk-amount{font-size:17px}
   .trk-party{white-space:normal}
+  .trk-bar-row{grid-template-columns:1fr}
 }
 @media print{
-  .trk-hero-actions,.trk-tabs,.trk-card.trk-filters,.trk-item-actions,.trk-savebar{display:none!important}
+  .trk-bar,.trk-item-actions,.trk-savebar,.trk-back{display:none!important}
 }
 </style>
