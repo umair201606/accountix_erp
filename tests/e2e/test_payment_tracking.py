@@ -627,6 +627,79 @@ def test_unapproving_the_invoice_returns_the_money_to_the_feed(engine, scenario)
         db.session.commit()
 
 
+def test_stale_allocations_describe_what_broke(engine, scenario):
+    from shared import payment_tracking as pt
+    from shared.models.accounting_voucher import AccountingVoucher
+    pt.allocate(scenario["line_id"], [{"doc_id": scenario["inv_a"],
+                                       "amount": 3000}])
+    voucher = AccountingVoucher.query.get(scenario["voucher_id"])
+    voucher.status = "unapproved"
+    db.session.commit()
+    try:
+        stale = pt.stale_allocations()
+        assert len(stale) == 1
+        row = stale[0]
+        assert row["voucher_number"] == "TRK-CRV-1"
+        assert row["doc_number"] == "TRK-A"
+        assert row["party_name"] == "Tracking Test Customer"
+        assert row["amount"] == pytest.approx(3000.0)
+        assert row["reason"], "every stale row must say why it broke"
+    finally:
+        voucher.status = "approved"
+        db.session.commit()
+
+
+def test_clearing_stale_allocations_removes_only_the_broken_ones(engine,
+                                                                 scenario):
+    from shared import payment_tracking as pt
+    from shared.models.accounting_voucher import AccountingVoucher
+    from shared.models.payment_allocation import PaymentAllocation
+    pt.allocate(scenario["line_id"], [{"doc_id": scenario["inv_a"],
+                                       "amount": 3000},
+                                      {"doc_id": scenario["inv_b"],
+                                       "amount": 1000}])
+    voucher = AccountingVoucher.query.get(scenario["voucher_id"])
+    voucher.status = "unapproved"
+    db.session.commit()
+    voucher.status = "approved"          # only inv_b is broken, below
+    db.session.commit()
+
+    # Break exactly one side: unapprove invoice B.
+    from inventory_app.models.invoice import InvInvoice
+    inv_b = InvInvoice.query.get(scenario["inv_b"])
+    inv_b.voucher_status = "unapproved"
+    db.session.commit()
+    try:
+        assert len(pt.stale_allocations()) == 1
+        assert pt.clear_stale_allocations() == 1
+        assert pt.stale_allocations() == []
+        # The good half survived.
+        remaining = PaymentAllocation.query.filter_by(
+            voucher_line_id=scenario["line_id"]).all()
+        assert {int(a.doc_id) for a in remaining} == {scenario["inv_a"]}
+        assert pt.invoice_row(pt.SALES, scenario["inv_a"])["pay_state"] == "paid"
+    finally:
+        inv_b.voucher_status = "approved"
+        db.session.commit()
+
+
+def test_clearing_stale_writes_no_journal(engine, scenario):
+    from shared import payment_tracking as pt
+    from inventory_app.models.invoice import InvInvoice
+    pt.allocate(scenario["line_id"], [{"doc_id": scenario["inv_a"],
+                                       "amount": 3000}])
+    inv = InvInvoice.query.get(scenario["inv_a"])
+    inv.voucher_status = "unapproved"
+    db.session.commit()
+    before = _ledger_fingerprint()
+    try:
+        pt.clear_stale_allocations()
+        assert _ledger_fingerprint() == before
+    finally:
+        inv.voucher_status = "approved"
+        db.session.commit()
+
+
 def test_reconcile_is_safe_to_run_with_nothing_to_do(engine, scenario):
     from shared import payment_tracking as pt
     assert pt.reconcile() == 0
@@ -757,6 +830,40 @@ def test_feed_renders_the_forced_row(client, reset, scenario):
     assert "customer advance" in body
     assert "No invoice" in body
     client.post(f"/invoicing/tracking/api/release-force/{line}")
+
+
+def test_needs_attention_panel_renders_and_clears(client, reset, scenario):
+    """The panel only appears when something is actually broken, explains why,
+    and the clear action removes the link without touching the money."""
+    from shared import payment_tracking as pt
+    from inventory_app.models.invoice import InvInvoice
+
+    body = client.get("/invoicing/tracking/").get_data(as_text=True)
+    assert "needs attention" not in body
+
+    with _tenant_ctx(scenario):
+        pt.allocate(scenario["line_id"], [{"doc_id": scenario["inv_a"],
+                                           "amount": 3000}])
+        inv = InvInvoice.query.get(scenario["inv_a"])
+        inv.voucher_status = "unapproved"
+        db.session.commit()
+    try:
+        body = client.get("/invoicing/tracking/").get_data(as_text=True)
+        assert "needs attention" in body
+        assert "TRK-A" in body
+        assert "no longer approved" in body
+
+        resp = client.post("/invoicing/tracking/api/clear-stale", json={})
+        assert resp.status_code == 200
+        assert resp.get_json()["cleared"] == 1
+
+        body = client.get("/invoicing/tracking/").get_data(as_text=True)
+        assert "needs attention" not in body
+    finally:
+        with _tenant_ctx(scenario):
+            inv = InvInvoice.query.get(scenario["inv_a"])
+            inv.voucher_status = "approved"
+            db.session.commit()
 
 
 def test_force_close_api_refuses_a_missing_reason(client, reset, scenario):

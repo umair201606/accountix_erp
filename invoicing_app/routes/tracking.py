@@ -124,6 +124,10 @@ def feed():
         rows=rows,
         summary=pt.feed_summary(),
         drafts=pt.draft_settlement_count(),
+        # Assignments that stopped holding because a voucher or invoice was
+        # edited underneath them. Shown regardless of the state filter — it is
+        # a data-integrity notice, not a feed row.
+        stale=pt.stale_allocations(),
         customers=InvCustomer.query.order_by(InvCustomer.name).all(),
         suppliers=InvSupplier.query.order_by(InvSupplier.name).all(),
         filters={"state": states, "flow": flow, "party": party_raw,
@@ -318,6 +322,22 @@ def api_release_force(line_id):
     return jsonify({"ok": True, "row": row,
                     "splits": pt.history_for_line(line_id),
                     "message": "Reopened for assignment"})
+
+
+@inv_track_bp.route("/api/clear-stale", methods=["POST"])
+@login_required
+def api_clear_stale():
+    """Drop assignments that no longer hold. With no ids, drops them all."""
+    denied = deny_json(RESOURCE, "edit")
+    if denied:
+        return denied
+    data = request.get_json(silent=True) or {}
+    ids = data.get("ids")
+    cleared = pt.clear_stale_allocations(ids if ids else None)
+    return jsonify({"ok": True, "cleared": cleared,
+                    "message": (f"Cleared {cleared} broken assignment"
+                                f"{'' if cleared == 1 else 's'}")
+                    if cleared else "There was nothing to clear"})
 
 
 @inv_track_bp.route("/api/unassign/<int:alloc_id>", methods=["POST"])

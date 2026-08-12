@@ -53,6 +53,52 @@
 
   {% include "tracking/_tabs.html" %}
 
+  {% if stale %}
+  {# Assignments that stopped holding because the voucher or invoice behind
+     them was edited. The rows are kept rather than auto-deleted so what was
+     matched before is still visible when someone comes to look. #}
+  <section class="trk-attention">
+    <div class="trk-attention-head">
+      <div>
+        <h2>{{ stale|length }} assignment{{ '' if stale|length == 1 else 's' }} needs attention</h2>
+        <p>These were assigned earlier, but the voucher or invoice behind them
+          has since changed, so they no longer count. The invoices involved have
+          already dropped back to unpaid or partially paid — nothing was posted
+          and no ledger balance moved. Clearing them only removes the broken
+          link.</p>
+      </div>
+      {% if can_assign %}
+      <button type="button" class="btn btn-sm btn-outline" id="trkClearStale">Clear all</button>
+      {% endif %}
+    </div>
+    <div class="trk-table-wrap">
+      <table class="trk-table">
+        <thead>
+          <tr><th>Voucher</th><th>Party</th><th>Was assigned to</th>
+              <th class="num">Amount</th><th>Why it broke</th></tr>
+        </thead>
+        <tbody>
+          {% for s in stale %}
+          <tr>
+            <td data-label="Voucher">
+              <a href="{{ url_for('accounting.voucher_form', id=s.voucher_id) }}"
+                 class="trk-doclink">{{ s.voucher_number }}</a>
+              {% if s.voucher_status != 'approved' %}
+              <span class="trk-state trk-state-review">{{ s.voucher_status }}</span>
+              {% endif %}
+            </td>
+            <td data-label="Party">{{ s.party_name }}</td>
+            <td data-label="Was assigned to">{{ s.doc_number }}</td>
+            <td data-label="Amount" class="num strong">{{ s.amount|amount_format(2) }}</td>
+            <td data-label="Why it broke">{{ s.reason }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+  {% endif %}
+
   <div class="trk-tiles">
     <div class="trk-tile warn">
       <div class="trk-tile-label">Unassigned</div>
@@ -561,6 +607,30 @@
   document.addEventListener('keydown', function (e) {
     if (e.key === 'Escape' && fPanel.classList.contains('show')) fClose();
   });
+
+  // ── Clear broken assignments ──────────────────────────────────────────────
+  var clearBtn = document.getElementById('trkClearStale');
+  if (clearBtn) {
+    clearBtn.addEventListener('click', function () {
+      clearBtn.disabled = true;
+      clearBtn.textContent = 'Clearing…';
+      fetch('{{ url_for("inv_tracking.api_clear_stale") }}',
+            { method: 'POST', headers: { 'Content-Type': 'application/json' } })
+        .then(function (res) { return res.json(); })
+        .then(function (data) {
+          if (!data.ok) {
+            clearBtn.disabled = false;
+            clearBtn.textContent = 'Clear all';
+            return;
+          }
+          window.location.reload();
+        })
+        .catch(function () {
+          clearBtn.disabled = false;
+          clearBtn.textContent = 'Clear all';
+        });
+    });
+  }
 })();
 </script>
 {% endif %}

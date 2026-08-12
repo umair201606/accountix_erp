@@ -970,20 +970,83 @@ def stale_allocations():
     has to refresh the invoices those rows used to settle.
     """
     _live, stale = classify_allocations(PaymentAllocation.query.all())
+    if not stale:
+        return []
+
+    # Both sides are looked up leniently: the whole reason a row is stale may
+    # be that the voucher or the invoice is gone, so neither can be assumed.
+    vouchers = {}
+    if stale:
+        for v in AccountingVoucher.query.filter(AccountingVoucher.id.in_(
+                {int(a.voucher_id) for a, _r in stale})).all():
+            vouchers[int(v.id)] = v
+    docs = {}
+    for doc_type in (SALES, PURCHASE):
+        ids = {int(a.doc_id) for a, _r in stale if a.doc_type == doc_type}
+        if not ids:
+            continue
+        model = _doc_model(doc_type)
+        for inv in model.query.filter(model.id.in_(ids)).all():
+            docs[(doc_type, int(inv.id))] = inv
+    names = {}
+    for kind, party_id, name in party_account_index().values():
+        names[(kind, int(party_id))] = name
+
     out = []
     for a, reason in stale:
+        v = vouchers.get(int(a.voucher_id))
+        inv = docs.get((a.doc_type, int(a.doc_id)))
         out.append({
             "id": a.id,
             "voucher_id": a.voucher_id,
+            "voucher_number": v.voucher_number if v else "(deleted voucher)",
+            "voucher_type": v.voucher_type if v else "",
+            "voucher_status": v.status if v else "deleted",
+            "date": v.voucher_date if v else a.created_at,
             "line_id": a.voucher_line_id,
             "doc_type": a.doc_type,
             "doc_id": a.doc_id,
+            "doc_number": ("Not applicable to any invoice"
+                           if a.doc_type == NOT_APPLICABLE
+                           else (inv.invoice_number if inv
+                                 else f"#{a.doc_id} (deleted)")),
             "party_type": a.party_type,
             "party_id": a.party_id,
+            "party_name": names.get((a.party_type, int(a.party_id)),
+                                    f"{a.party_type} #{a.party_id}"),
             "amount": _f(a.amount),
             "reason": reason,
+            "by": a.creator.full_name if a.creator else "",
         })
+    out.sort(key=lambda r: r["id"])
     return out
+
+
+def clear_stale_allocations(alloc_ids=None):
+    """Delete broken assignments, then refresh the invoices they pointed at.
+
+    Deliberately a separate, explicit action rather than something the read
+    path does: a stale row is usually the trace of an accidental voucher edit,
+    and keeping it until someone looks is what lets them see what was matched
+    before deciding. Removes no money and writes no journal.
+    """
+    stale = classify_allocations(PaymentAllocation.query.all())[1]
+    rows = [a for a, _reason in stale]
+    if alloc_ids is not None:
+        wanted = {int(i) for i in alloc_ids}
+        rows = [a for a in rows if int(a.id) in wanted]
+    if not rows:
+        return 0
+
+    touched = {(a.doc_type, int(a.doc_id)) for a in rows}
+    for a in rows:
+        db.session.delete(a)
+    db.session.flush()
+    for doc_type, doc_id in touched:
+        if doc_type in (SALES, PURCHASE):
+            recompute_doc(doc_type, doc_id)
+    db.session.commit()
+    return len(rows)
 
 
 def reconcile(doc_type=None, doc_ids=None):

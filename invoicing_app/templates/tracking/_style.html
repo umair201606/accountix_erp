@@ -145,6 +145,21 @@
 /* The voucher was edited after it was assigned — a contradiction, not a
    status, so it gets the loudest badge on the page. */
 .trk-state-review{background:#fef2f2;color:#b91c1c}
+
+/* Broken-assignment notice. Sits above the feed's own tiles because it is a
+   data-integrity warning, not another thing to work through. */
+.trk-attention{border:1px solid #fecaca;border-left:4px solid var(--trk-late);
+  border-radius:12px;background:var(--trk-late-soft);overflow:hidden;margin:0 0 18px}
+.trk-attention-head{display:flex;align-items:flex-start;gap:16px;padding:14px 16px}
+.trk-attention-head h2{margin:0;font-size:14.5px;color:var(--trk-late);letter-spacing:-.01em}
+.trk-attention-head p{margin:5px 0 0;font-size:12px;line-height:1.55;color:#7f1d1d;max-width:78ch}
+.trk-attention-head .btn{margin-left:auto;flex:none}
+.trk-attention .trk-table-wrap{background:#fff;border-top:1px solid #fecaca}
+.trk-attention .trk-table{min-width:760px}
+@media(max-width:720px){
+  .trk-attention-head{flex-direction:column;gap:10px}
+  .trk-attention-head .btn{margin-left:0}
+}
 .trk-item-actions{display:flex;flex-direction:column;gap:6px;align-items:stretch}
 .trk-item-actions .btn{justify-content:center;white-space:nowrap}
 
