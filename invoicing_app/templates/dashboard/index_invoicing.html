@@ -1,7 +1,58 @@
 {% extends "layouts/base_invoicing.html" %}
 {% block title %}Invoicing Dashboard{% endblock %}
 {% block page_title %}Invoicing Dashboard{% endblock %}
+{% block extra_css %}
+<style>
+/* Settlement band — the money position, above the document counts. */
+.dash-track{display:grid;grid-template-columns:repeat(auto-fit,minmax(215px,1fr));gap:14px;
+  margin-bottom:22px}
+.dash-track-card{position:relative;display:block;padding:16px 18px;border:1px solid #e3e8ef;
+  border-radius:13px;background:#fff;box-shadow:0 8px 20px rgba(15,23,42,.05);overflow:hidden;
+  text-decoration:none;transition:box-shadow .15s ease,border-color .15s ease}
+.dash-track-card:hover{border-color:#cbd5e1;box-shadow:0 12px 28px rgba(15,23,42,.09);
+  text-decoration:none}
+.dash-track-card::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;
+  background:#0d9488}
+.dash-track-card.warn::before{background:#b45309}
+.dash-track-card.late::before{background:#b91c1c}
+.dash-track-card.out::before{background:#4338ca}
+.dash-track-label{color:#43474e;font-size:10px;font-weight:800;letter-spacing:.08em;
+  text-transform:uppercase}
+.dash-track-value{margin-top:5px;color:#161c22;font-size:24px;font-weight:800;
+  font-variant-numeric:tabular-nums;line-height:1.15}
+.dash-track-foot{margin-top:4px;color:#43474e;font-size:11.5px}
+.dash-track-cta{margin-top:9px;color:#0f766e;font-size:11.5px;font-weight:800}
+@media(max-width:560px){.dash-track{grid-template-columns:1fr}}
+</style>
+{% endblock %}
 {% block content %}
+<div class="dash-track">
+  <a href="{{ url_for('inv_tracking.feed') }}" class="dash-track-card warn">
+    <div class="dash-track-label">Payments to assign</div>
+    <div class="dash-track-value">{{ feed_summary.unassigned_value|amount_format(0) }}</div>
+    <div class="dash-track-foot">{{ feed_summary.unassigned_count }} unassigned &middot; {{ feed_summary.partial_count }} partial</div>
+    <div class="dash-track-cta">Open the payment feed &rarr;</div>
+  </a>
+  <a href="{{ url_for('inv_tracking.sales') }}" class="dash-track-card late">
+    <div class="dash-track-label">Receivable</div>
+    <div class="dash-track-value">{{ ar.outstanding|amount_format(0) }}</div>
+    <div class="dash-track-foot">{{ ar.overdue|amount_format(0) }} overdue across {{ ar.overdue_count }} invoice{{ '' if ar.overdue_count == 1 else 's' }}</div>
+    <div class="dash-track-cta">Track sales invoices &rarr;</div>
+  </a>
+  <a href="{{ url_for('inv_tracking.purchases') }}" class="dash-track-card out">
+    <div class="dash-track-label">Payable</div>
+    <div class="dash-track-value">{{ ap.outstanding|amount_format(0) }}</div>
+    <div class="dash-track-foot">{{ ap.overdue|amount_format(0) }} overdue across {{ ap.overdue_count }} invoice{{ '' if ap.overdue_count == 1 else 's' }}</div>
+    <div class="dash-track-cta">Track purchase invoices &rarr;</div>
+  </a>
+  <a href="{{ url_for('inv_tracking.sales', overdue='1') }}" class="dash-track-card">
+    <div class="dash-track-label">Open invoices</div>
+    <div class="dash-track-value">{{ ar.open_count + ap.open_count }}</div>
+    <div class="dash-track-foot">{{ ar.open_count }} sales &middot; {{ ap.open_count }} purchase still owing</div>
+    <div class="dash-track-cta">See what is overdue &rarr;</div>
+  </a>
+</div>
+
 <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:16px;margin-bottom:24px;">
   <div class="card" style="padding:20px;">
     <div style="font-size:12px;color:#6b7280;font-weight:600;text-transform:uppercase;">Suppliers</div>

@@ -638,6 +638,11 @@ def save_invoice():
             )
     
         db.session.commit()
+        # Changing the total changes what the existing assignments settle, so
+        # the invoice's paid/partial/unpaid state is re-derived here. Subledger
+        # matching only — no journal is written by this call.
+        from shared import payment_tracking as _pt
+        _pt.sync_invoice(_pt.SALES, inv.id)
         if action == "approve":
             msg = "approved and locked"
         elif inv_id:
@@ -685,6 +690,10 @@ def unapprove_invoice(id):
     reverse_voucher_stock("SI", inv.id)
 
     db.session.commit()
+    # An unapproved invoice owes nothing, so anything assigned to it stops
+    # counting and the receipts return to the feed.
+    from shared import payment_tracking as _pt
+    _pt.sync_invoice(_pt.SALES, inv.id)
     return jsonify({"ok": True, "voucher_status": "unapproved",
                     "message": "Invoice unapproved and unlocked"})
 
@@ -700,6 +709,8 @@ def delete_invoice(id):
         return jsonify({"ok": False, "error": "Cannot delete an approved invoice. Unapprove it first."}), 400
     try:
         InvInvoiceItem.query.filter_by(invoice_id=inv.id).delete()
+        from shared import payment_tracking as _pt
+        _pt.drop_allocations_for_doc(_pt.SALES, inv.id)
         db.session.delete(inv)
         db.session.commit()
         return jsonify({"ok": True, "message": "Invoice deleted successfully"})
@@ -711,42 +722,26 @@ def delete_invoice(id):
 @inv_inv_bp.route("/pay/<int:id>", methods=["POST"])
 @login_required
 def pay_invoice(id):
-    if deny_page("sales_invoices", "edit"):
-        return redirect(url_for("inv_invoices.list_invoices"))
+    """Retired: receipts are recorded as vouchers and assigned in Tracking.
+
+    This used to post its own ``PMT`` journal (Dr Cash / Cr AR) and add to
+    ``paid_amount`` directly. That made a second, invisible way for money to
+    enter the books — one with no voucher behind it, unreachable from the
+    accounting module and impossible to assign to anything — and it wrote the
+    same ``paid_amount`` the tracker derives from assignments, so the two
+    disagreed the moment both were used.
+
+    A receipt is now a CRV/BRV (or a JV line) like any other, and Invoicing >
+    Tracking assigns it to the invoices it settles. The route is kept so old
+    links land somewhere useful instead of on a 404, and it deliberately
+    neither posts nor writes anything.
+    """
     inv = scoped_get_404(InvInvoice, id)
-    amount = request.form.get("amount", 0, type=float)
-    if amount <= 0:
-        flash("Invalid payment amount", "error")
-    else:
-        inv.paid_amount = (inv.paid_amount or 0) + amount
-        if inv.paid_amount >= inv.total_amount:
-            inv.payment_status = "paid"
-        else:
-            inv.payment_status = "partial"
-        cash_acc = posting_account("cash")
-        # Credit the same account the invoice debited, so the customer's
-        # ledger nets to the unpaid balance.
-        ar_acc = party_account("customer", inv.customer_id,
-                               inv.customer.name if inv.customer else None,
-                               inv.party_account_id)
-        if cash_acc and ar_acc:
-            post_journal_entry(
-                voucher_type="PMT",
-                voucher_id=inv.id,
-                voucher_number=f"PMT-{inv.invoice_number}-{datetime.utcnow():%Y%m%d%H%M%S}",
-                description=f"Payment received for {inv.invoice_number} - {inv.customer.name if inv.customer else ''}",
-                lines=[
-                    {"account_id": cash_acc.id, "debit": amount, "credit": 0,
-                     "description": f"Cash - {inv.invoice_number}"},
-                    {"account_id": ar_acc.id, "debit": 0, "credit": amount,
-                     "description": f"AR - {inv.invoice_number}"},
-                ],
-                entry_date=datetime.utcnow(),
-                created_by=current_user.id,
-            )
-        db.session.commit()
-        flash(f"Payment of {amount} recorded", "success")
-    return redirect(url_for("inv_invoices.list_invoices"))
+    flash("Receipts are recorded as a Cash/Bank Receipt Voucher and then "
+          "assigned to invoices here — that keeps one trail for the money.",
+          "info")
+    return redirect(url_for("inv_tracking.invoice_history",
+                            doc_type="SI", doc_id=inv.id))
 
 
 @inv_inv_bp.route("/api/products")

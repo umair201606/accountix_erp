@@ -39,6 +39,10 @@ MODULES = [
         ("purchase_returns", "Purchase Returns"),
         ("sales_invoices", "Sales"),
         ("sales_returns", "Sales Returns"),
+        # Invoice tracking: "view" opens the feed and the AR/AP registers,
+        # "edit" is what lets a payment be assigned to invoices. It carries no
+        # posting rights — assignment never touches the ledger.
+        ("payment_tracking", "Invoice Tracking & Payment Assignment"),
     ]),
     ("finance", "Finance", "has_finance_access", [
         ("financial_reports", "Financial Reports"),

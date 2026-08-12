@@ -41,7 +41,7 @@
             <td><a href="{{ url_for('accounting.voucher_form', id=v.id) }}" style="font-weight:600;color:var(--ledger);text-decoration:none;">{{ v.voucher_number }}</a></td>
             <td><span class="bdg" style="background:#eef2ff;color:#4338ca;">{{ v.voucher_type }}</span></td>
             <td>{{ v.voucher_date.strftime('%Y-%m-%d') if v.voucher_date else '' }}</td>
-            <td>{% if v.status == 'unapproved' %}<span class="bdg" style="background:#f1f5f9;color:var(--muted);">Unapproved</span>{% else %}<span class="bdg" style="background:#dcfce7;color:#16a34a;">Approved</span>{% endif %}</td>
+            <td>{% if v.status == 'unapproved' %}<span class="bdg" style="background:#f1f5f9;color:var(--muted);">Unapproved</span>{% else %}<span class="bdg" style="background:#dcfce7;color:#15803d;">Approved</span>{% endif %}</td>
             <td><a href="{{ url_for('accounting.voucher_form', id=v.id) }}" class="bsm">View</a></td>
           </tr>
           {% else %}

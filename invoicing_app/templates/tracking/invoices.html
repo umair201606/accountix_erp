@@ -1,0 +1,213 @@
+{% extends "layouts/base_invoicing.html" %}
+{% block title %}{{ doc_meta.title }}{% endblock %}
+{% block page_title %}{{ doc_meta.title }}{% endblock %}
+{% block extra_css %}{% include "tracking/_style.html" %}{% endblock %}
+{% block content %}
+{% set bucket_colors = {'not_due':'#94a3b8','d1_30':'#0d9488','d31_60':'#b45309','d61_90':'#c2410c','d90_plus':'#b91c1c'} %}
+<div class="trk">
+
+  <div class="trk-hero">
+    <div class="trk-hero-copy">
+      <p class="trk-kicker">{{ doc_meta.kicker }}</p>
+      <h1>{{ doc_meta.title }}</h1>
+      <p class="trk-sub">{{ doc_meta.blurb }} Settled figures come from the receipts
+        and payments assigned in the feed — no ledger balance is derived from or
+        changed by this page.</p>
+    </div>
+    <div class="trk-hero-actions">
+      <a href="{{ url_for('inv_tracking.feed', flow=doc_meta.flow) }}" class="btn btn-primary">Assign {{ 'receipts' if doc_type == 'SI' else 'payments' }}</a>
+      <a href="{{ url_for('inv_invoices.list_invoices') if doc_type == 'SI' else url_for('inv_purchase_invoice.list_invoices') }}" class="btn btn-outline">All invoices</a>
+    </div>
+  </div>
+
+  {% include "tracking/_tabs.html" %}
+
+  <div class="trk-tiles">
+    <div class="trk-tile late">
+      <div class="trk-tile-label">Total {{ doc_meta.open_word }}</div>
+      <div class="trk-tile-value">{{ summary.outstanding|amount_format(0) }}</div>
+      <div class="trk-tile-foot">{{ summary.open_count }} invoice{{ '' if summary.open_count == 1 else 's' }} with a balance</div>
+    </div>
+    <div class="trk-tile warn">
+      <div class="trk-tile-label">Overdue</div>
+      <div class="trk-tile-value">{{ summary.overdue|amount_format(0) }}</div>
+      <div class="trk-tile-foot">
+        {% if summary.overdue_count %}
+        <a href="{{ url_for(doc_meta.endpoint, overdue='1') }}">{{ summary.overdue_count }} invoice{{ '' if summary.overdue_count == 1 else 's' }} past due &rarr;</a>
+        {% else %}Nothing past due{% endif %}
+      </div>
+    </div>
+    <div class="trk-tile in">
+      <div class="trk-tile-label">{{ doc_meta.money_word }} &amp; assigned</div>
+      <div class="trk-tile-value">{{ rows|sum(attribute='settled')|amount_format(0) }}</div>
+      <div class="trk-tile-foot">Across the {{ rows|length }} invoice{{ '' if rows|length == 1 else 's' }} in view</div>
+    </div>
+    <div class="trk-tile" style="grid-column:span 2;">
+      <div class="trk-tile-label">Ageing of the {{ doc_meta.open_word|lower }}</div>
+      <div class="trk-age-bar">
+        {% set age_total = summary.buckets.values()|sum %}
+        {% for key, label, lo, hi in buckets_meta %}
+        {% set v = summary.buckets.get(key, 0) %}
+        {% if v > 0 %}
+        <span style="width:{{ '%.2f'|format(v / age_total * 100 if age_total else 0) }}%;background:{{ bucket_colors[key] }};"
+              title="{{ label }}: {{ v|amount_format(0) }}"></span>
+        {% endif %}
+        {% endfor %}
+      </div>
+      <div class="trk-age-legend">
+        {% for key, label, lo, hi in buckets_meta %}
+        <div><i style="background:{{ bucket_colors[key] }};"></i>{{ label }} &middot; <b>{{ summary.buckets.get(key, 0)|amount_format(0) }}</b></div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+  <section class="trk-card trk-filters">
+    <div class="trk-card-head">
+      <div class="trk-card-title"><span class="trk-dot"></span><span>Filter invoices</span></div>
+      <span class="trk-card-hint">Combine {{ doc_meta.party_label|lower }}, payment state and age</span>
+    </div>
+    <div class="trk-card-body">
+      <form method="GET">
+        <div class="trk-field" style="margin-bottom:13px;">
+          <span class="trk-lbl">Payment state</span>
+          <div class="trk-chips">
+            {% for key, label in [('unpaid','Unpaid'),('partial','Partially paid'),('paid','Fully paid')] %}
+            <label class="trk-chip">
+              <input type="checkbox" name="pay" value="{{ key }}" {{ 'checked' if key in filters.pay }}>
+              <span>{{ label }}</span>
+            </label>
+            {% endfor %}
+            <label class="trk-chip is-late">
+              <input type="checkbox" name="overdue" value="1" {{ 'checked' if filters.overdue }}>
+              <span>Overdue only</span>
+            </label>
+          </div>
+        </div>
+        <div class="trk-field" style="margin-bottom:13px;">
+          <span class="trk-lbl">Overdue age</span>
+          <div class="trk-chips">
+            {% for key, label, lo, hi in buckets_meta %}
+            <label class="trk-chip">
+              <input type="checkbox" name="age" value="{{ key }}" {{ 'checked' if key in filters.age }}>
+              <span>{{ label }}</span>
+            </label>
+            {% endfor %}
+          </div>
+        </div>
+        <div class="trk-filter-grid">
+          <div class="trk-field">
+            <label class="trk-lbl" for="partyFilter">{{ doc_meta.party_label }}</label>
+            <select id="partyFilter" name="party_id" class="trk-select">
+              <option value="">All {{ doc_meta.party_plural }}</option>
+              {% for p in parties %}
+              <option value="{{ p.id }}" {{ 'selected' if filters.party_id == p.id }}>{{ p.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="trk-field">
+            <label class="trk-lbl" for="fromFilter">Invoice date from</label>
+            <input type="date" id="fromFilter" name="from" value="{{ filters['from'] }}" class="trk-input">
+          </div>
+          <div class="trk-field">
+            <label class="trk-lbl" for="toFilter">To</label>
+            <input type="date" id="toFilter" name="to" value="{{ filters.to }}" class="trk-input">
+          </div>
+          <div class="trk-field">
+            <label class="trk-lbl" for="qFilter">Invoice number</label>
+            <input type="search" id="qFilter" name="q" value="{{ filters.q }}" class="trk-input"
+                   placeholder="e.g. SI-202608" autocomplete="off">
+          </div>
+        </div>
+        <div class="trk-filter-actions">
+          <button type="submit" class="btn btn-sm btn-primary">Apply filters</button>
+          <a href="{{ url_for(doc_meta.endpoint) }}" class="btn btn-sm btn-outline">Reset</a>
+          <span class="trk-active-note">{{ rows|length }} invoice{{ '' if rows|length == 1 else 's' }} in view</span>
+        </div>
+      </form>
+    </div>
+  </section>
+
+  <section class="trk-card">
+    <div class="trk-card-head">
+      <div class="trk-card-title"><span class="trk-dot"></span><span>{{ 'Receivables' if doc_type == 'SI' else 'Payables' }} register</span></div>
+      <span class="trk-card-hint">Open an invoice for its full payment history</span>
+    </div>
+    <div class="trk-table-wrap">
+      <table class="trk-table">
+        <thead>
+          <tr>
+            <th>Invoice</th>
+            <th>{{ doc_meta.party_label }}</th>
+            <th>Date</th>
+            <th>Due</th>
+            <th class="num">Total</th>
+            <th class="num">{{ doc_meta.money_word }}</th>
+            <th class="num">Outstanding</th>
+            <th>Settled</th>
+            <th>Age</th>
+            <th>State</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in rows %}
+          <tr>
+            <td data-label="Invoice">
+              <a href="{{ url_for('inv_tracking.invoice_history', doc_type=doc_type, doc_id=r.id) }}"
+                 class="trk-doclink">{{ r.number }}</a>
+            </td>
+            <td data-label="{{ doc_meta.party_label }}">
+              {{ r.party_name }}
+              {% if waiting.get(r.party_id, 0) > 0 and r.pay_state != 'paid' %}
+              <a class="trk-waiting" style="margin-left:6px;"
+                 href="{{ url_for('inv_tracking.feed', party=r.party_type ~ ':' ~ r.party_id) }}"
+                 title="Money already in the books for this {{ doc_meta.party_label|lower }}, not yet assigned">
+                {{ waiting.get(r.party_id, 0)|amount_format(0) }} unassigned
+              </a>
+              {% endif %}
+            </td>
+            <td data-label="Date">{{ r.date_str or '—' }}</td>
+            <td data-label="Due">{{ r.due_str or '—' }}</td>
+            <td data-label="Total" class="num">{{ r.total|amount_format(2) }}</td>
+            <td data-label="{{ doc_meta.money_word }}" class="num">{{ r.settled|amount_format(2) }}</td>
+            <td data-label="Outstanding" class="num strong">{{ r.outstanding|amount_format(2) }}</td>
+            <td data-label="Settled">
+              <div class="trk-minibar" title="{{ '%.0f'|format(r.progress) }}% settled">
+                <i style="width:{{ '%.1f'|format(r.progress if r.progress < 100 else 100) }}%"></i>
+              </div>
+            </td>
+            <td data-label="Age">
+              {% if r.overdue_days > 0 %}
+              <span class="trk-age {{ 'hot' if r.overdue_days > 30 else 'warm' }}">{{ r.overdue_days }} days late</span>
+              {% else %}
+              <span class="trk-age">{{ 'Settled' if r.pay_state == 'paid' else 'Not due' }}</span>
+              {% endif %}
+            </td>
+            <td data-label="State">
+              <span class="trk-pay trk-pay-{{ r.pay_state }}">
+                {{ 'Unpaid' if r.pay_state == 'unpaid' else ('Partial' if r.pay_state == 'partial' else 'Paid') }}
+              </span>
+            </td>
+            <td data-label="Action">
+              <a href="{{ url_for('inv_tracking.invoice_history', doc_type=doc_type, doc_id=r.id) }}"
+                 class="trk-rowbtn">History</a>
+            </td>
+          </tr>
+          {% else %}
+          <tr>
+            <td colspan="11" class="trk-empty">
+              <span class="trk-empty-icon">&#128203;</span>
+              <strong>No invoice matches these filters</strong>
+              <p>Only approved invoices are tracked here — an unapproved one owes
+                nothing yet. Try clearing a filter, or approve the invoice first.</p>
+              <a href="{{ url_for(doc_meta.endpoint) }}" class="btn btn-outline">Reset filters</a>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+</div>
+{% endblock %}

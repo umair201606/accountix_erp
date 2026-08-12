@@ -683,6 +683,11 @@ def save_invoice():
             )
 
     db.session.commit()
+    # Changing the total changes what the existing assignments settle, so the
+    # invoice's paid/partial/unpaid state is re-derived here. Subledger
+    # matching only — no journal is written by this call.
+    from shared import payment_tracking as _pt
+    _pt.sync_invoice(_pt.PURCHASE, inv.id)
     if action == "approve":
         msg = "approved and locked"
     elif inv_id:
@@ -752,6 +757,10 @@ def unapprove_invoice(id):
     post_variance_journal(variances, inv.invoice_number, current_user.id)
 
     db.session.commit()
+    # An unapproved invoice owes nothing, so anything assigned to it stops
+    # counting and the payments return to the feed.
+    from shared import payment_tracking as _pt
+    _pt.sync_invoice(_pt.PURCHASE, inv.id)
     message = "Invoice has been unapproved and unlocked for editing"
     if variances:
         total = sum(variances.values())
@@ -773,6 +782,8 @@ def delete_invoice(id):
         return jsonify({"ok": False, "error": "Cannot delete an approved invoice. Unapprove it first."}), 400
     try:
         InvPurchaseInvoiceItem.query.filter_by(invoice_id=inv.id).delete()
+        from shared import payment_tracking as _pt
+        _pt.drop_allocations_for_doc(_pt.PURCHASE, inv.id)
         db.session.delete(inv)
         db.session.commit()
         return jsonify({"ok": True, "message": "Invoice deleted successfully"})

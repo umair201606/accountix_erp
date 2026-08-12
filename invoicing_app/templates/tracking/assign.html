@@ -1,0 +1,289 @@
+{% extends "layouts/base_invoicing.html" %}
+{% block title %}Assign {{ row.voucher_number }}{% endblock %}
+{% block page_title %}Assign {{ 'receipt' if row.flow == 'receipt' else 'payment' }} &middot; {{ row.voucher_number }}{% endblock %}
+{% block extra_css %}{% include "tracking/_style.html" %}{% endblock %}
+{% block content %}
+{% set doc_word = 'sales' if row.doc_type == 'SI' else 'purchase' %}
+<div class="trk">
+
+  <div class="trk-hero">
+    <div class="trk-hero-copy">
+      <p class="trk-kicker">Invoicing / Payment tracking</p>
+      <h1>{{ 'Receipt from' if row.flow == 'receipt' else 'Payment to' }} {{ row.party_name }}</h1>
+      <p class="trk-sub">
+        <span class="trk-vtype">{{ row.voucher_type }}</span>
+        <a href="{{ url_for('accounting.voucher_form', id=row.voucher_id) }}" class="trk-vno">{{ row.voucher_number }}</a>
+        &middot; {{ row.date_str }}{% if row.cash_account %} &middot; through {{ row.cash_account }}{% endif %}
+        &middot; {{ row.amount|amount_format(2) }}
+      </p>
+    </div>
+    <div class="trk-hero-actions">
+      <a href="{{ url_for('inv_tracking.feed') }}" class="btn btn-outline">&larr; Back to feed</a>
+    </div>
+  </div>
+
+  {% include "tracking/_tabs.html" %}
+
+  <div class="trk-err" id="trkErr" role="alert" style="margin:0 0 16px;"></div>
+
+  <div class="trk-split">
+    <div>
+      <section class="trk-card">
+        <div class="trk-card-head">
+          <div class="trk-card-title"><span class="trk-dot"></span><span>Open {{ doc_word }} invoices for {{ row.party_name }}</span></div>
+          <span class="trk-card-hint">Oldest first &middot; tick an invoice and set how much of this {{ row.flow }} it settles</span>
+        </div>
+        {% if invoices %}
+        <div class="trk-table-wrap">
+          <table class="trk-alloc-table" id="allocTable">
+            <thead>
+              <tr>
+                <th style="width:40px;">
+                  <input type="checkbox" id="pickAll" aria-label="Select every invoice">
+                </th>
+                <th>Invoice</th>
+                <th>Issued</th>
+                <th>Due / age</th>
+                <th style="text-align:right;">Total</th>
+                <th style="text-align:right;">Outstanding</th>
+                <th style="text-align:right;">Assign now</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for inv in invoices %}
+              <tr class="{{ 'picked' if inv.assigned_here > 0 }}">
+                <td data-label="Pick">
+                  <input type="checkbox" class="trk-pick" {{ 'checked' if inv.assigned_here > 0 }}
+                         aria-label="Assign to {{ inv.number }}">
+                </td>
+                <td data-label="Invoice">
+                  <a href="{{ url_for('inv_tracking.invoice_history', doc_type=inv.doc_type, doc_id=inv.id) }}"
+                     class="trk-doclink">{{ inv.number }}</a>
+                  <div style="color:var(--muted);font-size:11px;margin-top:2px;">
+                    settled {{ inv.settled|amount_format(2) }} of {{ inv.total|amount_format(2) }}
+                  </div>
+                </td>
+                <td data-label="Issued">{{ inv.date_str or '—' }}</td>
+                <td data-label="Due / age">
+                  {% if inv.overdue_days > 0 %}
+                  <span class="trk-age {{ 'hot' if inv.overdue_days > 30 else 'warm' }}">{{ inv.overdue_days }} days late</span>
+                  {% else %}
+                  <span class="trk-age">{{ inv.due_str or 'Not due' }}</span>
+                  {% endif %}
+                </td>
+                <td data-label="Total" style="text-align:right;font-variant-numeric:tabular-nums;">{{ inv.total|amount_format(2) }}</td>
+                <td data-label="Outstanding" style="text-align:right;font-variant-numeric:tabular-nums;font-weight:800;">{{ inv.outstanding|amount_format(2) }}</td>
+                <td data-label="Assign now">
+                  <input type="number" step="0.01" min="0" class="trk-amt" data-doc="{{ inv.id }}"
+                         data-max="{{ '%.2f'|format(inv.assignable) }}"
+                         value="{{ '%.2f'|format(inv.assigned_here if inv.assigned_here > 0 else inv.assignable) }}"
+                         aria-label="Amount to assign to {{ inv.number }}">
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% else %}
+        <div class="trk-empty">
+          <span class="trk-empty-icon">&#128203;</span>
+          <strong>No open {{ doc_word }} invoice for {{ row.party_name }}</strong>
+          <p>Every approved invoice for this {{ doc_meta.party_label|lower }} is fully settled, so
+            this {{ row.flow }} has nothing to attach to. It stays in the ledger as an
+            advance until an invoice exists for it.</p>
+          <a href="{{ url_for('inv_invoices.invoice_form') if row.doc_type == 'SI' else url_for('inv_purchase_invoice.invoice_form') }}"
+             class="btn btn-primary">Create a {{ doc_word }} invoice</a>
+        </div>
+        {% endif %}
+      </section>
+
+      {% if splits %}
+      <section class="trk-card">
+        <div class="trk-card-head">
+          <div class="trk-card-title"><span class="trk-dot"></span><span>Already assigned from this {{ row.flow }}</span></div>
+          <span class="trk-card-hint">{{ splits|length }} invoice{{ '' if splits|length == 1 else 's' }}</span>
+        </div>
+        <div class="trk-table-wrap">
+          <table class="trk-table">
+            <thead><tr><th>Invoice</th><th class="num">Invoice total</th><th class="num">Assigned</th><th>By</th><th>Action</th></tr></thead>
+            <tbody>
+              {% for s in splits %}
+              <tr>
+                <td data-label="Invoice">
+                  {% if s.forced %}
+                  {# Points at no document, so there is nothing to link to —
+                     the reason is the useful thing to show instead. #}
+                  <span class="trk-state trk-state-forced">No invoice</span>
+                  {% if s.note %}<div class="trk-meta">{{ s.note }}</div>{% endif %}
+                  {% else %}
+                  <a href="{{ url_for('inv_tracking.invoice_history', doc_type=s.doc_type, doc_id=s.doc_id) }}"
+                     class="trk-doclink">{{ s.number }}</a>
+                  {% endif %}
+                </td>
+                <td data-label="Invoice total" class="num">{{ '—' if s.forced else s.total|amount_format(2) }}</td>
+                <td data-label="Assigned" class="num strong">{{ s.amount|amount_format(2) }}</td>
+                <td data-label="By">{{ s.by or '—' }}</td>
+                <td data-label="Action">
+                  {% if can_assign %}
+                  <button type="button" class="trk-rowbtn danger trk-unassign" data-id="{{ s.id }}">Detach</button>
+                  {% endif %}
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </section>
+      {% endif %}
+    </div>
+
+    <aside class="trk-side">
+      <div class="trk-card" style="margin:0;">
+        <div class="trk-card-head">
+          <div class="trk-card-title"><span class="trk-dot"></span><span>This {{ row.flow }}</span></div>
+        </div>
+        <div class="trk-card-body">
+          <div class="trk-sum">
+            <div class="trk-sum-row"><span>Amount {{ 'received' if row.flow == 'receipt' else 'paid' }}</span><b>{{ row.amount|amount_format(2) }}</b></div>
+            <div class="trk-sum-row"><span>Already assigned</span><b>{{ row.assigned|amount_format(2) }}</b></div>
+            <div class="trk-sum-row total"><span>Unassigned</span><b>{{ row.unassigned|amount_format(2) }}</b></div>
+          </div>
+          <div class="trk-remaining" id="trkRemaining" style="margin-top:14px;">
+            <div class="lbl">Left after this split</div>
+            <div class="val" id="trkRemainingVal">{{ '%.2f'|format(row.amount) }}</div>
+          </div>
+          {% if can_assign and invoices %}
+          <div class="trk-savebar" style="margin-top:13px;">
+            <button type="button" class="btn btn-primary" id="trkSave">Save assignment</button>
+          </div>
+          <div class="trk-savebar" style="margin-top:8px;">
+            <button type="button" class="btn btn-outline" id="trkAuto">Auto-assign oldest first</button>
+          </div>
+          {% endif %}
+          <p style="margin:13px 0 0;color:var(--muted);font-size:11.5px;line-height:1.5;">
+            Assigning records which invoices this money settles. It posts no journal
+            entry and changes no ledger or chart-of-accounts balance — the voucher
+            already did that when it was approved.
+          </p>
+        </div>
+      </div>
+    </aside>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+(function () {
+  var table = document.getElementById('allocTable');
+  var err = document.getElementById('trkErr');
+  var remainBox = document.getElementById('trkRemaining');
+  var remainVal = document.getElementById('trkRemainingVal');
+  var saveBtn = document.getElementById('trkSave');
+  var autoBtn = document.getElementById('trkAuto');
+  var pickAll = document.getElementById('pickAll');
+  var capacity = {{ row.amount }};
+  var fmt = window.formatAmount || function (v) { return (+v || 0).toFixed(2); };
+
+  function showError(msg) {
+    if (!err) return;
+    err.textContent = msg || '';
+    err.classList.toggle('show', !!msg);
+  }
+
+  function recalc() {
+    if (!table) return;
+    var used = 0;
+    table.querySelectorAll('input.trk-amt').forEach(function (input) {
+      var tr = input.closest('tr');
+      var on = tr.querySelector('input.trk-pick').checked;
+      tr.classList.toggle('picked', on);
+      input.disabled = !on;
+      if (on) used += parseFloat(input.value) || 0;
+    });
+    var left = Math.round((capacity - used) * 100) / 100;
+    if (remainVal) remainVal.textContent = fmt(left, 2);
+    if (remainBox) remainBox.classList.toggle('over', left < -0.001);
+    if (saveBtn) {
+      saveBtn.disabled = left < -0.001;
+      saveBtn.style.opacity = left < -0.001 ? '.6' : '';
+    }
+  }
+
+  if (table) {
+    table.addEventListener('input', recalc);
+    table.addEventListener('change', recalc);
+    recalc();
+  }
+  if (pickAll) {
+    pickAll.addEventListener('change', function () {
+      table.querySelectorAll('input.trk-pick').forEach(function (cb) { cb.checked = pickAll.checked; });
+      recalc();
+    });
+  }
+  if (autoBtn) {
+    autoBtn.addEventListener('click', function () {
+      var left = capacity;
+      table.querySelectorAll('input.trk-amt').forEach(function (input) {
+        var pick = input.closest('tr').querySelector('input.trk-pick');
+        var take = Math.min(left, parseFloat(input.dataset.max) || 0);
+        take = Math.round(take * 100) / 100;
+        pick.checked = take > 0;
+        input.value = take > 0 ? take.toFixed(2) : '0.00';
+        left = Math.round((left - take) * 100) / 100;
+      });
+      recalc();
+    });
+  }
+  if (saveBtn) {
+    saveBtn.addEventListener('click', function () {
+      var entries = [];
+      table.querySelectorAll('input.trk-amt').forEach(function (input) {
+        var on = input.closest('tr').querySelector('input.trk-pick').checked;
+        entries.push({ doc_id: parseInt(input.dataset.doc, 10),
+                       amount: on ? (parseFloat(input.value) || 0) : 0 });
+      });
+      showError('');
+      saveBtn.disabled = true;
+      saveBtn.textContent = 'Saving…';
+      fetch('{{ url_for("inv_tracking.api_assign", line_id=row.line_id) }}', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ entries: entries })
+      }).then(function (r) { return r.json(); })
+        .then(function (data) {
+          saveBtn.disabled = false;
+          saveBtn.textContent = 'Save assignment';
+          if (!data.ok) { showError(data.error || 'The assignment was refused.'); return; }
+          window.location.reload();
+        })
+        .catch(function () {
+          saveBtn.disabled = false;
+          saveBtn.textContent = 'Save assignment';
+          showError('Could not save. Check your connection and try again.');
+        });
+    });
+  }
+  document.querySelectorAll('.trk-unassign').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      btn.disabled = true;
+      btn.textContent = 'Detaching…';
+      fetch('{{ url_for("inv_tracking.api_unassign", alloc_id=0) }}'.replace(/0$/, btn.dataset.id),
+            { method: 'POST', headers: { 'Content-Type': 'application/json' } })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          if (data.ok) { window.location.reload(); return; }
+          btn.disabled = false;
+          btn.textContent = 'Detach';
+          showError(data.error || 'Could not detach that entry.');
+        })
+        .catch(function () {
+          btn.disabled = false;
+          btn.textContent = 'Detach';
+          showError('Could not detach that entry.');
+        });
+    });
+  });
+})();
+</script>
+{% endblock %}

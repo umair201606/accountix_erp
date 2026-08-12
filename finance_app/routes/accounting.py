@@ -25,6 +25,47 @@ VOUCHER_LABELS = {
 CASH_BANK_TYPES = ("CPV", "CRV", "BPV", "BRV")
 
 
+def _reconcile_tracking(voucher_id):
+    """Keep Invoicing > Invoice Tracking in step after a voucher changes.
+
+    A receipt can be assigned to invoices, and then the voucher edited: the
+    amount reduced, the customer line removed, the whole thing unapproved. The
+    tracker derives every figure it shows from live data, so it self-corrects —
+    but the ``paid_amount`` / ``payment_status`` cached on each invoice has to
+    be re-derived, or the invoice list would still call it paid.
+
+    Imported inside the function to keep the accounting module independent of
+    invoicing at import time, and deliberately non-fatal: a voucher save must
+    not fail because a subledger cache could not be refreshed.
+    """
+    try:
+        from shared import payment_tracking as pt
+        pt.reconcile_voucher(voucher_id)
+    except Exception:                                    # pragma: no cover
+        db.session.rollback()
+
+
+def _drop_tracking_for_voucher(voucher_id):
+    """Remove assignments belonging to a voucher about to be deleted, then
+    refresh the invoices they pointed at."""
+    try:
+        from shared import payment_tracking as pt
+        from shared.models.payment_allocation import PaymentAllocation
+        allocs = PaymentAllocation.query.filter_by(
+            voucher_id=int(voucher_id)).all()
+        if not allocs:
+            return
+        touched = {(a.doc_type, int(a.doc_id)) for a in allocs}
+        for a in allocs:
+            db.session.delete(a)
+        db.session.flush()
+        for doc_type, doc_id in touched:
+            if doc_type in (pt.SALES, pt.PURCHASE):
+                pt.recompute_doc(doc_type, doc_id)
+    except Exception:                                    # pragma: no cover
+        db.session.rollback()
+
+
 @acct_bp.route("/")
 @acct_bp.route("/dashboard")
 @login_required
@@ -219,6 +260,11 @@ def voucher_form(id=None):
 
         voucher.status = "unapproved" if action == "save" else "approved"
         db.session.commit()
+        # Editing a voucher can move money out from under an assignment that
+        # was already made against it. The tracker derives everything else
+        # live; this refreshes the paid_amount cached on those invoices so the
+        # invoice list agrees with it. Writes no journal.
+        _reconcile_tracking(voucher.id)
         flash(
             f"{VOUCHER_LABELS[voucher.voucher_type]} {voucher.voucher_number} {'approved' if action == 'approve' else 'saved'}.",
             "success",
@@ -351,6 +397,7 @@ def approve_voucher(id):
         return redirect(url_for("accounting.voucher_form", id=v.id))
     v.status = "approved"
     db.session.commit()
+    _reconcile_tracking(v.id)
     flash(f"{VOUCHER_LABELS[v.voucher_type]} {v.voucher_number} approved.", "success")
     return redirect(url_for("accounting.voucher_form", id=v.id))
 
@@ -369,6 +416,9 @@ def unapprove_voucher(id):
     v.approved_by = None
     v.approved_at = None
     db.session.commit()
+    # Unapproved money settles nothing: any invoice this voucher was assigned
+    # to drops back to unpaid or partially paid.
+    _reconcile_tracking(v.id)
     flash(f"{VOUCHER_LABELS[v.voucher_type]} {v.voucher_number} unapproved.", "success")
     return redirect(url_for("accounting.voucher_form", id=v.id))
 
@@ -425,6 +475,10 @@ def delete_voucher(id):
     if v.status == "approved":
         flash("Cannot delete an approved voucher. Unapprove it first.", "error")
         return redirect(url_for("accounting.voucher_list"))
+    # Assignments against a voucher that no longer exists are meaningless, and
+    # they carry a foreign key to it — drop them first, then refresh the
+    # invoices they used to settle.
+    _drop_tracking_for_voucher(v.id)
     db.session.delete(v)
     db.session.commit()
     flash(f"{VOUCHER_LABELS[v.voucher_type]} {v.voucher_number} deleted.", "success")

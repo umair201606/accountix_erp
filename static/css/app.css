@@ -3,7 +3,7 @@
    navy the documents now use, so the shell moves onto the same tokens. Names
    are kept so every existing rule follows without being rewritten. */
 :root{
-  --ink:#161c22; --paper:#f6f9ff; --line:#c4c6cf;
+  --ink:#161c22; --paper:#f6f9ff; --line:#c4c6cf; --primary:#1d4ed8;
   --ledger:#002045; --ledger-dim:#eef4fc;
   /* No amber in this system: it read as decoration wherever it appeared, so it
      maps onto the neutral scale rather than staying a colour. */

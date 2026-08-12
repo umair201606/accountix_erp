@@ -1,0 +1,173 @@
+{% extends "layouts/base_invoicing.html" %}
+{% block title %}{{ row.number }} - Payment history{% endblock %}
+{% block page_title %}Payment history &middot; {{ row.number }}{% endblock %}
+{% block extra_css %}{% include "tracking/_style.html" %}{% endblock %}
+{% block content %}
+{% set pct = row.progress if row.progress < 100 else 100 %}
+<div class="trk">
+
+  <div class="trk-hero">
+    <div class="trk-hero-copy">
+      <p class="trk-kicker">{{ doc_meta.kicker }} / {{ 'Sales invoice' if doc_type == 'SI' else 'Purchase invoice' }}</p>
+      <h1>{{ row.number }}</h1>
+      <p class="trk-sub">
+        {{ doc_meta.party_label }} <strong>{{ row.party_name }}</strong> &middot;
+        issued {{ row.date_str or '—' }} &middot; due {{ row.due_str or '—' }}
+        {% if row.overdue_days > 0 %}<span class="trk-age hot" style="margin-left:6px;">{{ row.overdue_days }} days late</span>{% endif %}
+      </p>
+    </div>
+    <div class="trk-hero-actions">
+      <a href="{{ url_for(doc_meta.endpoint) }}" class="btn btn-outline">&larr; Back to tracking</a>
+      <a href="{{ edit_url }}" class="btn btn-outline">Open invoice</a>
+    </div>
+  </div>
+
+  {% include "tracking/_tabs.html" %}
+
+  <div class="trk-card">
+    <div class="trk-card-body">
+      <div style="display:flex;flex-wrap:wrap;gap:24px;align-items:center;justify-content:space-between;">
+        <div class="trk-ring">
+          {# 44px radius circle, dash offset carrying the settled share. #}
+          <svg class="trk-ring-svg" width="104" height="104" viewBox="0 0 104 104" role="img"
+               aria-label="{{ '%.0f'|format(pct) }} percent settled">
+            <circle cx="52" cy="52" r="44" fill="none" stroke="#eef2f7" stroke-width="12"></circle>
+            <circle cx="52" cy="52" r="44" fill="none"
+                    stroke="{{ '#047857' if row.pay_state == 'paid' else ('#0d9488' if row.pay_state == 'partial' else '#b91c1c') }}"
+                    stroke-width="12" stroke-linecap="round"
+                    stroke-dasharray="{{ '%.2f'|format(2 * 3.14159 * 44) }}"
+                    stroke-dashoffset="{{ '%.2f'|format(2 * 3.14159 * 44 * (1 - pct / 100)) }}"
+                    transform="rotate(-90 52 52)"></circle>
+            <text x="52" y="57" text-anchor="middle" font-size="19" font-weight="800"
+                  fill="#161c22" font-family="Inter,sans-serif">{{ '%.0f'|format(pct) }}%</text>
+          </svg>
+          <div class="trk-ring-copy">
+            <div class="lbl">Outstanding</div>
+            <div class="val">{{ row.outstanding|amount_format(2) }}</div>
+            <div class="sub">
+              <span class="trk-pay trk-pay-{{ row.pay_state }}">
+                {{ 'Unpaid' if row.pay_state == 'unpaid' else ('Partial' if row.pay_state == 'partial' else 'Paid') }}
+              </span>
+            </div>
+          </div>
+        </div>
+        <div class="trk-sum" style="min-width:230px;flex:1;max-width:340px;">
+          <div class="trk-sum-row"><span>Invoice total</span><b>{{ row.total|amount_format(2) }}</b></div>
+          <div class="trk-sum-row"><span>{{ doc_meta.money_word }} &amp; assigned</span><b>{{ row.settled|amount_format(2) }}</b></div>
+          <div class="trk-sum-row total"><span>Still {{ doc_meta.open_word|lower }}</span><b>{{ row.outstanding|amount_format(2) }}</b></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <section class="trk-card">
+    <div class="trk-card-head">
+      <div class="trk-card-title"><span class="trk-dot"></span><span>{{ 'Receipts' if doc_type == 'SI' else 'Payments' }} assigned to this invoice</span></div>
+      <span class="trk-card-hint">{{ history|length }} entr{{ 'y' if history|length == 1 else 'ies' }} &middot; oldest first</span>
+    </div>
+    <div class="trk-card-body" style="background:#fbfdff;">
+      {% if history %}
+      <div class="trk-timeline">
+        {% for h in history %}
+        <article class="trk-ev">
+          <div class="trk-ev-head">
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0;">
+              <span class="trk-vtype">{{ h.voucher_type }}</span>
+              <a href="{{ url_for('accounting.voucher_form', id=h.voucher_id) }}" class="trk-vno">{{ h.voucher_number }}</a>
+              <span style="color:var(--muted);font-size:11.5px;">{{ h.date.strftime('%d %b %Y') if h.date else '' }}</span>
+            </div>
+            <div class="trk-ev-actions">
+              <span class="trk-ev-amount">{{ h.amount|amount_format(2) }}</span>
+              {% if can_assign %}
+              <button type="button" class="trk-rowbtn danger trk-unassign" data-id="{{ h.id }}"
+                      title="Detach this {{ 'receipt' if doc_type == 'SI' else 'payment' }} from the invoice — the money stays in the ledger">Detach</button>
+              {% endif %}
+            </div>
+          </div>
+          <div class="trk-ev-meta">
+            <span>Balance after: <b>{{ h.balance_after|amount_format(2) }}</b></span>
+            {% if h.cash_account %}<span>Through: <b>{{ h.cash_account }}</b></span>{% endif %}
+            {% if h.description %}<span>{{ h.description }}</span>{% endif %}
+            {% if h.by %}<span>Assigned by <b>{{ h.by }}</b></span>{% endif %}
+            <span><a href="{{ url_for('inv_tracking.assign_workspace', line_id=h.line_id) }}">Open the {{ 'receipt' if doc_type == 'SI' else 'payment' }} &rarr;</a></span>
+          </div>
+        </article>
+        {% endfor %}
+      </div>
+      {% else %}
+      <div class="trk-empty">
+        <span class="trk-empty-icon">&#8635;</span>
+        <strong>Nothing assigned yet</strong>
+        <p>No {{ 'receipt' if doc_type == 'SI' else 'payment' }} has been matched to this
+          invoice. Record it as a voucher first if it has not been booked, then assign it here.</p>
+        <a href="{{ url_for('inv_tracking.feed', party=row.party_type ~ ':' ~ row.party_id) }}" class="btn btn-primary">
+          Open this {{ doc_meta.party_label|lower }}'s feed
+        </a>
+      </div>
+      {% endif %}
+    </div>
+  </section>
+
+  {% if available %}
+  <section class="trk-card">
+    <div class="trk-card-head">
+      <div class="trk-card-title"><span class="trk-dot"></span><span>Unassigned money for {{ row.party_name }}</span></div>
+      <span class="trk-card-hint">Already in the ledger, not yet matched to an invoice</span>
+    </div>
+    <div class="trk-table-wrap">
+      <table class="trk-table">
+        <thead>
+          <tr><th>Voucher</th><th>Date</th><th>Through</th><th class="num">Amount</th><th class="num">Left to assign</th><th>Action</th></tr>
+        </thead>
+        <tbody>
+          {% for a in available %}
+          <tr>
+            <td data-label="Voucher">
+              <span class="trk-vtype">{{ a.voucher_type }}</span>
+              <a href="{{ url_for('accounting.voucher_form', id=a.voucher_id) }}" class="trk-doclink" style="margin-left:6px;">{{ a.voucher_number }}</a>
+            </td>
+            <td data-label="Date">{{ a.date_str }}</td>
+            <td data-label="Through">{{ a.cash_account or '—' }}</td>
+            <td data-label="Amount" class="num">{{ a.amount|amount_format(2) }}</td>
+            <td data-label="Left to assign" class="num strong">{{ a.unassigned|amount_format(2) }}</td>
+            <td data-label="Action">
+              <a href="{{ url_for('inv_tracking.assign_workspace', line_id=a.line_id) }}" class="trk-rowbtn">Assign</a>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+{% if can_assign %}
+<script>
+document.querySelectorAll('.trk-unassign').forEach(function (btn) {
+  btn.addEventListener('click', function () {
+    if (!window.confirm('Detach this entry from the invoice? The voucher and every ' +
+                        'ledger balance stay exactly as they are — only the link goes away.')) return;
+    btn.disabled = true;
+    btn.textContent = 'Detaching…';
+    fetch('{{ url_for("inv_tracking.api_unassign", alloc_id=0) }}'.replace(/0$/, btn.dataset.id),
+          { method: 'POST', headers: { 'Content-Type': 'application/json' } })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (data.ok) { window.location.reload(); return; }
+        btn.disabled = false;
+        btn.textContent = 'Detach';
+        window.alert(data.error || 'Could not detach that entry.');
+      })
+      .catch(function () {
+        btn.disabled = false;
+        btn.textContent = 'Detach';
+        window.alert('Could not detach that entry. Check your connection.');
+      });
+  });
+});
+</script>
+{% endif %}
+{% endblock %}

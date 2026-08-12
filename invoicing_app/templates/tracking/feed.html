@@ -1,0 +1,567 @@
+{% extends "layouts/base_invoicing.html" %}
+{% block title %}Payment Feed - Tracking{% endblock %}
+{% block page_title %}Payment &amp; Receipt Feed{% endblock %}
+{% block extra_css %}{% include "tracking/_style.html" %}
+<style>
+/* Slide-over assignment panel — feed-only, so it lives here rather than in the
+   shared sheet every tracking page loads. */
+.trk-scrim{position:fixed;inset:0;background:rgba(15,23,42,.5);z-index:400;opacity:0;
+  pointer-events:none;transition:opacity .2s ease}
+.trk-scrim.show{opacity:1;pointer-events:auto}
+.trk-drawer{position:fixed;top:0;right:0;bottom:0;width:min(660px,100%);background:var(--paper);
+  z-index:401;display:flex;flex-direction:column;transform:translateX(100%);
+  transition:transform .26s cubic-bezier(.4,0,.2,1);box-shadow:-12px 0 40px rgba(15,23,42,.22)}
+.trk-drawer.show{transform:translateX(0)}
+.trk-drawer-head{display:flex;align-items:flex-start;gap:14px;padding:16px 18px;background:#fff;
+  border-bottom:1px solid var(--trk-line)}
+.trk-drawer-head h2{margin:0;font-size:17px;color:var(--ink);letter-spacing:-.01em}
+.trk-drawer-head p{margin:4px 0 0;color:var(--muted);font-size:12px}
+.trk-drawer-close{margin-left:auto;background:none;border:1px solid var(--line);border-radius:8px;
+  width:32px;height:32px;font-size:17px;color:var(--muted);cursor:pointer;flex:none;font-family:inherit}
+.trk-drawer-close:hover{border-color:var(--trk-late);color:var(--trk-late)}
+.trk-drawer-body{flex:1;overflow-y:auto;padding:16px 18px}
+.trk-drawer-foot{padding:14px 18px;background:#fff;border-top:1px solid var(--trk-line)}
+.trk-drawer-block{border:1px solid var(--trk-line);border-radius:12px;background:#fff;
+  box-shadow:var(--trk-shadow);overflow:hidden;margin-bottom:14px}
+.trk-drawer-block>h3{margin:0;padding:12px 15px;border-bottom:1px solid var(--trk-line);
+  background:linear-gradient(90deg,#f8fafc,#fff);font-size:12.5px;color:var(--ink)}
+.trk-drawer-block .pad{padding:14px 15px}
+.trk-loading{padding:32px;text-align:center;color:var(--muted);font-size:13px}
+/* The force-close panel asks two short questions, so it does not need the
+   full-width sheet the assignment table uses. */
+.trk-drawer-sm{width:min(420px,100%)}
+@media(max-width:720px){.trk-drawer-body{padding:14px}.trk-drawer-head{padding:14px}}
+</style>
+{% endblock %}
+{% block content %}
+<div class="trk">
+
+  <div class="trk-hero">
+    <div class="trk-hero-copy">
+      <p class="trk-kicker">Invoicing / Payment tracking</p>
+      <h1>Payment &amp; Receipt Feed</h1>
+      <p class="trk-sub">Every approved receipt from a customer and payment to a
+        supplier, newest first. Assign each one to the invoices it settles — one
+        invoice or several. Assigning changes no ledger balance: the money was
+        posted when its voucher was approved.</p>
+    </div>
+    <div class="trk-hero-actions">
+      <a href="{{ url_for('accounting.voucher_form', type='CRV') }}" class="btn btn-primary">+ Record receipt</a>
+      <a href="{{ url_for('accounting.voucher_form', type='CPV') }}" class="btn btn-outline">+ Record payment</a>
+    </div>
+  </div>
+
+  {% include "tracking/_tabs.html" %}
+
+  <div class="trk-tiles">
+    <div class="trk-tile warn">
+      <div class="trk-tile-label">Unassigned</div>
+      <div class="trk-tile-value">{{ summary.unassigned_count }}</div>
+      <div class="trk-tile-foot">{{ summary.unassigned_value|amount_format(0) }} not yet matched</div>
+    </div>
+    <div class="trk-tile">
+      <div class="trk-tile-label">Partially assigned</div>
+      <div class="trk-tile-value">{{ summary.partial_count }}</div>
+      <div class="trk-tile-foot">Still carry a balance to match</div>
+    </div>
+    <div class="trk-tile in">
+      <div class="trk-tile-label">Receipts to assign</div>
+      <div class="trk-tile-value">{{ summary.receipts_open_value|amount_format(0) }}</div>
+      <div class="trk-tile-foot">{{ summary.receipts_open }} customer receipt{{ '' if summary.receipts_open == 1 else 's' }}</div>
+    </div>
+    <div class="trk-tile out">
+      <div class="trk-tile-label">Payments to assign</div>
+      <div class="trk-tile-value">{{ summary.payments_open_value|amount_format(0) }}</div>
+      <div class="trk-tile-foot">{{ summary.payments_open }} supplier payment{{ '' if summary.payments_open == 1 else 's' }}</div>
+    </div>
+    <div class="trk-tile">
+      <div class="trk-tile-label">Fully assigned</div>
+      <div class="trk-tile-value">{{ summary.assigned_count }}</div>
+      <div class="trk-tile-foot">
+        {% if summary.forced_count %}
+        <a href="{{ url_for('inv_tracking.feed', state='forced') }}">+ {{ summary.forced_count }} closed with no invoice &rarr;</a>
+        {% elif drafts %}<a href="{{ url_for('accounting.voucher_list', status='unapproved') }}">{{ drafts }} unapproved voucher{{ '' if drafts == 1 else 's' }} &rarr;</a>
+        {% else %}Nothing left to match{% endif %}
+      </div>
+    </div>
+  </div>
+
+  <section class="trk-card trk-filters">
+    <div class="trk-card-head">
+      <div class="trk-card-title"><span class="trk-dot"></span><span>Filter the feed</span></div>
+      <span class="trk-card-hint">Anything still needing a decision is shown by default</span>
+    </div>
+    <div class="trk-card-body">
+      <form method="GET" id="feedFilters">
+        <div class="trk-field" style="margin-bottom:14px;">
+          <span class="trk-lbl">Assignment status</span>
+          <div class="trk-chips">
+            {% for key, label in [('unassigned','Unassigned'),('partial','Partially assigned'),('assigned','Fully assigned'),('forced','Closed — no invoice'),('review','Needs re-assignment')] %}
+            <label class="trk-chip">
+              <input type="checkbox" name="state" value="{{ key }}" {{ 'checked' if key in filters.state }}>
+              <span>{{ label }}</span>
+            </label>
+            {% endfor %}
+            <a href="{{ url_for('inv_tracking.feed') }}?state=" class="trk-rowbtn" style="min-height:33px;">Show all</a>
+          </div>
+        </div>
+        <div class="trk-filter-grid">
+          <div class="trk-field">
+            <label class="trk-lbl" for="flowFilter">Direction</label>
+            <select id="flowFilter" name="flow" class="trk-select">
+              <option value="">Receipts &amp; payments</option>
+              <option value="receipt" {{ 'selected' if filters.flow == 'receipt' }}>Receipts from customers</option>
+              <option value="payment" {{ 'selected' if filters.flow == 'payment' }}>Payments to suppliers</option>
+            </select>
+          </div>
+          <div class="trk-field">
+            <label class="trk-lbl" for="partyFilter">Customer / supplier</label>
+            <select id="partyFilter" name="party" class="trk-select">
+              <option value="">All parties</option>
+              <optgroup label="Customers">
+                {% for c in customers %}
+                <option value="customer:{{ c.id }}" {{ 'selected' if filters.party == 'customer:' ~ c.id }}>{{ c.name }}</option>
+                {% endfor %}
+              </optgroup>
+              <optgroup label="Suppliers">
+                {% for s in suppliers %}
+                <option value="supplier:{{ s.id }}" {{ 'selected' if filters.party == 'supplier:' ~ s.id }}>{{ s.name }}</option>
+                {% endfor %}
+              </optgroup>
+            </select>
+          </div>
+          <div class="trk-field">
+            <label class="trk-lbl" for="fromFilter">Voucher date from</label>
+            <input type="date" id="fromFilter" name="from" value="{{ filters['from'] }}" class="trk-input">
+          </div>
+          <div class="trk-field">
+            <label class="trk-lbl" for="toFilter">To</label>
+            <input type="date" id="toFilter" name="to" value="{{ filters.to }}" class="trk-input">
+          </div>
+          <div class="trk-field">
+            <label class="trk-lbl" for="qFilter">Search</label>
+            <input type="search" id="qFilter" name="q" value="{{ filters.q }}" class="trk-input"
+                   placeholder="Voucher no. or narration" autocomplete="off">
+          </div>
+        </div>
+        <div class="trk-filter-actions">
+          <button type="submit" class="btn btn-sm btn-primary">Apply filters</button>
+          <a href="{{ url_for('inv_tracking.feed') }}" class="btn btn-sm btn-outline">Reset</a>
+          <span class="trk-active-note">{{ rows|length }} item{{ '' if rows|length == 1 else 's' }} in view</span>
+        </div>
+      </form>
+    </div>
+  </section>
+
+  <section class="trk-card">
+    <div class="trk-card-head">
+      <div class="trk-card-title"><span class="trk-dot"></span><span>Money in the books</span></div>
+      <span class="trk-card-hint">Sorted by voucher date, latest first</span>
+    </div>
+    <div class="trk-card-body" style="background:#fbfdff;">
+      {% if rows %}
+      <div class="trk-feed">
+        {% for r in rows %}
+        <article class="trk-item {{ 'is-payment' if r.flow == 'payment' else '' }}"
+                 data-line="{{ r.line_id }}" data-party="{{ r.party_name }}">
+          <div class="trk-item-main">
+            <div class="trk-item-top">
+              <span class="trk-flow {{ 'in' if r.flow == 'receipt' else 'out' }}">
+                {{ 'Receipt' if r.flow == 'receipt' else 'Payment' }}
+              </span>
+              <span class="trk-vtype">{{ r.voucher_type }}</span>
+              <a href="{{ url_for('accounting.voucher_form', id=r.voucher_id) }}" class="trk-vno">{{ r.voucher_number }}</a>
+              <span class="trk-state trk-state-{{ r.state }}"
+                    {% if r.state == 'forced' %}title="Closed without an invoice: {{ r.forced_reason }}"{% elif r.state == 'review' %}title="This voucher was edited after it was assigned: {{ r.over_assigned|amount_format(2) }} more is assigned than it now carries"{% endif %}>
+                {{ {'unassigned':'Unassigned','partial':'Partial','assigned':'Assigned','forced':'No invoice','review':'Re-assign'}[r.state] }}
+              </span>
+            </div>
+            <span class="trk-party" title="{{ r.party_name }}">{{ r.party_name }}</span>
+            {% if r.state == 'review' %}
+            {# The old split is deliberately still here — it is shown so it can
+               be re-cut against the new amount, not silently thrown away. #}
+            <div class="trk-meta" style="color:#b91c1c;font-weight:700;">
+              This voucher was edited after it was assigned:
+              {{ r.assigned|amount_format(2) }} is assigned but it now carries
+              only {{ r.amount|amount_format(2) }}. Re-assign it.
+            </div>
+            {% endif %}
+            <div class="trk-meta">
+              {{ r.date.strftime('%d %b %Y') if r.date else '' }}
+              {%- if r.cash_account %} &middot; {{ r.cash_account }}{% endif %}
+              {%- if r.description %} &middot; {{ r.description }}{% endif %}
+            </div>
+          </div>
+          <div class="trk-amount-col">
+            <div class="trk-amount">{{ r.amount|amount_format(2) }}</div>
+            <div class="trk-amount-sub">{{ 'received' if r.flow == 'receipt' else 'paid' }}</div>
+          </div>
+          <div class="trk-progress-col">
+            <div class="trk-bar"><i style="width:{{ '%.1f'|format(r.progress if r.progress < 100 else 100) }}%"></i></div>
+            <div class="trk-progress-legend">
+              {# The forced part is broken out: "assigned" would otherwise read
+                 as invoice-matched money when a person simply closed it. #}
+              <span>{{ 'On invoices' if r.forced else 'Assigned' }}
+                <b>{{ r.to_invoices|amount_format(2) }}</b></span>
+              {% if r.forced %}
+              <span title="{{ r.forced_reason }}">No invoice <b>{{ r.forced|amount_format(2) }}</b></span>
+              {% endif %}
+              <span>Left <b>{{ r.unassigned|amount_format(2) }}</b></span>
+            </div>
+          </div>
+          <div class="trk-item-actions">
+            {% if can_assign %}
+            <button type="button" class="btn btn-sm btn-primary trk-assign-btn" data-line="{{ r.line_id }}">
+              {{ 'Assign' if r.state == 'unassigned' else 'Adjust' }}
+            </button>
+            {% if r.forced %}
+            <button type="button" class="btn btn-sm btn-outline trk-release-btn" data-line="{{ r.line_id }}">
+              Reopen
+            </button>
+            {% elif r.unassigned > 0 %}
+            <button type="button" class="btn btn-sm btn-outline trk-force-btn"
+                    data-line="{{ r.line_id }}" data-amount="{{ r.unassigned }}"
+                    title="For money with no invoice to match — an advance, a rounding difference, something never invoiced">
+              No invoice
+            </button>
+            {% endif %}
+            {% endif %}
+            <a href="{{ url_for('inv_tracking.assign_workspace', line_id=r.line_id) }}" class="trk-rowbtn">Open</a>
+          </div>
+        </article>
+        {% endfor %}
+      </div>
+      {% else %}
+      <div class="trk-empty">
+        <span class="trk-empty-icon">&#9878;</span>
+        <strong>Nothing to match here</strong>
+        <p>No approved receipt or payment fits these filters. Receipts and
+          payments appear once their CRV / BRV / CPV / BPV / JV is approved and
+          the line hits a customer or supplier account.
+          {% if drafts %}There {{ 'is' if drafts == 1 else 'are' }} {{ drafts }} unapproved voucher{{ '' if drafts == 1 else 's' }} waiting.{% endif %}</p>
+        <a href="{{ url_for('accounting.voucher_form', type='CRV') }}" class="btn btn-primary">Record a receipt</a>
+      </div>
+      {% endif %}
+    </div>
+  </section>
+</div>
+
+{% if can_assign %}
+<div class="trk-scrim" id="trkScrim"></div>
+<aside class="trk-drawer" id="trkDrawer" role="dialog" aria-modal="true" aria-labelledby="trkDrawerTitle">
+  <div class="trk-drawer-head">
+    <div>
+      <h2 id="trkDrawerTitle">Assign to invoices</h2>
+      <p id="trkDrawerSub">&nbsp;</p>
+    </div>
+    <button type="button" class="trk-drawer-close" id="trkDrawerClose" aria-label="Close">&times;</button>
+  </div>
+  <div class="trk-err" id="trkErr" role="alert"></div>
+  <div class="trk-drawer-body" id="trkDrawerBody">
+    <div class="trk-loading">Loading…</div>
+  </div>
+  <div class="trk-drawer-foot">
+    <div class="trk-remaining" id="trkRemaining">
+      <div class="lbl">Left to assign</div>
+      <div class="val" id="trkRemainingVal">0.00</div>
+    </div>
+    <div class="trk-savebar" style="margin-top:12px;">
+      <button type="button" class="btn btn-primary" id="trkSave">Save assignment</button>
+      <button type="button" class="btn btn-outline" id="trkAuto">Auto-assign oldest first</button>
+    </div>
+  </div>
+</aside>
+
+{# Closing money off without an invoice is an override, so it asks for an
+   amount and a reason rather than happening on a single click. #}
+<div class="trk-scrim" id="trkForceScrim"></div>
+<aside class="trk-drawer trk-drawer-sm" id="trkForce" role="dialog" aria-modal="true" aria-labelledby="trkForceTitle">
+  <div class="trk-drawer-head">
+    <div>
+      <h2 id="trkForceTitle">Close without an invoice</h2>
+      <p id="trkForceSub">&nbsp;</p>
+    </div>
+    <button type="button" class="trk-drawer-close" id="trkForceClose" aria-label="Close">&times;</button>
+  </div>
+  <div class="trk-err" id="trkForceErr" role="alert"></div>
+  <div class="trk-drawer-body">
+    <p class="trk-sub" style="margin-bottom:14px;">
+      Use this for money with no invoice to match — a customer advance, a
+      rounding difference, or something that was never invoiced. It records the
+      decision against the receipt. Nothing is posted and no invoice changes.
+    </p>
+    <div class="trk-field" style="margin-bottom:12px;">
+      <label class="trk-lbl" for="trkForceAmt">Amount to close</label>
+      <input type="number" step="0.01" min="0.01" id="trkForceAmt" class="trk-input">
+    </div>
+    <div class="trk-field">
+      <label class="trk-lbl" for="trkForceReason">Reason (required)</label>
+      <input type="text" id="trkForceReason" class="trk-input" maxlength="300"
+             placeholder="e.g. advance against future orders">
+    </div>
+  </div>
+  <div class="trk-drawer-foot">
+    <div class="trk-savebar" style="margin-top:0;">
+      <button type="button" class="btn btn-primary" id="trkForceSave">Close as not applicable</button>
+    </div>
+  </div>
+</aside>
+{% endif %}
+{% endblock %}
+
+{% block extra_scripts %}
+{% if can_assign %}
+<script>
+(function () {
+  var scrim = document.getElementById('trkScrim');
+  var drawer = document.getElementById('trkDrawer');
+  var body = document.getElementById('trkDrawerBody');
+  var sub = document.getElementById('trkDrawerSub');
+  var err = document.getElementById('trkErr');
+  var remainBox = document.getElementById('trkRemaining');
+  var remainVal = document.getElementById('trkRemainingVal');
+  var saveBtn = document.getElementById('trkSave');
+  var autoBtn = document.getElementById('trkAuto');
+  var current = null;          // the feed row being assigned
+  var fmt = window.formatAmount || function (v) { return (+v || 0).toFixed(2); };
+
+  function open() {
+    scrim.classList.add('show');
+    drawer.classList.add('show');
+    document.body.style.overflow = 'hidden';
+  }
+  function close() {
+    scrim.classList.remove('show');
+    drawer.classList.remove('show');
+    document.body.style.overflow = '';
+    current = null;
+  }
+  function showError(msg) {
+    err.textContent = msg || '';
+    err.classList.toggle('show', !!msg);
+  }
+
+  // The capacity check the server enforces, mirrored live so the user sees the
+  // refusal before submitting rather than after.
+  function recalc() {
+    if (!current) return;
+    var used = 0;
+    body.querySelectorAll('input.trk-amt').forEach(function (input) {
+      var row = input.closest('tr');
+      var on = row.querySelector('input.trk-pick').checked;
+      row.classList.toggle('picked', on);
+      input.disabled = !on;
+      if (on) used += parseFloat(input.value) || 0;
+    });
+    var left = Math.round((current.amount - used) * 100) / 100;
+    remainVal.textContent = fmt(left, 2);
+    remainBox.classList.toggle('over', left < -0.001);
+    saveBtn.disabled = left < -0.001;
+    saveBtn.style.opacity = left < -0.001 ? '.6' : '';
+  }
+
+  function render(data) {
+    current = data.row;
+    var r = data.row;
+    var word = r.flow === 'receipt' ? 'Receipt from' : 'Payment to';
+    sub.textContent = word + ' ' + r.party_name + ' · ' + r.voucher_type +
+                      ' ' + r.voucher_number + ' · ' + fmt(r.amount, 2);
+    var docWord = r.doc_type === 'SI' ? 'sales' : 'purchase';
+    var html = '';
+    if (!data.invoices.length) {
+      html += '<div class="trk-drawer-block"><div class="pad trk-empty" style="padding:26px 14px;">' +
+              '<strong>No open ' + docWord + ' invoice</strong><p>This party has no approved ' +
+              docWord + ' invoice with a balance, so there is nothing to assign this to yet.</p></div></div>';
+    } else {
+      html += '<div class="trk-drawer-block"><h3>Open ' + docWord + ' invoices — oldest first</h3>' +
+              '<div class="trk-table-wrap"><table class="trk-alloc-table"><thead><tr>' +
+              '<th style="width:38px;"></th><th>Invoice</th><th>Due</th>' +
+              '<th style="text-align:right;">Outstanding</th><th style="text-align:right;">Assign</th>' +
+              '</tr></thead><tbody>';
+      data.invoices.forEach(function (inv) {
+        var picked = inv.assigned_here > 0;
+        var age = inv.overdue_days > 0
+          ? '<span class="trk-age ' + (inv.overdue_days > 30 ? 'hot' : 'warm') + '">' +
+            inv.overdue_days + 'd late</span>'
+          : '<span class="trk-age">' + (inv.due_str || '—') + '</span>';
+        html += '<tr class="' + (picked ? 'picked' : '') + '">' +
+          '<td data-label="Pick"><input type="checkbox" class="trk-pick" ' + (picked ? 'checked' : '') + '></td>' +
+          '<td data-label="Invoice"><b>' + inv.number + '</b><div style="color:var(--muted);font-size:11px;">' +
+            'Total ' + fmt(inv.total, 2) + ' · settled ' + fmt(inv.settled, 2) + '</div></td>' +
+          '<td data-label="Due">' + age + '</td>' +
+          '<td data-label="Outstanding" style="text-align:right;font-variant-numeric:tabular-nums;">' +
+            fmt(inv.outstanding, 2) + '</td>' +
+          '<td data-label="Assign" style="text-align:right;">' +
+            '<input type="number" step="0.01" min="0" class="trk-amt" data-doc="' + inv.id +
+            '" data-max="' + inv.assignable + '" value="' +
+            (picked ? inv.assigned_here.toFixed(2) : inv.assignable.toFixed(2)) + '"></td>' +
+          '</tr>';
+      });
+      html += '</tbody></table></div></div>';
+    }
+    body.innerHTML = html;
+    body.querySelectorAll('input.trk-pick, input.trk-amt').forEach(function (el) {
+      el.addEventListener('input', recalc);
+      el.addEventListener('change', recalc);
+    });
+    recalc();
+  }
+
+  function load(lineId) {
+    showError('');
+    body.innerHTML = '<div class="trk-loading">Loading…</div>';
+    sub.textContent = ' ';
+    open();
+    fetch('{{ url_for("inv_tracking.api_feed_item", line_id=0) }}'.replace(/0$/, lineId))
+      .then(function (res) { return res.json(); })
+      .then(function (data) {
+        if (!data.ok) { showError(data.error || 'Could not load this payment.'); return; }
+        data.row.line_id = lineId;
+        render(data);
+      })
+      .catch(function () { showError('Could not load this payment. Check your connection.'); });
+  }
+
+  document.querySelectorAll('.trk-assign-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () { load(btn.dataset.line); });
+  });
+  document.getElementById('trkDrawerClose').addEventListener('click', close);
+  scrim.addEventListener('click', close);
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && drawer.classList.contains('show')) close();
+  });
+
+  autoBtn.addEventListener('click', function () {
+    if (!current) return;
+    // Fill oldest first up to what is left, exactly as the server's proposal does.
+    var left = current.amount;
+    body.querySelectorAll('input.trk-amt').forEach(function (input) {
+      var pick = input.closest('tr').querySelector('input.trk-pick');
+      var max = parseFloat(input.dataset.max) || 0;
+      var take = Math.min(left, max);
+      take = Math.round(take * 100) / 100;
+      pick.checked = take > 0;
+      input.value = take > 0 ? take.toFixed(2) : '0.00';
+      left = Math.round((left - take) * 100) / 100;
+    });
+    recalc();
+  });
+
+  saveBtn.addEventListener('click', function () {
+    if (!current) return;
+    var entries = [];
+    body.querySelectorAll('input.trk-amt').forEach(function (input) {
+      var on = input.closest('tr').querySelector('input.trk-pick').checked;
+      var amount = on ? (parseFloat(input.value) || 0) : 0;
+      // A zero for a row that already carried an amount is how the server is
+      // told to drop that part of the split, so unpicked rows are sent too.
+      entries.push({ doc_id: parseInt(input.dataset.doc, 10), amount: amount });
+    });
+    if (!entries.length) { showError('There is no invoice to assign this to.'); return; }
+    showError('');
+    saveBtn.disabled = true;
+    saveBtn.textContent = 'Saving…';
+    fetch('{{ url_for("inv_tracking.api_assign", line_id=0) }}'.replace(/0$/, current.line_id), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ entries: entries })
+    }).then(function (res) { return res.json(); })
+      .then(function (data) {
+        saveBtn.disabled = false;
+        saveBtn.textContent = 'Save assignment';
+        if (!data.ok) { showError(data.error || 'The assignment was refused.'); return; }
+        window.location.reload();
+      })
+      .catch(function () {
+        saveBtn.disabled = false;
+        saveBtn.textContent = 'Save assignment';
+        showError('Could not save. Check your connection and try again.');
+      });
+  });
+
+  // ── Close without an invoice ──────────────────────────────────────────────
+  var fScrim = document.getElementById('trkForceScrim');
+  var fPanel = document.getElementById('trkForce');
+  var fAmt = document.getElementById('trkForceAmt');
+  var fReason = document.getElementById('trkForceReason');
+  var fErr = document.getElementById('trkForceErr');
+  var fSave = document.getElementById('trkForceSave');
+  var fSub = document.getElementById('trkForceSub');
+  var forceLine = null;
+
+  function fShowError(msg) {
+    fErr.textContent = msg || '';
+    fErr.classList.toggle('show', !!msg);
+  }
+  function fClose() {
+    fPanel.classList.remove('show');
+    fScrim.classList.remove('show');
+    forceLine = null;
+  }
+  function fOpen(lineId, amount, party) {
+    forceLine = lineId;
+    fAmt.value = amount;
+    fAmt.max = amount;
+    fReason.value = '';
+    fShowError('');
+    fSub.textContent = party + ' · up to ' + amount + ' unassigned';
+    fPanel.classList.add('show');
+    fScrim.classList.add('show');
+    fReason.focus();
+  }
+
+  document.querySelectorAll('.trk-force-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var item = btn.closest('.trk-item');
+      fOpen(btn.dataset.line, btn.dataset.amount, item ? item.dataset.party : '');
+    });
+  });
+  document.getElementById('trkForceClose').addEventListener('click', fClose);
+  fScrim.addEventListener('click', fClose);
+
+  fSave.addEventListener('click', function () {
+    if (!forceLine) return;
+    var reason = fReason.value.trim();
+    if (!reason) { fShowError('Give a reason for closing this without an invoice.'); return; }
+    fShowError('');
+    fSave.disabled = true;
+    fSave.textContent = 'Saving…';
+    fetch('{{ url_for("inv_tracking.api_force_close", line_id=0) }}'.replace(/0$/, forceLine), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ amount: parseFloat(fAmt.value) || 0, reason: reason })
+    }).then(function (res) { return res.json(); })
+      .then(function (data) {
+        fSave.disabled = false;
+        fSave.textContent = 'Close as not applicable';
+        if (!data.ok) { fShowError(data.error || 'That was refused.'); return; }
+        window.location.reload();
+      })
+      .catch(function () {
+        fSave.disabled = false;
+        fSave.textContent = 'Close as not applicable';
+        fShowError('Could not save. Check your connection and try again.');
+      });
+  });
+
+  document.querySelectorAll('.trk-release-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      btn.disabled = true;
+      fetch('{{ url_for("inv_tracking.api_release_force", line_id=0) }}'.replace(/0$/, btn.dataset.line),
+            { method: 'POST', headers: { 'Content-Type': 'application/json' } })
+        .then(function (res) { return res.json(); })
+        .then(function (data) {
+          if (!data.ok) { btn.disabled = false; alert(data.error || 'That was refused.'); return; }
+          window.location.reload();
+        })
+        .catch(function () { btn.disabled = false; });
+    });
+  });
+
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && fPanel.classList.contains('show')) fClose();
+  });
+})();
+</script>
+{% endif %}
+{% endblock %}

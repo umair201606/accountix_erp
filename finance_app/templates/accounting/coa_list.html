@@ -6,11 +6,11 @@
 .coa-toolbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:10px}
 .coa-search{position:relative;flex:1;max-width:420px}
 .coa-search input{width:100%;padding:9px 12px 9px 34px;border:1px solid #e2e8f0;border-radius:8px;font-size:13px;outline:none;transition:border-color .12s,box-shadow .12s}
-.coa-search input:focus{border-color:#0f5257;box-shadow:0 0 0 3px rgba(15,82,87,.12)}
+.coa-search input:focus{border-color:#1d4ed8;box-shadow:0 0 0 3px rgba(29,78,216,.12)}
 .coa-search::before{content:'\1F50D';position:absolute;left:10px;top:50%;transform:translateY(-50%);font-size:13px;opacity:.5}
 .coa-legend{display:flex;gap:10px;align-items:center;font-size:11px;color:#64748b;flex-wrap:wrap}
 .coa-legend .dot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:4px}
-.tree-header{display:flex;align-items:center;padding:10px 12px;background:#f1f5f9;font-size:11px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:#64748b;border-bottom:2px solid #0f5257;position:sticky;top:0;z-index:5}
+.tree-header{display:flex;align-items:center;padding:10px 12px;background:#f1f5f9;font-size:11px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:#64748b;border-bottom:2px solid #1d4ed8;position:sticky;top:0;z-index:5}
 .tree-row{display:flex;align-items:center;padding:5px 12px;border-bottom:1px solid #f1f5f9;font-size:13px;transition:background .1s}
 .tree-row:hover{background:#f8fafc}
 .tree-row.inactive{opacity:.45}
@@ -20,13 +20,13 @@
 .tw:hover{background:#e2e8f0}
 .tw.leafpad{cursor:default;visibility:hidden}
 .lvl-badge{display:inline-block;min-width:20px;height:20px;border-radius:4px;text-align:center;line-height:20px;font-size:10px;font-weight:700;color:#fff;margin-right:9px;flex-shrink:0}
-.lvl1{background:#0f172a}.lvl2{background:#334155}.lvl3{background:#64748b}.lvl4{background:#94a3b8}.lvl5{background:#0f5257}
+.lvl1{background:#0f172a}.lvl2{background:#334155}.lvl3{background:#64748b}.lvl4{background:#94a3b8}.lvl5{background:#1d4ed8}
 .acct-code{color:#64748b;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;min-width:150px;flex-shrink:0}
 .acct-name{font-weight:500;color:#1e293b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .tree-row[data-level="1"] .acct-name,.tree-row[data-level="2"] .acct-name{font-weight:700;text-transform:uppercase;font-size:12px;letter-spacing:.4px}
 .tree-row[data-level="3"] .acct-name{font-weight:600}
 .chip{font-size:9.5px;font-weight:700;letter-spacing:.3px;padding:2px 7px;border-radius:10px;margin-left:6px;flex-shrink:0;text-transform:uppercase}
-.chip-fixed{background:#e0f2f1;color:#0f5257}
+.chip-fixed{background:#eff6ff;color:#1d4ed8}
 .chip-post{background:#ecfdf5;color:#047857}
 .chip-cf-operating{background:#eff6ff;color:#1d4ed8}
 .chip-cf-investing{background:#f3e8ff;color:#7c3aed}
@@ -36,17 +36,26 @@
 .chip-inactive{background:#fef2f2;color:#dc2626}
 .actions{margin-left:auto;display:flex;gap:4px;flex-shrink:0;align-items:center}
 .bdg-bsm{display:inline-block;padding:2px 9px;font-size:11px;border-radius:4px;text-decoration:none;font-weight:600}
-.tree-empty{text-align:center;padding:40px;color:#94a3b8}
+.tree-empty{text-align:center;padding:40px;color:#64748b}
+@media(max-width:640px){
+  .tree-header{display:none}
+  .tree-row{flex-wrap:wrap;padding:7px 10px;gap:2px 8px}
+  .tree-row .indent{width:0!important}
+  .acct-code{min-width:0;font-size:11px}
+  .acct-name{min-width:0;flex:1}
+  .actions{width:100%;margin-left:0;justify-content:flex-end;padding-top:3px}
+  .coa-search{max-width:none}
+}
 </style>
 {% endblock %}
 {% block content %}
 <div class="wrap">
   <div class="coa-toolbar">
     <div class="coa-search">
-      <input type="text" id="coaSearch" placeholder="Search by code or name..." autocomplete="off">
+      <input type="text" id="coaSearch" placeholder="Search by code or name..." autocomplete="off" aria-label="Search accounts">
     </div>
     <div class="coa-legend">
-      <span><span class="dot" style="background:#0f5257;"></span>Level 5 = posting level</span>
+      <span><span class="dot" style="background:#1d4ed8;"></span>Level 5 = posting level</span>
       <span><span class="dot" style="background:#94a3b8;"></span>Levels 1–4 aggregate only</span>
       <button type="button" class="bdg-bsm" id="expandAll" style="background:#eef2ff;color:#4338ca;border:none;cursor:pointer;">Expand all</button>
       <button type="button" class="bdg-bsm" id="collapseAll" style="background:#eef2ff;color:#4338ca;border:none;cursor:pointer;">Collapse all</button>
@@ -67,9 +76,9 @@
          data-code="{{ a.code|lower }}" data-name="{{ a.name|lower }}" data-haschildren="{{ 1 if row.has_children else 0 }}">
       <span class="indent" style="width:{{ d * 22 }}px;"></span>
       {% if row.has_children %}
-      <button type="button" class="tw" title="Expand / collapse">&#9660;</button>
+      <button type="button" class="tw" title="Collapse" aria-expanded="true">&#9660;</button>
       {% else %}
-      <button type="button" class="tw leafpad">&#9660;</button>
+      <button type="button" class="tw leafpad" aria-hidden="true" tabindex="-1">&#9660;</button>
       {% endif %}
       <span class="lvl-badge lvl{{ a.level }}">{{ a.level }}</span>
       <span class="acct-code">{{ a.code }}</span>
@@ -81,12 +90,12 @@
       {% if not a.is_active %}<span class="chip chip-inactive">inactive</span>{% endif %}
       <span class="actions">
         {% if a.level < 5 %}
-          <a href="{{ url_for('coa.add_account', parent_id=a.id) }}" class="bdg-bsm" style="background:#e0f2f1;color:#0f5257;">+ Child</a>
+          <a href="{{ url_for('coa.add_account', parent_id=a.id) }}" class="bdg-bsm" style="background:#eff6ff;color:#1d4ed8;">+ Child</a>
         {% endif %}
         <a href="{{ url_for('coa.edit_account', id=a.id) }}" class="bdg-bsm" style="background:#eef2ff;color:#4338ca;">Edit</a>
         {% if a.can_delete() %}
         <form method="POST" action="{{ url_for('coa.delete_account', id=a.id) }}" style="display:inline" onsubmit="return confirm('Delete {{ a.name }}?');">
-          <button type="submit" class="bdg-bsm" style="background:#fef2f2;color:#dc2626;border:none;cursor:pointer;">Del</button>
+          <button type="submit" class="bdg-bsm" style="background:#fef2f2;color:#dc2626;border:none;cursor:pointer;">Delete</button>
         </form>
         {% endif %}
       </span>
@@ -96,7 +105,7 @@
     {% endfor %}
     </div>
   </div>
-  <p style="font-size:12px;color:#94a3b8;margin-top:10px;">
+  <p style="font-size:12px;color:#64748b;margin-top:10px;">
     Journal entries can only be posted to <strong>level-5 operational accounts</strong>; levels 1–4 aggregate their children's balances automatically.
     Cash-flow and P&amp;L tags are inherited from the nearest tagged parent unless set on the account itself.
   </p>
@@ -109,7 +118,11 @@
   function setCollapsed(row, collapsed){
     row.dataset.collapsed = collapsed ? '1' : '';
     var tw = row.querySelector('.tw');
-    if (tw && !tw.classList.contains('leafpad')) tw.innerHTML = collapsed ? '&#9654;' : '&#9660;';
+    if (tw && !tw.classList.contains('leafpad')){
+      tw.innerHTML = collapsed ? '&#9654;' : '&#9660;';
+      tw.setAttribute('title', collapsed ? 'Expand' : 'Collapse');
+      tw.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+    }
     applyVisibility();
   }
 
@@ -135,11 +148,21 @@
   });
 
   document.getElementById('expandAll').addEventListener('click', function(){
-    rows.forEach(function(r){ r.dataset.collapsed=''; var t=r.querySelector('.tw'); if(t&&!t.classList.contains('leafpad'))t.innerHTML='&#9660;'; });
+    rows.forEach(function(r){
+      r.dataset.collapsed='';
+      var t=r.querySelector('.tw');
+      if(t&&!t.classList.contains('leafpad')){t.innerHTML='&#9660;';t.setAttribute('title','Collapse');t.setAttribute('aria-expanded','true');}
+    });
     applyVisibility();
   });
   document.getElementById('collapseAll').addEventListener('click', function(){
-    rows.forEach(function(r){ if(+r.dataset.level<=2 && r.dataset.haschildren==='1'){ r.dataset.collapsed='1'; var t=r.querySelector('.tw'); if(t)t.innerHTML='&#9654;'; } else { r.dataset.collapsed=''; } });
+    rows.forEach(function(r){
+      if(+r.dataset.level<=2 && r.dataset.haschildren==='1'){
+        r.dataset.collapsed='1';
+        var t=r.querySelector('.tw');
+        if(t){t.innerHTML='&#9654;';t.setAttribute('title','Expand');t.setAttribute('aria-expanded','false');}
+      } else { r.dataset.collapsed=''; }
+    });
     applyVisibility();
   });
 
@@ -164,7 +187,13 @@
 
   // Default view: start with level-5 detail collapsed under level 4 so the
   // structural tree reads at a glance.
-  rows.forEach(function(r){ if(+r.dataset.level===4 && r.dataset.haschildren==='1'){ r.dataset.collapsed='1'; var t=r.querySelector('.tw'); if(t)t.innerHTML='&#9654;'; } });
+  rows.forEach(function(r){
+    if(+r.dataset.level===4 && r.dataset.haschildren==='1'){
+      r.dataset.collapsed='1';
+      var t=r.querySelector('.tw');
+      if(t){t.innerHTML='&#9654;';t.setAttribute('title','Expand');t.setAttribute('aria-expanded','false');}
+    }
+  });
   applyVisibility();
 })();
 </script>

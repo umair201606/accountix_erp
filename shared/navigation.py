@@ -217,6 +217,18 @@ NAV = {
                  "label": "Sales Return",
                  "active": {"prefix": "inv_sales_return"}},
             ]),
+            # Settlement lives in its own group: it reads both sides of the
+            # ledger and belongs to neither Procurement nor Sales.
+            ("Invoice Tracking", "&#9878;", [
+                {"endpoint": "inv_tracking.feed", "icon": "&#9632;",
+                 "label": "Payment Feed",
+                 "active": {"exact": ["inv_tracking.feed",
+                                      "inv_tracking.assign_workspace"]}},
+                {"endpoint": "inv_tracking.sales", "icon": "&#9632;",
+                 "label": "Sales Invoice Tracking"},
+                {"endpoint": "inv_tracking.purchases", "icon": "&#9632;",
+                 "label": "Purchase Invoice Tracking"},
+            ]),
         ],
     },
     "fbr": {
