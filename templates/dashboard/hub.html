@@ -50,6 +50,13 @@
     <p class="mod-desc">Assets, Categories, Depreciation, Reports</p>
   </a>
   {% endif %}
+  {% if has_executive %}
+  <a href="{{ url_for('executive.dashboard') }}" class="mod-card" style="--hover:#047857">
+    <div class="mod-ico">&#128200;</div>
+    <h3 class="mod-title">Executive Reports</h3>
+    <p class="mod-desc">Receivables &amp; payables, read live off the ledger</p>
+  </a>
+  {% endif %}
   <a href="{{ url_for('settings.index') }}" class="mod-card" style="--hover:#1f2937">
     <div class="mod-ico">&#9881;</div>
     <h3 class="mod-title">Settings</h3>

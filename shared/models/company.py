@@ -33,6 +33,7 @@ class Company(db.Model):
     mod_accounting_enabled = db.Column(db.Boolean, default=True)
     mod_fbr_enabled = db.Column(db.Boolean, default=True)
     mod_fixed_assets_enabled = db.Column(db.Boolean, default=True)
+    mod_executive_enabled = db.Column(db.Boolean, default=True)
 
     # Profile / letterhead (previously CompanyInfo)
     address = db.Column(db.Text)
@@ -73,6 +74,7 @@ class Company(db.Model):
         "accounting": "mod_accounting_enabled",
         "fbr": "mod_fbr_enabled",
         "fixed_assets": "mod_fixed_assets_enabled",
+        "executive": "mod_executive_enabled",
     }
 
     @classmethod

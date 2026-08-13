@@ -1,0 +1,53 @@
+{% extends "layouts/base_executive.html" %}
+{% block title %}Executive Report Settings{% endblock %}
+{% block page_title %}Executive Report Settings{% endblock %}
+{% block extra_css %}{% include "executive/_style.html" %}{% endblock %}
+{% block content %}
+<div class="exr">
+
+  <p class="exr-count" style="margin-bottom:14px;">
+    Tick the accounts these reports read. Ticking a parent takes everything
+    beneath it; untick <em>with children</em> to watch that one account alone
+    and pick its children individually. Which side a party lands on is decided
+    by its balance — debit is receivable, credit is payable — so nothing here
+    fixes an account to one side.
+  </p>
+
+  <form method="POST">
+    <div class="exr-tree">
+      {% for a in accounts %}
+      <div class="exr-node {{ 'is-on' if a.selected }}"
+           style="padding-left:{{ 14 + (a.level - 1) * 16 }}px;">
+        <input type="checkbox" name="account" value="{{ a.id }}"
+               id="acct{{ a.id }}" {{ 'checked' if a.selected }}
+               {{ 'disabled' if not can_edit }}>
+        <label class="exr-node-main" for="acct{{ a.id }}">
+          <div class="exr-node-name">{{ a.name }}</div>
+          <div class="exr-node-sub">{{ a.code }} · {{ a.type|title }} · level {{ a.level }}</div>
+        </label>
+        <label class="exr-deep">
+          <input type="checkbox" name="deep" value="{{ a.id }}"
+                 {{ 'checked' if a.include_children }}
+                 {{ 'disabled' if not can_edit }}>
+          with children
+        </label>
+      </div>
+      {% else %}
+      <div class="exr-empty">
+        <strong>No chart of accounts yet</strong>
+        <p>Set up the chart of accounts first; these reports read balances
+          from it.</p>
+      </div>
+      {% endfor %}
+    </div>
+
+    {% if can_edit and accounts %}
+    <div class="exr-savebar">
+      <button type="submit" class="btn btn-primary">Save selection</button>
+      <a href="{{ url_for('executive.receivables') }}" class="btn btn-outline">Receivables</a>
+      <a href="{{ url_for('executive.payables') }}" class="btn btn-outline">Payables</a>
+    </div>
+    {% endif %}
+  </form>
+</div>
+{% endblock %}

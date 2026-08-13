@@ -35,6 +35,7 @@ def _create_app():
             os.path.join(os.path.dirname(__file__), "fbr_app", "templates"),
             os.path.join(os.path.dirname(__file__), "fixed_assets_app", "templates"),
             os.path.join(os.path.dirname(__file__), "superadmin_app", "templates"),
+            os.path.join(os.path.dirname(__file__), "executive_app", "templates"),
         ]),
     ])
     app.jinja_loader = my_loader
@@ -82,6 +83,9 @@ def _create_app():
 
     from fixed_assets_app.app import register_fixed_assets_blueprints
     register_module(app, "fixed_assets", register_fixed_assets_blueprints)
+
+    from executive_app.app import register_executive_blueprints
+    register_module(app, "executive", register_executive_blueprints)
 
     from superadmin_app.routes import superadmin_bp
     app.register_blueprint(superadmin_bp)
@@ -411,6 +415,7 @@ def _migrate_schema(db):
         ("users", "has_accounting_access", bool_false),
         ("users", "has_fbr_access", bool_false),
         ("users", "has_fixed_assets_access", bool_false),
+        ("users", "has_executive_access", bool_false),
         ("users", "login_id", "VARCHAR(120)"),
         ("users", "is_super_admin", bool_false),
         ("consumption_vouchers", "charge_account_id", "INTEGER"),
@@ -563,6 +568,7 @@ def _migrate_schema(db):
         ("companies", "mod_accounting_enabled", "BOOLEAN DEFAULT 1"),
         ("companies", "mod_fbr_enabled", "BOOLEAN DEFAULT 1"),
         ("companies", "mod_fixed_assets_enabled", "BOOLEAN DEFAULT 1"),
+        ("companies", "mod_executive_enabled", "BOOLEAN DEFAULT 1"),
         # Per-user company quotas; NULL falls back to GlobalLimits.
         ("users", "max_companies_owned", "INTEGER"),
         ("users", "max_companies_joined", "INTEGER"),
@@ -1154,7 +1160,8 @@ def _bootstrap_default_company(db):
         adm.has_hr_access = True
         for flag in ("has_inventory_access", "has_invoicing_access",
                      "has_finance_access", "has_accounting_access",
-                     "has_fbr_access", "has_fixed_assets_access"):
+                     "has_fbr_access", "has_fixed_assets_access",
+                     "has_executive_access"):
             setattr(adm, flag, False)
         CompanyMembership.query.filter_by(
             user_id=adm.id, company_id=company.id).delete()
@@ -1264,6 +1271,13 @@ def _seed_all_data(app):
         if not User.query.filter_by(has_fixed_assets_access=True).first():
             for u in User.query.all():
                 u.has_fixed_assets_access = bool(
+                    u.role_id in (admin_role.id, mgr_role.id))
+
+        # Executive Reports is a management view, so it follows the same
+        # admin/manager default as fixed assets.
+        if not User.query.filter_by(has_executive_access=True).first():
+            for u in User.query.all():
+                u.has_executive_access = bool(
                     u.role_id in (admin_role.id, mgr_role.id))
 
         seed_users = [

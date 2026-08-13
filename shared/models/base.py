@@ -87,6 +87,7 @@ class User(UserMixin, db.Model):
     has_accounting_access = db.Column(db.Boolean, default=False)
     has_fbr_access = db.Column(db.Boolean, default=False)
     has_fixed_assets_access = db.Column(db.Boolean, default=False)
+    has_executive_access = db.Column(db.Boolean, default=False)
     is_super_admin = db.Column(db.Boolean, default=False)
     # Per-user company quotas set by the super admin. NULL = fall back to
     # GlobalLimits (see company_limit_for / join_limit_for).
@@ -239,6 +240,7 @@ class User(UserMixin, db.Model):
             "accounting": self.has_accounting_access,
             "fbr": self.has_fbr_access,
             "fixed_assets": self.has_fixed_assets_access,
+            "executive": self.has_executive_access,
         }
         if not self._company_entitled(module_key):
             return False

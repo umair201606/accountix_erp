@@ -70,6 +70,12 @@ MODULE_META = {
         "badge_bg": "#fef2f2", "badge_fg": "#b91c1c",
         "home": "fa_auth.dashboard",
     },
+    "executive": {
+        "label": "Accountix Executive", "badge": "EXECUTIVE", "letter": "E",
+        "brand": "linear-gradient(135deg,#065f46,#047857)",
+        "badge_bg": "#ecfdf5", "badge_fg": "#047857",
+        "home": "executive.dashboard",
+    },
 }
 
 
@@ -236,6 +242,20 @@ NAV = {
             {"endpoint": "fbr_dashboard.dashboard", "icon": "&#9679;", "label": "Dashboard"},
             {"endpoint": "fbr_settings.index", "icon": "&#9881;", "label": "Settings",
              "active": {"prefix": "fbr_settings."}, "gate": _admin},
+        ],
+    },
+    # Executive Reports: a read of the ledger, so it carries no create/post
+    # actions — just the two registers and the accounts they watch.
+    "executive": {
+        "flat": [
+            {"endpoint": "executive.dashboard", "icon": "&#9679;", "label": "Dashboard"},
+            {"endpoint": "executive.receivables", "icon": "&#128178;",
+             "label": "Receivables",
+             "active": {"exact": ["executive.receivables", "executive.party"]}},
+            {"endpoint": "executive.payables", "icon": "&#128230;",
+             "label": "Payables"},
+            {"endpoint": "executive.settings", "icon": "&#9881;",
+             "label": "Settings", "gate": _admin_or_manager},
         ],
     },
     "finance": {

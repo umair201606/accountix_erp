@@ -149,6 +149,7 @@ def companies():
                 has_accounting_access=True,
                 has_fbr_access=True,
                 has_fixed_assets_access=True,
+                has_executive_access=True,
             )
             admin.set_password(password)
             db.session.add(admin)

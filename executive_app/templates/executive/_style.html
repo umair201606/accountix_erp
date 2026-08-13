@@ -1,0 +1,94 @@
+{# Shared look for the Executive Reports pages. No page heading — the top bar
+   already names the page — and no card wrappers around the lists. #}
+<style>
+:root{
+  --exr-in:#047857; --exr-in-soft:#ecfdf5;
+  --exr-out:#b45309; --exr-out-soft:#fffbeb;
+  --exr-line:#e3e8ef; --exr-shadow:0 8px 20px rgba(15,23,42,.05);
+}
+.exr{max-width:1240px;margin:0 auto}
+.exr *{box-sizing:border-box}
+
+/* The two figures the pages lead with: how much, across how many parties. */
+.exr-head{display:flex;flex-wrap:wrap;align-items:flex-end;gap:10px 26px;margin:2px 0 14px}
+.exr-total{display:flex;flex-direction:column;gap:2px}
+.exr-total .lbl{color:var(--muted);font-size:10px;font-weight:800;letter-spacing:.08em;
+  text-transform:uppercase}
+.exr-total .val{color:var(--ink);font-size:27px;font-weight:800;line-height:1.1;
+  font-variant-numeric:tabular-nums;letter-spacing:-.02em}
+.exr-total.in .val{color:var(--exr-in)}
+.exr-total.out .val{color:var(--exr-out)}
+.exr-total .sub{color:var(--muted);font-size:11.5px}
+.exr-asof{margin-left:auto;color:var(--muted);font-size:11.5px}
+
+.exr-filterbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0 0 12px}
+.exr-input,.exr-select{min-height:36px;padding:8px 11px;border:1px solid var(--exr-line);
+  border-radius:8px;background:#fff;color:var(--ink);font-family:inherit;font-size:12.5px;
+  outline:none;min-width:140px}
+.exr-input:focus,.exr-select:focus{border-color:var(--exr-in);
+  box-shadow:0 0 0 3px rgba(4,120,87,.12)}
+.exr-search{flex:1 1 200px}
+.exr-filterbar .btn{min-height:36px}
+.exr-count{margin:0 0 12px;color:var(--muted);font-size:11.5px}
+
+.exr-wrap{border:1px solid var(--exr-line);border-radius:11px;background:#fff;
+  box-shadow:var(--exr-shadow);overflow-x:auto}
+.exr-table{width:100%;border-collapse:collapse;min-width:720px}
+.exr-table th{padding:10px 14px;border-bottom:1px solid var(--exr-line);
+  background:linear-gradient(90deg,#f8fafc,#fff);color:var(--muted);font-size:10px;
+  font-weight:800;letter-spacing:.07em;text-transform:uppercase;text-align:left;white-space:nowrap}
+.exr-table td{padding:11px 14px;border-bottom:1px solid #f1f5f9;font-size:13px;color:var(--ink);
+  vertical-align:middle}
+.exr-table tbody tr:last-child td{border-bottom:0}
+.exr-table tbody tr:hover{background:#fbfdff}
+.exr-table .num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.exr-table .strong{font-weight:800}
+.exr-code{color:var(--muted);font-size:11px;font-variant-numeric:tabular-nums}
+.exr-link{color:var(--exr-in);font-weight:700;text-decoration:none}
+.exr-link:hover{text-decoration:underline}
+.exr-group{display:inline-flex;padding:2px 8px;border-radius:999px;background:#f1f5f9;
+  color:#475569;font-size:10.5px;font-weight:700;white-space:nowrap}
+.exr-side{display:inline-flex;align-items:center;padding:3px 9px;border-radius:999px;
+  font-size:10px;font-weight:800;letter-spacing:.03em;text-transform:uppercase}
+.exr-side-receivable{background:var(--exr-in-soft);color:var(--exr-in)}
+.exr-side-payable{background:var(--exr-out-soft);color:var(--exr-out)}
+
+.exr-empty{padding:40px 16px;text-align:center;color:var(--muted)}
+.exr-empty strong{display:block;margin-bottom:5px;color:var(--ink);font-size:14px}
+.exr-empty p{margin:0 auto;max-width:52ch;font-size:12.5px;line-height:1.6}
+.exr-empty .btn{margin-top:14px}
+
+/* Settings tree */
+.exr-tree{border:1px solid var(--exr-line);border-radius:11px;background:#fff;
+  box-shadow:var(--exr-shadow);overflow:hidden}
+.exr-node{display:flex;align-items:center;gap:10px;padding:8px 14px;
+  border-bottom:1px solid #f1f5f9}
+.exr-node:last-child{border-bottom:0}
+.exr-node:hover{background:#fbfdff}
+.exr-node.is-on{background:var(--exr-in-soft)}
+.exr-node-main{min-width:0;flex:1}
+.exr-node-name{font-size:13px;color:var(--ink);font-weight:600}
+.exr-node-sub{color:var(--muted);font-size:11px;font-variant-numeric:tabular-nums}
+.exr-deep{display:inline-flex;align-items:center;gap:6px;color:var(--muted);font-size:11.5px;
+  white-space:nowrap}
+.exr-savebar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:14px}
+
+@media(max-width:720px){
+  .exr-head{gap:10px 18px}
+  .exr-total .val{font-size:22px}
+  .exr-asof{margin-left:0;width:100%}
+  .exr-filterbar .exr-input,.exr-filterbar .exr-select{flex:1 1 140px;min-width:0;min-height:40px}
+  .exr-filterbar .btn{min-height:40px}
+  /* Table becomes cards: each cell shows its own label. */
+  .exr-table{min-width:0}
+  .exr-table thead{display:none}
+  .exr-table,.exr-table tbody,.exr-table tr,.exr-table td{display:block;width:100%}
+  .exr-table tbody tr{padding:12px 14px;border-bottom:1px solid #eef2f7}
+  .exr-table td{display:flex;align-items:center;justify-content:space-between;gap:14px;
+    padding:4px 0;border:0;text-align:right}
+  .exr-table td::before{content:attr(data-label);color:var(--muted);font-size:10px;
+    font-weight:800;letter-spacing:.07em;text-align:left;text-transform:uppercase;flex:none}
+  .exr-node{flex-wrap:wrap}
+  .exr-deep{width:100%;padding-left:26px}
+}
+</style>

@@ -65,6 +65,12 @@ MODULES = [
         ("fixed_assets_categories", "Categories"),
         ("fixed_assets_reports", "Reports"),
     ]),
+    ("executive", "Executive Reports", "has_executive_access", [
+        # "view" opens the receivables/payables registers, "edit" is what lets
+        # the watched accounts be changed. Neither posts anything — the module
+        # only reads ledger balances.
+        ("executive_reports", "Receivables & Payables"),
+    ]),
 ]
 
 # Accounting voucher type -> section key (used to enforce per-voucher rights)

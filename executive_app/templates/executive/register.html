@@ -1,0 +1,93 @@
+{% extends "layouts/base_executive.html" %}
+{% block title %}{{ meta.title }}{% endblock %}
+{% block page_title %}{{ meta.title }}{% endblock %}
+{% block extra_css %}{% include "executive/_style.html" %}{% endblock %}
+{% block content %}
+<div class="exr">
+
+  {# The two headline figures, then the list. No page heading: the top bar
+     already names it. #}
+  <div class="exr-head">
+    <div class="exr-total {{ 'in' if side == 'receivable' else 'out' }}">
+      <span class="lbl">Total {{ meta.noun }}</span>
+      <span class="val">{{ totals.amount|amount_format(2) }}</span>
+    </div>
+    <div class="exr-total">
+      <span class="lbl">Parties</span>
+      <span class="val">{{ totals.parties }}</span>
+      <span class="sub">{{ meta.party_word }}</span>
+    </div>
+    {% if filters.as_of %}
+    <span class="exr-asof">Balances as at {{ filters.as_of }}</span>
+    {% endif %}
+  </div>
+
+  {% if configured %}
+  <form method="GET" class="exr-filterbar">
+    <select name="group" class="exr-select" aria-label="Account group">
+      <option value="">All selected accounts</option>
+      {% for g in groups %}
+      <option value="{{ g.id }}" {{ 'selected' if filters.group == g.id }}>{{ g.label }}</option>
+      {% endfor %}
+    </select>
+    <input type="search" name="q" value="{{ filters.q }}" class="exr-input exr-search"
+           placeholder="Party or account code" aria-label="Search" autocomplete="off">
+    <input type="date" name="as_of" value="{{ filters.as_of }}" class="exr-input"
+           aria-label="Balances as at">
+    <button type="submit" class="btn btn-sm btn-primary">Apply</button>
+    {% if filters.q or filters.group or filters.as_of %}
+    <a href="{{ url_for(request.endpoint) }}" class="btn btn-sm btn-outline">Reset</a>
+    {% endif %}
+  </form>
+
+  <p class="exr-count">{{ rows|length }} part{{ 'y' if rows|length == 1 else 'ies' }}</p>
+  {% endif %}
+
+  <div class="exr-wrap">
+    <table class="exr-table">
+      <thead>
+        <tr>
+          <th>Party / account</th>
+          <th>Group</th>
+          <th class="num">Debit</th>
+          <th class="num">Credit</th>
+          <th class="num">{{ 'Receivable' if side == 'receivable' else 'Payable' }}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in rows %}
+        <tr>
+          <td data-label="Party">
+            <a href="{{ url_for('executive.party', account_id=r.account_id) }}"
+               class="exr-link">{{ r.name }}</a>
+            <div class="exr-code">{{ r.code }}</div>
+          </td>
+          <td data-label="Group"><span class="exr-group">{{ r.group }}</span></td>
+          <td data-label="Debit" class="num">{{ r.debit|amount_format(2) }}</td>
+          <td data-label="Credit" class="num">{{ r.credit|amount_format(2) }}</td>
+          <td data-label="{{ meta.title }}" class="num strong">{{ r.amount|amount_format(2) }}</td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="5" class="exr-empty">
+            {% if not configured %}
+            <strong>No accounts selected yet</strong>
+            <p>Choose which ledger accounts feed these reports — trade debtors
+              and creditors, other receivables and payables, loans. A party
+              appears here whenever one of them carries a balance.</p>
+            {% if can_edit %}
+            <a href="{{ url_for('executive.settings') }}" class="btn btn-primary">Select accounts</a>
+            {% endif %}
+            {% else %}
+            <strong>Nothing {{ meta.noun }}</strong>
+            <p>{{ meta.empty }} A party moves to the other side on its own the
+              moment its balance changes sign.</p>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

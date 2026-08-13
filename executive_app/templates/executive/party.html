@@ -1,0 +1,58 @@
+{% extends "layouts/base_executive.html" %}
+{% block title %}{{ row.name }}{% endblock %}
+{% block page_title %}{{ row.name }}{% endblock %}
+{% block extra_css %}{% include "executive/_style.html" %}{% endblock %}
+{% block content %}
+<div class="exr">
+
+  <div class="exr-head">
+    <div class="exr-total {{ 'in' if row.side == 'receivable' else 'out' }}">
+      <span class="lbl">{{ meta.title }}</span>
+      <span class="val">{{ row.amount|amount_format(2) }}</span>
+      <span class="sub">{{ row.code }} · {{ row.group }}</span>
+    </div>
+    <div class="exr-total">
+      <span class="lbl">Debit</span>
+      <span class="val" style="font-size:19px;">{{ row.debit|amount_format(2) }}</span>
+    </div>
+    <div class="exr-total">
+      <span class="lbl">Credit</span>
+      <span class="val" style="font-size:19px;">{{ row.credit|amount_format(2) }}</span>
+    </div>
+    <span class="exr-asof">
+      <a href="{{ url_for('executive.receivables' if row.side == 'receivable' else 'executive.payables') }}"
+         class="exr-link">&larr; Back to {{ meta.title|lower }}</a>
+    </span>
+  </div>
+
+  <div class="exr-wrap">
+    <table class="exr-table">
+      <thead>
+        <tr>
+          <th>Date</th><th>Voucher</th><th>Narration</th>
+          <th class="num">Debit</th><th class="num">Credit</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for l in lines %}
+        <tr>
+          <td data-label="Date">{{ l.date.strftime('%d %b %Y') if l.date else '—' }}</td>
+          <td data-label="Voucher">
+            <span class="exr-group">{{ l.voucher_type }}</span>
+            {{ l.voucher_number }}
+          </td>
+          <td data-label="Narration">{{ l.description }}</td>
+          <td data-label="Debit" class="num">{{ l.debit|amount_format(2) if l.debit else '—' }}</td>
+          <td data-label="Credit" class="num">{{ l.credit|amount_format(2) if l.credit else '—' }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="5" class="exr-empty">
+          <strong>No postings</strong>
+          <p>Nothing has been posted to this account yet.</p>
+        </td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

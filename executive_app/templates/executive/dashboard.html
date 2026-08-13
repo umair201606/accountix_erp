@@ -1,0 +1,43 @@
+{% extends "layouts/base_executive.html" %}
+{% block title %}Executive Reports{% endblock %}
+{% block page_title %}Executive Reports{% endblock %}
+{% block extra_css %}{% include "executive/_style.html" %}{% endblock %}
+{% block content %}
+<div class="exr">
+
+  <div class="exr-head">
+    <a href="{{ url_for('executive.receivables') }}" class="exr-total in"
+       style="text-decoration:none;">
+      <span class="lbl">Total receivable</span>
+      <span class="val">{{ receivable.amount|amount_format(2) }}</span>
+      <span class="sub">{{ receivable.parties }} part{{ 'y' if receivable.parties == 1 else 'ies' }} owe us</span>
+    </a>
+    <a href="{{ url_for('executive.payables') }}" class="exr-total out"
+       style="text-decoration:none;">
+      <span class="lbl">Total payable</span>
+      <span class="val">{{ payable.amount|amount_format(2) }}</span>
+      <span class="sub">{{ payable.parties }} part{{ 'y' if payable.parties == 1 else 'ies' }} we owe</span>
+    </a>
+    <div class="exr-total">
+      <span class="lbl">Net position</span>
+      <span class="val">{{ (receivable.amount - payable.amount)|amount_format(2) }}</span>
+      <span class="sub">receivable less payable</span>
+    </div>
+  </div>
+
+  {% if not configured %}
+  <div class="exr-wrap">
+    <div class="exr-empty">
+      <strong>No accounts selected yet</strong>
+      <p>These reports read live ledger balances for the accounts you choose —
+        trade debtors and creditors, other receivables and payables, loans. A
+        party shows under Receivables while its balance is a debit and moves to
+        Payables the moment it turns credit, whatever the account's type.</p>
+      {% if can_edit %}
+      <a href="{{ url_for('executive.settings') }}" class="btn btn-primary">Select accounts</a>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}
