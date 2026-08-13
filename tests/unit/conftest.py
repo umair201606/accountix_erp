@@ -4,8 +4,8 @@ from pathlib import Path
 import pytest
 from flask import Flask
 
-HR_PROJECT = Path(__file__).resolve().parent.parent.parent
-sys.path.insert(0, str(HR_PROJECT))
+ACCOUNTIX_ERP = Path(__file__).resolve().parent.parent.parent
+sys.path.insert(0, str(ACCOUNTIX_ERP))
 
 from shared.extensions import db  # noqa: E402
 import shared.tenancy  # noqa: E402,F401  (registers the scoping listener)

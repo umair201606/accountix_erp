@@ -374,8 +374,18 @@ def save_cash_flow():
         return denied
     s = ReportSettings.get()
     s.cash_flow_method = request.form.get("cash_flow_method", "indirect")
+    floor_raw = (request.form.get("twcf_cash_floor") or "").strip()
+    if floor_raw:
+        try:
+            from decimal import Decimal
+            s.twcf_cash_floor = Decimal(floor_raw)
+        except (ValueError, TypeError):
+            flash("Cash floor must be a number.", "danger")
+            return redirect(url_for("settings.index", tab="cash_flow"))
+    else:
+        s.twcf_cash_floor = None
     db.session.commit()
-    flash("Cash flow method updated.", "success")
+    flash("Cash flow settings updated.", "success")
     return redirect(url_for("settings.index", tab="cash_flow"))
 
 

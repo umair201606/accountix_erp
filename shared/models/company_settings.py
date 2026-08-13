@@ -95,6 +95,8 @@ class ReportSettings(db.Model):
     purchase_template_id = db.Column(db.Integer, db.ForeignKey("invoice_templates.id"))
     sales_template_id = db.Column(db.Integer, db.ForeignKey("invoice_templates.id"))
     cash_flow_method = db.Column(db.String(20), default="indirect")  # indirect or direct
+    # 13-week cash flow: minimum cash floor; NULL hides the headroom line.
+    twcf_cash_floor = db.Column(db.Numeric(16, 4))
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     @classmethod

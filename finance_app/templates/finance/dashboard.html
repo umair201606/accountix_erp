@@ -23,6 +23,10 @@
     <div class="value"><i class="fas fa-money-bill-wave text-emerald-600"></i></div>
     <div class="label">Cash Flow</div>
   </a>
+  <a href="{{ url_for('finance.twcf') }}" class="stat-card">
+    <div class="value"><i class="fas fa-calendar-week text-cyan-600"></i></div>
+    <div class="label">13-Week Cash Flow</div>
+  </a>
   <a href="{{ url_for('finance.ledger') }}" class="stat-card">
     <div class="value"><i class="fas fa-book text-indigo-600"></i></div>
     <div class="label">General Ledger</div>
@@ -38,6 +42,7 @@
     <tr><td>Balance Sheet</td><td>Assets = Liabilities + Equity as of a date</td><td><span class="badge badge-blue">As of Date</span></td></tr>
     <tr><td>SOCIE</td><td>Statement of Changes in Equity over a period</td><td><span class="badge badge-green">Date Range</span></td></tr>
     <tr><td>Cash Flow</td><td>Operating / Investing / Financing activities</td><td><span class="badge badge-purple">Date Range</span></td></tr>
+    <tr><td>13-Week Cash Flow (TWCF)</td><td>Rolling weekly liquidity forecast: opening cash, aged AR/AP schedule, plan lines, actuals &amp; headroom</td><td><span class="badge badge-green">13 Weekly Columns</span></td></tr>
   </table>
   <p class="mt-4 text-sm text-slate-500">All reports support <strong>Excel (.xlsx)</strong> and <strong>PDF</strong> download.</p>
 </div>

@@ -572,6 +572,9 @@ def _migrate_schema(db):
         # Per-user company quotas; NULL falls back to GlobalLimits.
         ("users", "max_companies_owned", "INTEGER"),
         ("users", "max_companies_joined", "INTEGER"),
+        # TWCF (13-week cash flow): minimum cash the company wants to keep;
+        # the report shows a headroom line when set.
+        ("report_settings", "twcf_cash_floor", "NUMERIC(16,4)"),
     ]
 
     inspector = inspect(engine)

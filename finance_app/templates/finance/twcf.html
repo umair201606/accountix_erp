@@ -1,0 +1,317 @@
+{% extends "finance/layouts/base.html" %}
+{% block title %}13-Week Cash Flow (TWCF){% endblock %}
+{% block heading %}13-Week Cash Flow (TWCF){% endblock %}
+{% block actions %}
+<a href="?start={{ start.strftime('%Y-%m-%d') }}&format=excel" class="btn btn-success btn-sm"><i class="fas fa-file-excel"></i> Excel</a>
+<a href="?start={{ start.strftime('%Y-%m-%d') }}&format=pdf" class="btn btn-danger btn-sm"><i class="fas fa-file-pdf"></i> PDF</a>
+<a href="{{ url_for('settings.index', tab='cash_flow') }}" class="btn btn-outline btn-sm"><i class="fas fa-cog"></i> Settings</a>
+<button onclick="window.print()" class="btn btn-outline btn-sm"><i class="fas fa-print"></i> Print</button>
+{% endblock %}
+{% block content %}
+<style>
+  /* 13 weekly columns need a wide table; the page must never scroll
+     horizontally, only the card body. The label column sticks while the
+     weeks scroll, so the row names stay readable at any width. */
+  .twcf-scroll { max-width: 100%; overflow-x: auto; }
+  table.twcf { min-width: 1280px; }
+  table.twcf th.stick, table.twcf td.stick {
+    position: sticky; left: 0; z-index: 3;
+    background: #fff; box-shadow: 1px 0 0 #e2e8f0;
+  }
+  table.twcf thead th.stick { background: #1e293b; z-index: 6; }
+  table.twcf .sec-head td.stick { background: #f1f5f9; }
+  table.twcf .sec-total td.stick { background: #fafafa; }
+  table.twcf .grand-total td.stick { background: #1e293b; color: #fff; }
+  table.twcf .profit-line td.stick { background: #eff6ff; }
+  table.twcf .profit-line.neg td.stick { background: #fef2f2; }
+  table.twcf .recon-line td.stick { background: #f8fafc; }
+  table.twcf td.wk { min-width: 92px; }
+  table.twcf .wk-hd small { display: block; font-size: 10px; font-weight: 400; color: #cbd5e1; }
+  .badge-auto { background: #ecfdf5; color: #047857; }
+  .badge-plan { background: #fef3c7; color: #92400e; }
+  .badge-in { background: #d1fae5; color: #065f46; }
+  .badge-out { background: #fee2e2; color: #991b1b; }
+  .twcf-form label { font-size: 12px; font-weight: 600; color: #475569; display: block; margin-bottom: 4px; }
+  .twcf-form input, .twcf-form select { width: 100%; }
+  .line-row td { vertical-align: middle; }
+  @media (max-width: 640px) {
+    .twcf-form .grid { grid-template-columns: 1fr; }
+    .twcf-line-actions { display: flex; gap: 6px; }
+  }
+</style>
+
+<form method="get" class="card mb-6 no-print">
+  <div class="flex flex-wrap items-end gap-4">
+    <div>
+      <label class="block text-sm font-semibold text-slate-600 mb-1">Forecast starts on</label>
+      <input type="date" name="start" value="{{ start.strftime('%Y-%m-%d') }}" class="form-input">
+    </div>
+    <div class="flex gap-2">
+      <button type="submit" class="btn btn-primary"><i class="fas fa-search"></i> Rebuild</button>
+      <button type="button" class="btn btn-outline" id="twcf-this-week"><i class="fas fa-calendar-week"></i> This week</button>
+    </div>
+    <p class="w-full text-sm text-slate-500 mt-1">
+      13 weekly columns, Mon–Sun. Weeks already finished show <strong>actual</strong> net cash and a variance row.
+      Rolling the start date forward re-buckets every auto and recurring line — that is how the forecast rolls.
+    </p>
+  </div>
+</form>
+
+<div class="card report-sheet">
+  <div class="report-head">
+    <div>
+      <div class="report-company">{{ company.company_name if company else '' }}</div>
+      <div class="report-title-lg">13-Week Cash Flow <span class="report-sub">(TWCF)</span></div>
+      <div class="report-period">Forecast window {{ start.strftime('%d %B, %Y') }} to {{ (weeks[-1].end).strftime('%d %B, %Y') }}</div>
+    </div>
+    <div class="flex gap-2 no-print">
+      <span class="badge badge-green">13 weeks</span>
+      {% if matrix.floor is not none %}<span class="badge badge-blue">Floor {{ matrix.floor|amount_format }}</span>{% endif %}
+    </div>
+  </div>
+
+  <div class="twcf-scroll">
+    <table class="report-table statement twcf">
+      <thead>
+        <tr>
+          <th class="stick">Category</th>
+          {% for wk in weeks %}
+          <th class="num wk wk-hd">Wk {{ loop.index }}<small>{{ wk.start.strftime('%d %b') }} – {{ wk.end.strftime('%d %b') }}{% if wk.is_past %} <i class="fas fa-check-circle"></i>{% endif %}</small></th>
+          {% endfor %}
+          <th class="num" style="min-width:110px;">Total</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in matrix.rows %}
+        {% if row.kind == 'section' %}
+        <tr class="sec-head"><td class="stick" colspan="15"><i class="fas fa-{{ 'arrow-down' if 'RECEIPTS' in row.label else 'arrow-up' }}"></i> {{ row.label }}</td></tr>
+        {% elif row.kind == 'opening' %}
+        <tr class="opening-row">
+          <td class="stick">{{ row.label }}</td>
+          {% for v in row['values'] %}<td class="num wk">{{ v|amount_format if v is not none else '' }}</td>{% endfor %}
+          <td class="num">{{ row.total|amount_format }}</td>
+        </tr>
+        {% elif row.kind == 'account' %}
+        <tr>
+          <td class="stick">
+            {{ row.label }}
+            {% if row.auto %}<span class="badge badge-auto">auto</span>{% else %}<span class="badge badge-plan">plan</span>{% endif %}
+          </td>
+          {% for v in row['values'] %}<td class="num wk {% if v is not none and v < 0 %}text-red-600{% endif %}">{{ v|amount_format if v is not none else '' }}</td>{% endfor %}
+          <td class="num {% if row['values']|sum < 0 %}text-red-600{% endif %}">{{ row['values']|sum|amount_format }}</td>
+        </tr>
+        {% elif row.kind == 'total' %}
+        <tr class="sec-total">
+          <td class="stick">{{ row.label }}</td>
+          {% for v in row['values'] %}<td class="num wk {% if v < 0 %}text-red-600{% endif %}">{{ v|amount_format }}</td>{% endfor %}
+          <td class="num">{{ row.total|amount_format }}</td>
+        </tr>
+        {% elif row.kind == 'net' %}
+        <tr class="profit-line {% if row['values']|sum < 0 %}neg{% endif %}">
+          <td class="stick">{{ row.label }}</td>
+          {% for v in row['values'] %}<td class="num wk {% if v < 0 %}text-red-600{% elif v > 0 %}text-green-600{% endif %}">{{ v|amount_format }}</td>{% endfor %}
+          <td class="num">{{ row.total|amount_format }}</td>
+        </tr>
+        {% elif row.kind == 'variance' %}
+        <tr class="recon-line">
+          <td class="stick"><i class="fas fa-scale-balanced"></i> {{ row.label }}</td>
+          {% for v in row['values'] %}<td class="num wk {% if v is not none and v < 0 %}text-red-600{% elif v is not none and v > 0 %}text-green-600{% endif %}">{{ v|amount_format if v is not none else '—' }}</td>{% endfor %}
+          <td class="num">{{ row['values']|select|sum|amount_format }}</td>
+        </tr>
+        {% elif row.kind == 'grand' %}
+        <tr class="grand-total">
+          <td class="stick">{{ row.label }}</td>
+          {% for v in row['values'] %}<td class="num wk {% if v < 0 %}text-red-400{% endif %}">{{ v|amount_format }}</td>{% endfor %}
+          <td class="num">{{ row.total|amount_format }}</td>
+        </tr>
+        {% elif row.kind == 'plain' %}
+        <tr>
+          <td class="stick">{{ row.label }}</td>
+          {% for v in row['values'] %}<td class="num wk">{{ v|amount_format if v is not none else '' }}</td>{% endfor %}
+          <td class="num"></td>
+        </tr>
+        {% elif row.kind == 'headroom' %}
+        <tr class="subtotal-row">
+          <td class="stick">{{ row.label }}</td>
+          {% for v in row['values'] %}<td class="num wk {% if v < 0 %}text-red-600{% endif %}">{{ v|amount_format }}</td>{% endfor %}
+          <td class="num {% if row.total < 0 %}text-red-600{% endif %}">{{ row.total|amount_format }}</td>
+        </tr>
+        {% endif %}
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <p class="report-footnote">
+    <strong>Auto</strong> rows are computed from aged customer / supplier balances:
+    <em>Collections from customers</em> spreads open receivables across the weeks by age bucket (0–30 days → weeks 1–2, 31–60 → weeks 3–5, 61–90 → weeks 6–8, 90+ → weeks 9–13);
+    <em>Payments to suppliers</em> mirrors that for open payables.
+    <strong>Plan</strong> rows come from your forecast lines below. Elapsed weeks use actual journal cash movement.
+  </p>
+</div>
+
+<div class="card no-print">
+  <div class="flex flex-wrap items-center justify-between gap-2 mb-4">
+    <h2 class="font-bold text-lg">
+      <i class="fas fa-list-check text-blue-600"></i> Forecast Lines
+      <span class="text-sm font-normal text-slate-500">({{ lines|length }})</span>
+    </h2>
+    {% if editing %}
+    <a href="?start={{ start.strftime('%Y-%m-%d') }}" class="btn btn-outline btn-sm"><i class="fas fa-times"></i> Cancel edit</a>
+    {% endif %}
+  </div>
+
+  <form method="post" action="{{ url_for('finance.twcf') }}" class="twcf-form mb-6">
+    <input type="hidden" name="start" value="{{ start.strftime('%Y-%m-%d') }}">
+    <input type="hidden" name="action" value="{{ 'edit' if editing else 'add' }}">
+    {% if editing %}<input type="hidden" name="line_id" value="{{ editing.id }}">{% endif %}
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div>
+        <label for="twcf-direction">Direction</label>
+        <select name="direction" id="twcf-direction">
+          <option value="in" {{ 'selected' if editing and editing.direction == 'in' }}>Receipt (money in)</option>
+          <option value="out" {{ 'selected' if editing and editing.direction == 'out' }}>Payment (money out)</option>
+        </select>
+      </div>
+      <div>
+        <label for="twcf-category">Category</label>
+        <select name="category" id="twcf-category">
+          {% for cat in in_categories %}
+          <option value="{{ cat }}" data-dir="in" {{ 'selected' if editing and editing.category == cat }}>{{ out_cat_labels[cat] if cat in out_cat_labels else 'Other receipts' }}</option>
+          {% endfor %}
+          {% for cat in out_categories %}
+          <option value="{{ cat }}" data-dir="out" {{ 'selected' if editing and editing.category == cat }}>{{ out_cat_labels[cat] }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label for="twcf-description">Description</label>
+        <input type="text" name="description" id="twcf-description" placeholder="e.g. August salaries" value="{{ editing.description if editing else '' }}" required>
+      </div>
+      <div>
+        <label for="twcf-amount">Amount</label>
+        <input type="number" name="amount" id="twcf-amount" step="0.01" min="0.01" placeholder="0.00" value="{{ '%.2f'|format(editing.amount) if editing else '' }}" required>
+      </div>
+      <div>
+        <label for="twcf-start-date">First occurrence</label>
+        <input type="date" name="start_date" id="twcf-start-date" value="{{ editing.start_date.strftime('%Y-%m-%d') if editing else start.strftime('%Y-%m-%d') }}" required>
+      </div>
+      <div>
+        <label for="twcf-frequency">Frequency</label>
+        <select name="frequency" id="twcf-frequency">
+          {% for f in frequencies %}
+          <option value="{{ f }}" {{ 'selected' if editing and editing.frequency == f }}>{{ frequency_labels[f] }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div id="twcf-day-week-wrap" class="hidden">
+        <label for="twcf-day-week">Day of week</label>
+        <select name="day_of_week" id="twcf-day-week">
+          {% for d in range(7) %}
+          <option value="{{ d }}" {{ 'selected' if editing and editing.day_of_week == d }}>{{ ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'][d] }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div id="twcf-day-month-wrap" class="hidden">
+        <label for="twcf-day-month">Day of month</label>
+        <input type="number" name="day_of_month" id="twcf-day-month" min="1" max="31" value="{{ editing.day_of_month if editing else 1 }}">
+      </div>
+      <div id="twcf-month-wrap" class="hidden">
+        <label for="twcf-month">Month</label>
+        <select name="month" id="twcf-month">
+          {% for m in range(1, 13) %}
+          <option value="{{ m }}" {{ 'selected' if editing and editing.month == m }}>{{ ['','January','February','March','April','May','June','July','August','September','October','November','December'][m] }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="flex items-end">
+        <button type="submit" class="btn btn-primary w-full"><i class="fas fa-{{ 'save' if editing else 'plus' }}"></i> {{ 'Save changes' if editing else 'Add line' }}</button>
+      </div>
+    </div>
+  </form>
+
+  {% if lines %}
+  <div class="overflow-x-auto">
+    <table class="report-table">
+      <thead>
+        <tr><th>Description</th><th>Direction</th><th>Category</th><th class="num">Amount</th><th>Frequency</th><th>First occurrence</th><th class="no-print"></th></tr>
+      </thead>
+      <tbody>
+        {% for line in lines %}
+        <tr class="line-row">
+          <td>{{ line.description }}</td>
+          <td>{% if line.direction == 'in' %}<span class="badge badge-in"><i class="fas fa-arrow-down"></i> In</span>{% else %}<span class="badge badge-out"><i class="fas fa-arrow-up"></i> Out</span>{% endif %}</td>
+          <td>{{ out_cat_labels.get(line.category, line.category) }}</td>
+          <td class="num">{{ line.amount|amount_format }}</td>
+          <td>
+            {{ frequency_labels[line.frequency] }}
+            {% if line.frequency == 'weekly' %}({{ ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'][line.day_of_week] }}){% endif %}
+            {% if line.frequency in ['monthly', 'quarterly'] %}({{ line.day_of_month }}{{ 'st' if line.day_of_month == 1 else 'nd' if line.day_of_month == 2 else 'rd' if line.day_of_month == 3 else 'th' }}){% endif %}
+            {% if line.frequency == 'yearly' %}({{ ['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][line.month] }} {{ line.day_of_month }}){% endif %}
+          </td>
+          <td>{{ line.start_date.strftime('%d %b, %Y') }}</td>
+          <td class="no-print">
+            <div class="twcf-line-actions">
+              <a href="?start={{ start.strftime('%Y-%m-%d') }}&edit={{ line.id }}" class="btn btn-outline btn-sm"><i class="fas fa-edit"></i> Edit</a>
+              <form method="post" action="{{ url_for('finance.twcf') }}" class="inline" onsubmit="return confirm('Delete this forecast line?');">
+                <input type="hidden" name="start" value="{{ start.strftime('%Y-%m-%d') }}">
+                <input type="hidden" name="action" value="delete">
+                <input type="hidden" name="line_id" value="{{ line.id }}">
+                <button type="submit" class="btn btn-danger btn-sm"><i class="fas fa-trash"></i></button>
+              </form>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="text-sm text-slate-500">No forecast lines yet. Add payroll, rent, taxes, loan repayments or one-off items — they land in the matrix as <span class="badge badge-plan">plan</span> rows.</p>
+  {% endif %}
+</div>
+
+<script>
+(function () {
+  var freqSel = document.getElementById('twcf-frequency');
+  var dayWeek = document.getElementById('twcf-day-week-wrap');
+  var dayMonth = document.getElementById('twcf-day-month-wrap');
+  var monthWrap = document.getElementById('twcf-month-wrap');
+  var dirSel = document.getElementById('twcf-direction');
+  var catSel = document.getElementById('twcf-category');
+
+  function syncFreq() {
+    var f = freqSel.value;
+    dayWeek.classList.toggle('hidden', f !== 'weekly');
+    dayMonth.classList.toggle('hidden', !(f === 'monthly' || f === 'quarterly' || f === 'yearly'));
+    monthWrap.classList.toggle('hidden', f !== 'yearly');
+  }
+  function syncCat() {
+    var dir = dirSel.value;
+    Array.prototype.forEach.call(catSel.options, function (o) {
+      o.hidden = o.getAttribute('data-dir') !== dir;
+      if (o.hidden && o.selected) { o.selected = false; }
+    });
+    if (!catSel.value) {
+      Array.prototype.forEach.call(catSel.options, function (o) {
+        if (!o.hidden) { o.selected = true; }
+      });
+    }
+  }
+  freqSel.addEventListener('change', syncFreq);
+  dirSel.addEventListener('change', syncCat);
+  syncFreq(); syncCat();
+
+  var thisWeekBtn = document.getElementById('twcf-this-week');
+  var dateInput = document.querySelector('input[name="start"]');
+  thisWeekBtn.addEventListener('click', function () {
+    var today = new Date();
+    var monday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - ((today.getDay() + 6) % 7));
+    var mm = ('0' + (monday.getMonth() + 1)).slice(-2);
+    var dd = ('0' + monday.getDate()).slice(-2);
+    dateInput.value = monday.getFullYear() + '-' + mm + '-' + dd;
+    dateInput.focus();
+  });
+})();
+</script>
+{% endblock %}

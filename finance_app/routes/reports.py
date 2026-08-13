@@ -1,6 +1,6 @@
 from datetime import datetime, date, timedelta
-from decimal import Decimal
-from flask import Blueprint, render_template, request, jsonify, Response, send_file
+from decimal import Decimal, InvalidOperation
+from flask import Blueprint, render_template, request, jsonify, Response, send_file, redirect, url_for, flash
 from flask_login import login_required
 from sqlalchemy import text
 from io import BytesIO
@@ -18,6 +18,12 @@ from shared.formatting import (MONEY_FMT_WESTERN, excel_money_format,
 from shared.models.ledger import ChartOfAccount, JournalEntry, JournalLine
 from shared.models.base import User
 from shared.models.company_settings import AccountingPeriod, ReportSettings
+# Imported at module scope so the table registers before the lazy
+# db.create_all() on the first request.
+from shared.models.twcf import (TwcfLine, TWCF_IN, TWCF_OUT,  # noqa: F401
+                                TWCF_FREQUENCIES, TWCF_IN_CATEGORIES,
+                                TWCF_OUT_CATEGORIES, TWCF_USER_IN_CATEGORIES,
+                                TWCF_USER_OUT_CATEGORIES)
 from shared.ledger_utils import posting_account
 from shared.tenancy import scoped_get
 
@@ -2230,3 +2236,256 @@ def cash_flow():
                            comp_mode=comp_mode, comp_periods=comp_periods, comp_period_ids_str=comp_period_ids_str,
                            now=datetime.utcnow())
 
+
+
+
+
+# ═══════════════════════════════════════════════
+# 8. 13-WEEK CASH FLOW (TWCF)
+# ═══════════════════════════════════════════════
+
+
+def _twcf_default_start():
+    """The standard rolling start of a 13-week window: this week's Monday."""
+    today = date.today()
+    return today - timedelta(days=today.weekday())
+
+
+def _twcf_week_label(wk):
+    return f"{wk['start']:%d %b} – {wk['end']:%d %b}"
+
+
+@finance_bp.route("/twcf", methods=["GET", "POST"])
+@login_required
+def twcf():
+    """13-Week Cash Flow forecast: auto AR/AP schedule + user lines + actuals.
+
+    GET renders the matrix; POST manages the forecast lines (add/edit/delete)
+    and bounces back to the same window. ``format=excel|pdf`` exports the
+    matrix exactly as shown.
+    """
+    from shared import twcf_reports as tw
+
+    if request.method == "POST":
+        action = request.form.get("action", "")
+        start_arg = (request.form.get("start") or request.args.get("start")
+                     or "").strip()
+        back = url_for("finance.twcf", start=start_arg)
+
+        if action in ("add", "edit"):
+            line_id = request.form.get("line_id", type=int)
+            line = scoped_get(TwcfLine, line_id) if line_id else None
+            if action == "edit" and line is None:
+                flash("Forecast line not found.", "danger")
+                return redirect(back)
+
+            direction = request.form.get("direction", "")
+            category = request.form.get("category", "")
+            description = (request.form.get("description") or "").strip()
+            amount = request.form.get("amount", "").strip()
+            start_raw = (request.form.get("start_date") or "").strip()
+            frequency = request.form.get("frequency", "oneoff") or "oneoff"
+            try:
+                amount_val = Decimal(amount)
+                start_val = _parse_date(start_raw)
+            except (InvalidOperation, TypeError):
+                amount_val, start_val = None, None
+
+            allowed_cats = (TWCF_USER_IN_CATEGORIES if direction == TWCF_IN
+                            else TWCF_USER_OUT_CATEGORIES)
+            if direction not in (TWCF_IN, TWCF_OUT):
+                flash("Choose whether this line is a receipt or a payment.",
+                      "danger")
+            elif category not in allowed_cats:
+                flash("Choose a valid category for that direction.", "danger")
+            elif not description:
+                flash("Description is required.", "danger")
+            elif amount_val is None or amount_val <= 0:
+                flash("Amount must be a positive number.", "danger")
+            elif start_val is None:
+                flash("Start date is required.", "danger")
+            elif frequency not in TWCF_FREQUENCIES:
+                flash("Unknown frequency.", "danger")
+            else:
+                try:
+                    day_of_week = max(0, min(6, int(request.form.get(
+                        "day_of_week", 0) or 0)))
+                    day_of_month = max(1, min(31, int(request.form.get(
+                        "day_of_month", 1) or 1)))
+                    month = max(1, min(12, int(request.form.get(
+                        "month", 1) or 1)))
+                except (TypeError, ValueError):
+                    day_of_week, day_of_month, month = 0, 1, 1
+
+                if action == "add":
+                    db.session.add(TwcfLine(
+                        direction=direction, category=category,
+                        description=description, amount=amount_val,
+                        start_date=start_val, frequency=frequency,
+                        day_of_week=day_of_week, day_of_month=day_of_month,
+                        month=month))
+                    flash(f"Forecast line added: {description}", "success")
+                else:
+                    line.direction = direction
+                    line.category = category
+                    line.description = description
+                    line.amount = amount_val
+                    line.start_date = start_val
+                    line.frequency = frequency
+                    line.day_of_week = day_of_week
+                    line.day_of_month = day_of_month
+                    line.month = month
+                    flash(f"Forecast line updated: {description}", "success")
+                db.session.commit()
+            return redirect(back)
+
+        if action == "delete":
+            line = scoped_get(TwcfLine, request.form.get("line_id", type=int))
+            if line is not None:
+                db.session.delete(line)
+                db.session.commit()
+                flash(f"Forecast line deleted: {line.description}", "success")
+            return redirect(back)
+
+    start_str = (request.args.get("start") or "").strip()
+    start = _parse_date(start_str) if start_str else _twcf_default_start()
+    matrix = tw.build_matrix(start)
+    weeks = matrix["weeks"]
+    lines = TwcfLine.query.order_by(TwcfLine.start_date, TwcfLine.id).all()
+    edit_id = request.args.get("edit", type=int)
+    editing = scoped_get(TwcfLine, edit_id) if edit_id else None
+
+    fmt = request.args.get("format")
+
+    if fmt == "excel":
+        ncols = len(weeks) + 2  # Category + 13 weeks + Total
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "13 Week Cash Flow"
+        first_row = _write_sheet_heading(
+            ws, ncols, "13 Week Cash Flow (TWCF)",
+            period=(f"Forecast window {_col_label(start)} to "
+                    f"{_col_label(weeks[-1]['end'])}"))
+        ws.cell(row=first_row, column=1, value="Category")
+        for i, wk in enumerate(weeks):
+            ws.cell(row=first_row, column=2 + i,
+                    value=f"Wk {i + 1}\n{_twcf_week_label(wk)}")
+        ws.cell(row=first_row, column=ncols, value="Total")
+        for ci in range(1, ncols + 1):
+            c = ws.cell(row=first_row, column=ci)
+            c.font = HEADER_FONT
+            c.fill = HEADER_FILL
+            c.alignment = Alignment(horizontal="center", vertical="center",
+                                    wrap_text=True)
+            c.border = THIN
+
+        r = first_row + 1
+        for row in matrix["rows"]:
+            kind = row["kind"]
+            if kind == "section":
+                ws.merge_cells(start_row=r, start_column=1, end_row=r,
+                               end_column=ncols)
+                c = ws.cell(row=r, column=1, value=row["label"])
+                c.font = Font(bold=True, size=11, color="334155")
+                c.fill = PatternFill(start_color="F1F5F9", end_color="F1F5F9", fill_type="solid")
+                for ci in range(1, ncols + 1):
+                    ws.cell(row=r, column=ci).border = THIN
+                r += 1
+                continue
+            label_cell = ws.cell(row=r, column=1, value=row["label"])
+            values = row["values"]
+            for i in range(len(weeks)):
+                v = values[i] if i < len(values) else None
+                if v is not None:
+                    cc = ws.cell(row=r, column=2 + i, value=v)
+                    cc.number_format = MONEY_FMT
+            total = row.get("total")
+            if total is not None:
+                tc = ws.cell(row=r, column=ncols, value=total)
+                tc.number_format = MONEY_FMT
+            if kind == "grand":
+                for ci in range(1, ncols + 1):
+                    c = ws.cell(row=r, column=ci)
+                    c.font = Font(bold=True, size=11, color="FFFFFF")
+                    c.fill = PatternFill(start_color="1E293B", end_color="1E293B", fill_type="solid")
+            elif kind in ("total", "net", "headroom"):
+                for ci in range(1, ncols + 1):
+                    c = ws.cell(row=r, column=ci)
+                    c.font = BOLD_FONT
+                    c.fill = PatternFill(start_color="FAFAFA", end_color="FAFAFA", fill_type="solid")
+                if kind == "net":
+                    for ci in range(2, ncols + 1):
+                        ws.cell(row=r, column=ci).fill = PatternFill(
+                            start_color="EFF6FF", end_color="EFF6FF", fill_type="solid")
+            elif kind == "variance":
+                for ci in range(1, ncols + 1):
+                    c = ws.cell(row=r, column=ci)
+                    c.font = Font(italic=True, size=10)
+            elif kind == "opening":
+                label_cell.font = Font(italic=True, size=10, bold=True)
+            else:
+                for ci in range(1, ncols + 1):
+                    ws.cell(row=r, column=ci).font = DATA_FONT
+            for ci in range(1, ncols + 1):
+                c = ws.cell(row=r, column=ci)
+                c.border = THIN
+                if c.alignment is None or not c.alignment.horizontal:
+                    c.alignment = RIGHT if ci > 1 else LEFT_ALIGN
+            r += 1
+
+        ws.freeze_panes = f"B{first_row + 1}"
+        ws.column_dimensions["A"].width = 36
+        for i in range(len(weeks)):
+            ws.column_dimensions[openpyxl.utils.get_column_letter(
+                2 + i)].width = 13
+        ws.column_dimensions[openpyxl.utils.get_column_letter(ncols)].width = 14
+        out = BytesIO()
+        wb.save(out)
+        out.seek(0)
+        return send_file(out, as_attachment=True,
+                         download_name="13_week_cash_flow.xlsx",
+                         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+    if fmt == "pdf":
+        pdf_headers = (["Category"]
+                       + [f"Wk {i + 1}\n{_twcf_week_label(wk)}"
+                          for i, wk in enumerate(weeks)]
+                       + ["Total"])
+        pdf_data, kinds = [], []
+        for row in matrix["rows"]:
+            if row["kind"] == "section":
+                pdf_data.append([row["label"]] + [""] * (len(weeks) + 1))
+                kinds.append("section")
+                continue
+            cells = [row["label"]]
+            cells += [format_amount(v) if v is not None else ""
+                      for v in row["values"]]
+            total = row.get("total")
+            cells.append(format_amount(total) if total is not None else "")
+            kind = row["kind"]
+            pdf_kind = {"opening": "account", "net": "subtotal",
+                        "variance": "plain", "headroom": "subtotal"}.get(
+                kind, kind)
+            pdf_data.append(cells)
+            kinds.append(pdf_kind)
+        subtitle = (f"Forecast window {_col_label(start)} to "
+                    f"{_col_label(weeks[-1]['end'])}")
+        pdf_out = _build_pdf("13 Week Cash Flow (TWCF)", pdf_headers,
+                             pdf_data, subtitle=subtitle, row_kinds=kinds,
+                             indent_col=0)
+        return send_file(pdf_out, as_attachment=True,
+                         download_name="13_week_cash_flow.pdf",
+                         mimetype="application/pdf")
+
+    return render_template(
+        "finance/twcf.html",
+        matrix=matrix, weeks=weeks, start=start,
+        lines=lines, editing=editing,
+        in_categories=TWCF_USER_IN_CATEGORIES,
+        out_categories=TWCF_USER_OUT_CATEGORIES,
+        frequencies=TWCF_FREQUENCIES,
+        out_cat_labels={**TWCF_IN_CATEGORIES, **TWCF_OUT_CATEGORIES},
+        frequency_labels={"oneoff": "One-off", "weekly": "Weekly",
+                          "monthly": "Monthly", "quarterly": "Quarterly",
+                          "yearly": "Yearly"},
+        now=datetime.utcnow())

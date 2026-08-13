@@ -7,7 +7,7 @@ import socket
 import sys
 from pathlib import Path
 
-HR_PROJECT = Path(__file__).resolve().parent.parent.parent
+ACCOUNTIX_ERP = Path(__file__).resolve().parent.parent.parent
 # The suite runs on its own port, not the dev server's 5000. Sharing one port
 # meant the two fought over it: whoever bound first won, and the loser's user
 # was served the other's pages — either the suite silently exercising the dev
@@ -51,7 +51,7 @@ def flask_server():
                                       delete=False)
     proc = subprocess.Popen(
         [sys.executable, "run_local.py"],
-        cwd=str(HR_PROJECT),
+        cwd=str(ACCOUNTIX_ERP),
         env=test_env,
         stdout=log,
         stderr=subprocess.STDOUT,

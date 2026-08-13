@@ -21,3 +21,16 @@
     </div>
   </div>
 </form>
+<form method="post" action="{{ url_for('settings.save_cash_flow') }}">
+  <div class="set-card set-boxed">
+    <div class="set-card-hd"><span>13-Week Cash Flow (TWCF)</span></div>
+    <div class="set-card-bd">
+      <label class="hint" for="twcf_cash_floor">Minimum cash floor — the level the company wants to keep on hand (covenant / safety buffer). The TWCF report adds a headroom line above this floor once set.</label>
+      <input type="number" name="twcf_cash_floor" id="twcf_cash_floor" step="0.01" min="0" placeholder="Leave blank to hide the headroom line"
+             value="{{ '%.2f'|format(report_settings.twcf_cash_floor) if report_settings.twcf_cash_floor else '' }}" style="width:100%; max-width:320px; padding:8px 12px; border:1px solid #cbd5e1; border-radius:8px;">
+      <div class="set-actions">
+        <button type="submit" class="btn btn-primary">Save</button>
+      </div>
+    </div>
+  </div>
+</form>

@@ -267,6 +267,7 @@ NAV = {
             {"endpoint": "finance.balance_sheet", "icon": "&#128203;", "label": "Balance Sheet"},
             {"endpoint": "finance.socie", "icon": "&#128218;", "label": "SOCIE"},
             {"endpoint": "finance.cash_flow", "icon": "&#128181;", "label": "Cash Flow"},
+            {"endpoint": "finance.twcf", "icon": "&#128179;", "label": "13-Week Cash Flow"},
         ],
     },
     "accounting": {
