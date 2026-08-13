@@ -2,8 +2,6 @@
 {% block title %}FBR Invoice Dashboard{% endblock %}
 {% block page_title %}FBR Digital Invoicing — Submissions{% endblock %}
 {% block content %}
-{% include "_flash.html" %}
-
 {% if not config.is_active or not config.access_token %}
 <div class="card" style="border-color:var(--amber);">
   <div class="card-body" style="text-align:center;padding:32px;">

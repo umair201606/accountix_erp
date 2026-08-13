@@ -17,7 +17,10 @@ merely ugly:
 
 from urllib.parse import quote
 
-BASE_URL = "http://localhost:5000"
+import os
+
+# Same port the harness starts the server on (tests/e2e/conftest.py).
+BASE_URL = "http://localhost:" + os.environ.get("E2E_PORT", "5050")
 
 DOCUMENTS = {
     "sales invoice": f"{BASE_URL}/inventory/invoices/",

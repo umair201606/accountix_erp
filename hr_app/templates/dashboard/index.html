@@ -26,20 +26,35 @@
         <div style="display:flex;flex-direction:column;gap:8px;">
             <a href="{{ url_for('attendance.index') }}" class="btn btn-outline btn-block">Clock In / Out</a>
             <a href="{{ url_for('leave.apply') }}" class="btn btn-outline btn-block">Apply for Leave</a>
-            <a href="{{ url_for('timesheet.index') }}" class="btn btn-outline btn-block">Log Timesheet</a>
-            <a href="{{ url_for('ess.index') }}" class="btn btn-outline btn-block">Update Profile</a>
+            <a href="{{ url_for('ess.index') }}" class="btn btn-outline btn-block">My Profile</a>
         </div>
     </div>
 
     <div class="card">
-        <div class="card-header">Recent Activity</div>
-        <div style="font-size:13px;color:var(--muted);">
-            {% if current_user.is_admin() or current_user.is_manager() %}
-            <p>Manage your team, approve leaves, and review timesheets from the sidebar.</p>
-            {% else %}
-            <p>Track your attendance, submit leave requests, and manage your profile.</p>
-            {% endif %}
+        {% if current_user.is_admin() or current_user.is_manager() %}
+        <div class="card-header">Needs Your Attention</div>
+        <div style="display:flex;flex-direction:column;gap:2px;">
+            <a href="{{ url_for('mss.approvals') }}" class="attention-row">
+                <span>Pending leave requests</span><strong id="att-pending-leaves">-</strong>
+            </a>
+            <a href="{{ url_for('attendance.admin_view') }}" class="attention-row">
+                <span>Employees absent today</span><strong id="att-absent-today">-</strong>
+            </a>
+            <a href="{{ url_for('mss.approvals') }}" class="attention-row">
+                <span>Review timesheets</span><strong>&rarr;</strong>
+            </a>
         </div>
+        {% else %}
+        <div class="card-header">My Day</div>
+        <div style="display:flex;flex-direction:column;gap:2px;">
+            <div class="attention-row">
+                <span>Today's status</span><strong id="att-my-status">-</strong>
+            </div>
+            <a href="{{ url_for('leave.index') }}" class="attention-row">
+                <span>My pending leaves</span><strong id="att-my-leaves">-</strong>
+            </a>
+        </div>
+        {% endif %}
     </div>
 </div>
 
@@ -105,9 +120,14 @@ async function loadDashboard() {
         document.getElementById('stat-present').textContent = d.today_present;
         document.getElementById('stat-absent').textContent = d.today_absent;
         document.getElementById('stat-leaves').textContent = d.pending_leaves;
+        document.getElementById('att-pending-leaves').textContent = d.pending_leaves;
+        document.getElementById('att-absent-today').textContent = d.today_absent;
         {% else %}
         document.getElementById('stat-present').textContent = d.today_present;
         document.getElementById('stat-leaves').textContent = d.pending_leaves;
+        document.getElementById('att-my-status').textContent =
+            d.today_present === 1 ? 'Present' : (d.today_present === 0 ? 'Absent' : '-');
+        document.getElementById('att-my-leaves').textContent = d.pending_leaves;
         {% endif %}
     } catch(e) {}
 }

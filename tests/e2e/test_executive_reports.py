@@ -350,3 +350,137 @@ def test_registers_show_the_party_on_the_right_side(client, scope):
     pay = client.get("/executive/payables").get_data(as_text=True)
     assert "Exec Party Two" in pay
     assert "Exec Party One" not in pay
+
+
+# ── Aging ────────────────────────────────────────────────────────────────────
+
+def test_aging_ages_each_side_from_its_posting_layers(scope):
+    from shared import executive_reports as er
+    today = datetime.utcnow()
+    _post(scope["a"], debit=1000, when=today - timedelta(days=45))
+    _post(scope["a"], credit=400, when=today - timedelta(days=5))
+    _post(scope["b"], credit=400, when=today - timedelta(days=5))
+
+    sides = er.aging()
+    recv = sides[er.RECEIVABLE]
+    pay = sides[er.PAYABLE]
+
+    # The 400 received 5 days ago came off the oldest layer first: 600 of the
+    # receivable is still 45 days old.
+    assert recv["total"] == pytest.approx(600.0)
+    assert recv["avg_days"] == pytest.approx(45.0)
+    assert recv["oldest_days"] == 45
+    assert recv["oldest_name"] == "Exec Party One"
+    by_key = {b["key"]: b for b in recv["buckets"]}
+    assert set(by_key) == {"current", "d31", "d61", "d91"}
+    assert by_key["d31"]["amount"] == pytest.approx(600.0)
+    assert by_key["d31"]["share"] == pytest.approx(100.0)
+    assert by_key["current"]["amount"] == pytest.approx(0.0)
+
+    assert pay["total"] == pytest.approx(400.0)
+    assert pay["avg_days"] == pytest.approx(5.0)
+    assert pay["oldest_days"] == 5
+    assert pay["buckets"][0]["amount"] == pytest.approx(400.0)
+
+
+def test_aging_consumes_layers_in_fifo_order(scope):
+    from shared import executive_reports as er
+    today = datetime.utcnow()
+    _post(scope["a"], debit=1000, when=today - timedelta(days=20))
+    _post(scope["a"], debit=500, when=today - timedelta(days=10))
+    _post(scope["a"], credit=1200, when=today - timedelta(days=2))
+
+    recv = er.aging()[er.RECEIVABLE]
+    # 1200 paid off: the whole 20-day layer (1000) and 200 of the 10-day one.
+    assert recv["total"] == pytest.approx(300.0)
+    assert recv["avg_days"] == pytest.approx(10.0)
+    assert recv["oldest_days"] == 10
+    assert recv["buckets"][0]["amount"] == pytest.approx(300.0)
+
+
+def test_aging_top_parties_carries_the_biggest_first(scope):
+    from shared import executive_reports as er
+    _post(scope["a"], debit=900)
+    _post(scope["b"], debit=100)
+    top = er.aging()[er.RECEIVABLE]["top"]
+    assert [t["name"] for t in top] == ["Exec Party One", "Exec Party Two"]
+    assert top[0]["share"] == pytest.approx(90.0)
+    assert top[1]["share"] == pytest.approx(10.0)
+
+
+def test_aging_without_selection_is_empty(scope):
+    from shared import executive_reports as er
+    er.set_selection([], [])
+    _post(scope["a"], debit=1000)
+    sides = er.aging()
+    assert sides[er.RECEIVABLE]["total"] == 0.0
+    assert sides[er.PAYABLE]["parties"] == 0
+    assert sides[er.PAYABLE]["avg_days"] == 0.0
+    assert [b["amount"] for b in sides[er.RECEIVABLE]["buckets"]] == [0.0] * 4
+
+
+def test_aging_as_of_date_excludes_later_postings(scope):
+    from shared import executive_reports as er
+    today = datetime.utcnow()
+    _post(scope["a"], debit=1000, when=today - timedelta(days=10))
+    _post(scope["a"], debit=500, when=today + timedelta(days=10))
+    assert er.aging()[er.RECEIVABLE]["total"] == pytest.approx(1500.0)
+    assert er.aging(as_of=today)[er.RECEIVABLE]["total"] == pytest.approx(1000.0)
+    assert er.aging(as_of=today)[er.RECEIVABLE]["avg_days"] == pytest.approx(10.0)
+
+
+# ── Liquidity snapshot ───────────────────────────────────────────────────────
+
+def test_liquidity_tracks_net_assets_and_current_assets(scope):
+    from shared import executive_reports as er
+    from shared.models.ledger import ChartOfAccount, JournalEntry, JournalLine
+    before = er.liquidity()
+    assert isinstance(before["net_assets"], float)
+    assert before["current_ratio"] is None or isinstance(
+        before["current_ratio"], float)
+
+    cash = ChartOfAccount.query.filter_by(name="Main Cash").first()
+    assert cash is not None, "seed chart has a cash account under Current Assets"
+    entry = _post(cash.id, debit=500)
+
+    after = er.liquidity()
+    assert after["total_assets"] - before["total_assets"] == pytest.approx(500.0)
+    assert after["current_assets"] - before["current_assets"] == pytest.approx(500.0)
+    assert after["net_assets"] - before["net_assets"] == pytest.approx(500.0)
+    assert after["inventory"] == pytest.approx(before["inventory"])
+
+    JournalLine.query.filter_by(journal_entry_id=entry.id).delete()
+    db.session.delete(entry)
+    db.session.commit()
+
+
+def test_ratios_are_the_documented_formulas(scope):
+    from shared import executive_reports as er
+    liq = er.liquidity()
+    if liq["current_liabilities"] > 0:
+        assert liq["current_ratio"] == pytest.approx(
+            liq["current_assets"] / liq["current_liabilities"])
+        assert liq["quick_ratio"] == pytest.approx(
+            (liq["current_assets"] - liq["inventory"])
+            / liq["current_liabilities"])
+    else:
+        # Zero or negative current liabilities is not a real ratio: "—".
+        assert liq["current_ratio"] is None
+        assert liq["quick_ratio"] is None
+
+
+def test_dashboard_leads_with_kpis_aging_and_exposures(client, scope):
+    today = datetime.utcnow()
+    _post(scope["a"], debit=1000, when=today - timedelta(days=45))
+    _post(scope["b"], credit=400)
+    page = client.get("/executive/").get_data(as_text=True)
+
+    for label in ("Net assets", "Current ratio", "Quick ratio",
+                  "Avg collection days", "Avg payment days",
+                  "Oldest receivable", "Oldest payable"):
+        assert label in page
+    assert "Aging profile" in page
+    assert "Largest exposures" in page
+    assert "31\u201360 days" in page
+    assert "Exec Party One" in page
+    assert "Exec Party Two" in page

@@ -57,11 +57,18 @@
         <option value="{{ key }}" {{ 'selected' if key in filters.age }}>{{ label }}</option>
         {% endfor %}
       </select>
-      <select name="party_id" class="trk-select" aria-label="{{ doc_meta.party_label }}">
+      {# Same as the feed: with nobody on file, say so rather than offering a
+         dropdown whose only entry is "All". #}
+      <select name="party_id" class="trk-select" aria-label="{{ doc_meta.party_label }}"
+              {{ 'disabled' if not parties }}>
+        {% if parties %}
         <option value="">All {{ doc_meta.party_plural }}</option>
         {% for p in parties %}
         <option value="{{ p.id }}" {{ 'selected' if filters.party_id == p.id }}>{{ p.name }}</option>
         {% endfor %}
+        {% else %}
+        <option value="">No {{ doc_meta.party_plural }} yet</option>
+        {% endif %}
       </select>
       <input type="search" name="q" value="{{ filters.q }}" class="trk-input trk-filterbar-search"
              placeholder="Invoice number" aria-label="Invoice number" autocomplete="off">

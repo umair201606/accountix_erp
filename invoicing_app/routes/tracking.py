@@ -69,9 +69,18 @@ def _eod(dt):
 
 
 def _split_party(raw):
-    """``"customer:12"`` -> ``("customer", 12)``; anything else -> ``("", None)``."""
+    """``"customer:12"`` -> ``("customer", 12)``; anything else -> ``("", None)``.
+
+    Negative ids are valid: they are the ledger parties (a whole subledger
+    account standing in for a payer that has no customer/supplier record), so
+    a plain ``isdigit()`` would silently drop the ledger filter.
+    """
     kind, _, ident = (raw or "").partition(":")
-    if kind not in ("customer", "supplier") or not ident.isdigit():
+    if kind not in ("customer", "supplier"):
+        return "", None
+    ident = ident.strip()
+    digits = ident[1:] if ident.startswith("-") else ident
+    if not digits.isdigit():
         return "", None
     return kind, int(ident)
 
@@ -106,17 +115,30 @@ def feed():
     date_to = _eod(_parse_date(request.args.get("to")))
     search = request.args.get("q", "").strip()
 
-    # One picker lists both sides ("customer:12" / "supplier:4"), because the
-    # user thinks "show me Acme's money", not "show me a customer, then which".
+    # Two controls, one idea. "Side" narrows to a whole subledger (every
+    # customer, or every supplier); the picker below it names one party. They
+    # are kept in step rather than left to contradict each other:
+    #
+    #   * naming a party implies its side, so the side follows the picker;
+    #   * changing the side to the other subledger strands the named party, so
+    #     the party is cleared instead of filtering to an empty feed.
+    side = request.args.get("side", "")
+    side = side if side in ("customer", "supplier") else ""
+
     party_raw = request.args.get("party", "")
     party_type, party_id = _split_party(party_raw)
-    # The chosen party settles exactly one side of the books, so an incompatible
-    # direction chip is dropped rather than returning a silently empty feed.
+    if party_type and side and party_type != side:
+        party_raw, party_type, party_id = "", "", None
     if party_type:
-        flow = "receipt" if party_type == "customer" else "payment"
+        side = party_type
+
+    # The side settles exactly one direction of the books, so an incompatible
+    # direction chip is dropped rather than returning a silently empty feed.
+    if side:
+        flow = "receipt" if side == "customer" else "payment"
 
     rows = pt.feed_rows(assign_states=states or None, flow=flow or None,
-                        party_type=party_type or None, party_id=party_id,
+                        party_type=side or None, party_id=party_id,
                         date_from=date_from, date_to=date_to,
                         search=search or None)
     return render_template(
@@ -130,7 +152,12 @@ def feed():
         stale=pt.stale_allocations(),
         customers=InvCustomer.query.order_by(InvCustomer.name).all(),
         suppliers=InvSupplier.query.order_by(InvSupplier.name).all(),
-        filters={"state": states, "flow": flow, "party": party_raw,
+        # Whole-ledger payers (Trade Debtors/Creditors and their catch-alls),
+        # which settle without a customer or supplier record behind them.
+        ledger_customers=pt.ledger_parties("customer"),
+        ledger_suppliers=pt.ledger_parties("supplier"),
+        filters={"state": states, "flow": flow, "side": side,
+                 "party": party_raw,
                  "from": request.args.get("from", ""),
                  "to": request.args.get("to", ""), "q": search},
         can_assign=current_user.can(RESOURCE, "edit"),

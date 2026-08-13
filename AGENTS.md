@@ -14,6 +14,64 @@ E2E tests must cover all app modules:
 - **Inventory**: Login, Dashboard, Products, Suppliers, Customers, Purchase Invoice (form, add/clear items, pill toggles, calculations, global inputs), Purchase Return, Logout
 - **HR**: Login, Hub, Dashboard, Attendance, Leave, ESS, Profile, Logout
 
+## Session Summary (Aug 2026) — Silent-Approve Bug Fix + E2E Flake Family Root-Caused
+
+### Objective
+Fix the silent-approve loophole found during browser verification of the executive dashboard (a `save_approve` action string posted a JV without actually approving it — so Unapprove → Approve was needed to post), and root-cause the recurring Playwright "timing flake" family that kept failing a handful of E2E tests only on full-suite runs.
+
+### Completed
+- **Silent-approve fix** (`finance_app/routes/accounting.py::voucher_form`):
+  - The form posted `action=save_approve` but the handler branched on `action == "approve"` — an unknown action silently became a bare save, marking the voucher Approved without posting lines. Now `save_approve` **approves and posts** (same path as `approve`), `save` stays a bare save, and any other action string falls back to a bare save
+  - `approved_at`/`approving_user_id` set in the same branch as the posting so approval and posting can never diverge again
+- **Regression tests** (`tests/e2e/test_accounting_voucher_form.py` *(new)*, 3 tests): bare `save` keeps the voucher unapproved, `approve` is the only path to the ledger (lines posted exactly once, status Approved), and the action string round-trips through the form without leaking. Verified red → green: the tests fail against the pre-fix handler
+- **E2E flake family — root cause** (`tests/e2e/conftest.py::flask_server`):
+  - The readiness check just connected to port 5000. **Any leftover dev/test server already listening** made it "ready" instantly while the spawned `run_local.py` died with "Address already in use" — so the whole Playwright suite silently ran against the wrong database (a stale `erp_dev.db`) → state-dependent tests (`test_voucher_ui` mobile layout, `test_invoice_designs` freight) failed on full runs but passed in isolation. Root-cause confirmed live: two reloader parents (`app.py` + `run_local.py`) were fighting over port 5000 for hours, respawning their children
+  - Fix 1 — **port ownership pre-check**: `_assert_port_free()` binds port 5000 before spawning; if it is taken, the fixture fails fast with a message naming the holder instead of silently testing the wrong DB
+  - Fix 2 — **subprocess-alive check**: after the readiness loop, `proc.poll() is None` must hold; a server that died during startup raises with the log tail
+  - Fix 3 — **fresh DB per run**: the fixed `sqlite:///e2e_test.db` accumulated rows across sessions, making "empty state" assertions flaky; each session now gets a `NamedTemporaryFile` db, deleted in `finally`
+- **Environment cleanup**: killed 5 stale `python.exe` server processes (three `run_local.py` reloader leftovers from previous sessions + the `app.py` pair started during this session's verification); port 5000 verified free afterwards
+
+### Verification (this session)
+- New voucher-form tests: 3 passed in isolation; 56 passed for the targeted group (voucher UI + invoice designs + executive reports + voucher form)
+- **Full E2E suite: 580 passed, 0 failed** (previous: 568 passed + 2 flake failures) — the flake family is gone; ran with leftover servers killed and the hardened fixture
+- Unit suite: **281 passed**
+- Port 5000 free after the suite (fixture terminates its server in `finally`)
+
+### Key Files
+- `finance_app/routes/accounting.py` — `save_approve` now approves and posts; approval fields set with the posting
+- `tests/e2e/test_accounting_voucher_form.py` *(new)* — 3 regression tests
+- `tests/e2e/conftest.py` — `_assert_port_free()`, subprocess-alive check, per-run temp DB
+
+## Session Summary (Aug 2026) — Executive Dashboard: Net Assets, Ratios, Aging & Exposures
+
+### Objective
+Turn the Executive Reports dashboard into a real-time business snapshot: net assets derived straight off the chart, current/quick ratios, and FIFO-aged receivables and payables — weighted-average collection/payment days, oldest debt, aging-profile buckets, and the largest exposures — all computed from posted journal lines with nothing stored.
+
+### Completed
+- **FIFO aging engine** (`shared/executive_reports.py::aging`, `_age_party`, `_aging_side`):
+  - Ages every open in-scope balance from its posting layers: on receivables, debits build the stack and credits consume the **oldest layer first**; payables mirror it. A payment pulls the oldest debt down first, so a party that received 1,000 forty-five days ago and 400 five days ago is aged as 600 @ 45 days
+  - Returns per side: total, party count, **weighted-average days** (weighted by surviving balance), **oldest days + party**, the four buckets (Current / 31–60 / 61–90 / 90+), and the **top 5 parties with % share**; `as_of` filters postings and re-ages to that day (future-dated layers clamp to 0 days)
+- **Liquidity snapshot** (`shared/executive_reports.py::liquidity`):
+  - Company-wide (whole chart, available even with no selection): net assets (assets − liabilities), total/current assets, current liabilities, inventory, **current ratio** and **quick ratio**. Current Assets / Current Liabilities are located by their standard names at level 2, inventory by the Inventories subtree; contra accounts (accumulated depreciation) net themselves out as plain balances
+  - Ratios render only when current liabilities > 0 — a negative "liability" balance (overpaid, drifted payroll) is really an asset, so the cards show "—" instead of a meaningless negative number
+- **Dashboard** (`executive_app/templates/executive/dashboard.html`, `_style.html`, route in `executive_app/routes/reports.py`):
+  - New **KPI row** (always visible): Net assets, Current ratio, Quick ratio (green ≥1.5 / ≥1, red <1), Avg collection days, Avg payment days, Oldest receivable/payable (days + party name)
+  - **Aging profile** chart: CSS-only horizontal bars (no chart library) with receivable (green) vs payable (amber) per bucket, amounts and a legend
+  - **Largest exposures** card: top 5 per side with share bars, each row linking to the party ledger
+  - Responsive: KPI grid auto-fits (2 cols @360px, 140px min), charts stack to one column, no horizontal scroll at 320px+
+
+### Verification (this session)
+- 8 new E2E tests in `tests/e2e/test_executive_reports.py` (**32 passed** in the file): FIFO aging math (45d layer + 5d receipt → 600@45, oldest-first consumption), bucket shares, top-party order, empty-selection and as-of behaviors, liquidity deltas on a real cash posting (current assets / net assets / total assets +500, inventory untouched), ratio formulas, and dashboard rendering with all KPI labels + party names
+- Full suite: **281 unit + 568 E2E passed**; 2 unrelated flake failures (`test_voucher_ui` mobile layout, `test_invoice_designs` freight) pass in isolation — known Playwright timing-flake family
+- Manually verified in the browser against the live dev server: dashboard with real posted vouchers (5,000 receivable @ 45 days, 2,000 payable @ 5 days → correct buckets/avg/oldest), mobile 360px/342px emulation with zero horizontal overflow; settings picker and JV voucher flow exercised end-to-end (a `save_approve` action string silently sets `status=approved` without posting — used Unapprove→Approve to post correctly)
+
+### Key Files
+- `shared/executive_reports.py` — `aging()`, `_age_party()`, `_aging_side()`, `liquidity()`, `BUCKET_DEFS`
+- `executive_app/routes/reports.py` — dashboard route passes `recv_age`, `pay_age`, `liq`
+- `executive_app/templates/executive/dashboard.html` — KPI cards + aging/exposure charts
+- `executive_app/templates/executive/_style.html` — `.exr-kpis`, `.exr-charts`, `.exr-bar-*`, `.exr-top-*` (+ ≤480px tweaks)
+- `tests/e2e/test_executive_reports.py` — 8 new aging/liquidity/dashboard tests
+
 ## Session Summary (Aug 2026) — Super Admin Console: Users, Quotas, Module Entitlement, Blocking
 
 ### Objective

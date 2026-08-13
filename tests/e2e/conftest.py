@@ -1,3 +1,4 @@
+import os
 import pytest
 import subprocess
 import tempfile
@@ -6,14 +7,42 @@ import socket
 import sys
 from pathlib import Path
 
-BASE_URL = "http://localhost:5000"
 HR_PROJECT = Path(__file__).resolve().parent.parent.parent
+# The suite runs on its own port, not the dev server's 5000. Sharing one port
+# meant the two fought over it: whoever bound first won, and the loser's user
+# was served the other's pages — either the suite silently exercising the dev
+# database, or a developer reading test data out of a server whose templates
+# are frozen (FLASK_ENV=testing turns debug, and so template reloading, off).
+PORT = int(os.environ.get("E2E_PORT", "5050"))
+BASE_URL = f"http://localhost:{PORT}"
+
+
+def _assert_port_free():
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        s.bind(("127.0.0.1", PORT))
+    except OSError:
+        raise RuntimeError(
+            f"Port {PORT} is already in use by another process. The E2E server "
+            f"must own this port, or every Playwright test silently runs "
+            f"against the wrong database (the classic suite-flake). Stop the "
+            f"process holding port {PORT} and re-run."
+        )
+    finally:
+        s.close()
 
 
 @pytest.fixture(scope="session")
 def flask_server():
-    test_env = {**{k: v for k, v in __import__("os").environ.items()},
-                "DATABASE_URL": "sqlite:///e2e_test.db",
+    _assert_port_free()
+    # A fresh database file per run: the old fixed-name e2e_test.db accumulated
+    # rows across sessions, so "empty state" assertions flaked on leftovers.
+    db_file = tempfile.NamedTemporaryFile(prefix="e2e_db_", suffix=".db",
+                                          delete=False)
+    db_file.close()
+    test_env = {**dict(os.environ),
+                "DATABASE_URL": "sqlite:///" + db_file.name.replace("\\", "/"),
+                "PORT": str(PORT),
                 "FLASK_ENV": "testing"}
     # Server output goes to a file, never to an unread PIPE: Flask logs a line
     # per request, and once a pipe's buffer fills with nobody draining it the
@@ -38,19 +67,27 @@ def flask_server():
             time.sleep(2)
             s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             try:
-                s.connect(("127.0.0.1", 5000))
+                s.connect(("127.0.0.1", PORT))
                 s.close()
                 break
-            except ConnectionRefusedError:
+            except OSError:
                 s.close()
         else:
             proc.terminate()
             raise RuntimeError("Flask server did not start\n" + _server_log())
+        if proc.poll() is not None:
+            proc.terminate()
+            raise RuntimeError("Flask server died during startup\n"
+                               + _server_log())
         yield
     finally:
         proc.terminate()
         proc.wait()
         log.close()
+        try:
+            os.unlink(db_file.name)
+        except OSError:
+            pass
 
 
 @pytest.fixture

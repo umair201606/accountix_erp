@@ -5,7 +5,10 @@ in — not by pressing a button on an already-blank invoice, and not by a contro
 sitting inside the form. The gate is the first thing the screen presents.
 """
 
-BASE_URL = "http://localhost:5000"
+import os
+
+# Same port the harness starts the server on (tests/e2e/conftest.py).
+BASE_URL = "http://localhost:" + os.environ.get("E2E_PORT", "5050")
 NEW_INVOICE = f"{BASE_URL}/inventory/invoices/"
 
 

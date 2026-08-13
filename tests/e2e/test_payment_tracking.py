@@ -245,6 +245,133 @@ def test_feed_is_customers_and_suppliers_only(engine, scenario):
     assert kinds <= {"customer", "supplier"}
 
 
+# ── Whole-ledger payers ─────────────────────────────────────────────────────
+
+def _ledger_voucher(code, vtype, debit=0, credit=0, number="TRK-LEDGER"):
+    """An approved voucher settling a subledger account directly."""
+    from shared.models.ledger import ChartOfAccount
+    from shared.models.accounting_voucher import (AccountingVoucher,
+                                                  AccountingVoucherLine)
+    from hr_app.models.user import User
+    acct = ChartOfAccount.query.filter_by(code=code).first()
+    assert acct is not None, f"{code} should exist in the seeded chart"
+    uid = User.query.first().id
+    v = AccountingVoucher(voucher_type=vtype, voucher_number=number,
+                          voucher_date=datetime.utcnow(), status="approved",
+                          created_by=uid, approved_by=uid)
+    db.session.add(v)
+    db.session.commit()
+    db.session.add(AccountingVoucherLine(
+        voucher_id=v.id, line_no=1, account_id=acct.id,
+        debit=Decimal(str(debit)), credit=Decimal(str(credit))))
+    db.session.commit()
+    line = AccountingVoucherLine.query.filter_by(voucher_id=v.id).first()
+    return acct, v, line
+
+
+def _drop(v, line):
+    db.session.delete(line)
+    db.session.delete(v)
+    db.session.commit()
+
+
+def test_a_payment_against_the_payables_ledger_reaches_the_feed(engine, scenario):
+    """Books that carry no supplier record for every payee still settle through
+    Trade Creditors, and that is a payment like any other."""
+    from shared import payment_tracking as pt
+    acct, v, line = _ledger_voucher("2-01-01-01", "BPV", debit=100000)
+    try:
+        row = pt.feed_row(line.id)
+        assert row is not None, "a debited payables ledger is a payment"
+        assert row["flow"] == "payment"
+        assert pt.is_ledger_party(row["party_id"])
+        assert row["party_id"] == pt.ledger_party_id(acct.id)
+        assert row["amount"] == pytest.approx(100000.0)
+    finally:
+        _drop(v, line)
+
+
+def test_a_receipt_against_the_receivables_ledger_reaches_the_feed(engine, scenario):
+    from shared import payment_tracking as pt
+    acct, v, line = _ledger_voucher("1-01-02-01", "BRV", credit=4200)
+    try:
+        row = pt.feed_row(line.id)
+        assert row is not None
+        assert row["flow"] == "receipt"
+        assert pt.is_ledger_party(row["party_id"])
+    finally:
+        _drop(v, line)
+
+
+def test_direction_still_decides_for_a_ledger_payer(engine, scenario):
+    """Being a ledger does not exempt it: a credited payables ledger is the
+    bill's own posting, not a payment."""
+    from shared import payment_tracking as pt
+    _acct, v, line = _ledger_voucher("2-01-01-01", "BPV", credit=500)
+    try:
+        assert pt.feed_row(line.id) is None
+    finally:
+        _drop(v, line)
+
+
+def test_a_real_party_keeps_its_identity_over_the_ledger(engine, scenario):
+    """The subledger sweep runs last, so an account belonging to a customer is
+    still that customer — never demoted to the ledger it sits under."""
+    from shared import payment_tracking as pt
+    acct = _customer_account(scenario["customer_id"])
+    kind, party_id, _name = pt.party_account_index()[acct.id]
+    assert kind == "customer"
+    assert party_id == scenario["customer_id"]
+    assert not pt.is_ledger_party(party_id), "a real customer is not a ledger"
+
+
+def test_ledger_party_ids_cannot_collide_with_real_ones(engine, scenario):
+    """Ledger ids are negative precisely so they can never be read as entity
+    ids anywhere that stores or filters on a party."""
+    from shared import payment_tracking as pt
+    index = pt.party_account_index()
+    ledger_ids = {pid for _k, pid, _n in index.values() if pt.is_ledger_party(pid)}
+    real_ids = {pid for _k, pid, _n in index.values()
+                if not pt.is_ledger_party(pid)}
+    assert ledger_ids, "the seeded chart has subledger accounts to claim"
+    assert ledger_ids & real_ids == set()
+    assert all(i < 0 for i in ledger_ids)
+    assert all(i > 0 for i in real_ids)
+
+
+def test_a_ledger_payer_has_no_invoices_to_assign(engine, scenario):
+    """It settles a ledger, not a party, so there is nothing to match it to —
+    the workspace can only close it with a reason."""
+    from shared import payment_tracking as pt
+    _acct, v, line = _ledger_voucher("2-01-01-01", "BPV", debit=900)
+    try:
+        row = pt.feed_row(line.id)
+        assert pt.open_invoices(row["party_type"], row["party_id"]) == []
+        pt.force_close(line.id, 900, "no invoice — ledger settlement")
+        assert pt.feed_row(line.id)["state"] == "forced"
+    finally:
+        _drop(v, line)
+
+
+def test_feed_search_matches_the_ledger_the_money_moved_through(engine, scenario):
+    """Search reaches the account, not just the voucher's own text.
+
+    The code is the load-bearing half of this test: it appears nowhere in the
+    voucher number, the line description or the notes, so a hit on it can only
+    have come from the ledger being searched.
+    """
+    from shared import payment_tracking as pt
+    acct = _customer_account(scenario["customer_id"])
+    line_id = scenario["line_id"]
+
+    assert line_id in {r["line_id"] for r in pt.feed_rows(search=acct.code)}, \
+        "the ledger's code should find the receipt that settled through it"
+    assert line_id in {r["line_id"] for r in pt.feed_rows(search=acct.name)}, \
+        "the ledger's name should find it too"
+    assert line_id not in {
+        r["line_id"] for r in pt.feed_rows(search="zzz-no-such-ledger")}
+
+
 # ── Allocation across multiple invoices ─────────────────────────────────────
 
 def test_one_receipt_splits_across_two_invoices(engine, scenario):

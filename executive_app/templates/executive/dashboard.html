@@ -25,6 +25,44 @@
     </div>
   </div>
 
+  <div class="exr-kpis">
+    <div class="exr-kpi">
+      <span class="exr-kpi-lbl">Net assets</span>
+      <span class="exr-kpi-val">{{ liq.net_assets|amount_format(0) if liq.net_assets is not none else '—' }}</span>
+      <span class="exr-kpi-sub">assets less liabilities</span>
+    </div>
+    <div class="exr-kpi {{ 'is-good' if liq.current_ratio is not none and liq.current_ratio >= 1.5 else ('is-warn' if liq.current_ratio is not none and liq.current_ratio < 1 else '') }}">
+      <span class="exr-kpi-lbl">Current ratio</span>
+      <span class="exr-kpi-val">{{ '%.2f'|format(liq.current_ratio) if liq.current_ratio is not none else '—' }}</span>
+      <span class="exr-kpi-sub">current assets ÷ liabilities</span>
+    </div>
+    <div class="exr-kpi {{ 'is-good' if liq.quick_ratio is not none and liq.quick_ratio >= 1 else ('is-warn' if liq.quick_ratio is not none and liq.quick_ratio < 1 else '') }}">
+      <span class="exr-kpi-lbl">Quick ratio</span>
+      <span class="exr-kpi-val">{{ '%.2f'|format(liq.quick_ratio) if liq.quick_ratio is not none else '—' }}</span>
+      <span class="exr-kpi-sub">excludes inventory</span>
+    </div>
+    <div class="exr-kpi in">
+      <span class="exr-kpi-lbl">Avg collection days</span>
+      <span class="exr-kpi-val">{{ recv_age.avg_days|round|int if recv_age.parties else '—' }}<small> days</small></span>
+      <span class="exr-kpi-sub">{{ 'weighted by balance' if recv_age.parties else 'no open receivables' }}</span>
+    </div>
+    <div class="exr-kpi out">
+      <span class="exr-kpi-lbl">Avg payment days</span>
+      <span class="exr-kpi-val">{{ pay_age.avg_days|round|int if pay_age.parties else '—' }}<small> days</small></span>
+      <span class="exr-kpi-sub">{{ 'weighted by balance' if pay_age.parties else 'no open payables' }}</span>
+    </div>
+    <div class="exr-kpi in">
+      <span class="exr-kpi-lbl">Oldest receivable</span>
+      <span class="exr-kpi-val">{{ recv_age.oldest_days if recv_age.oldest_name else '—' }}<small> days</small></span>
+      <span class="exr-kpi-sub">{{ recv_age.oldest_name if recv_age.oldest_name else 'nothing outstanding' }}</span>
+    </div>
+    <div class="exr-kpi out">
+      <span class="exr-kpi-lbl">Oldest payable</span>
+      <span class="exr-kpi-val">{{ pay_age.oldest_days if pay_age.oldest_name else '—' }}<small> days</small></span>
+      <span class="exr-kpi-sub">{{ pay_age.oldest_name if pay_age.oldest_name else 'nothing outstanding' }}</span>
+    </div>
+  </div>
+
   {% if not configured %}
   <div class="exr-wrap">
     <div class="exr-empty">
@@ -37,6 +75,63 @@
       <a href="{{ url_for('executive.settings') }}" class="btn btn-primary">Select accounts</a>
       {% endif %}
     </div>
+  </div>
+  {% else %}
+
+  <div class="exr-charts">
+    <section class="exr-chart" aria-label="Aging profile">
+      <h3 class="exr-chart-title">Aging profile</h3>
+      {% for b in recv_age.buckets %}
+      {% set pb = pay_age.buckets[loop.index0] %}
+      <div class="exr-bar-group">
+        <span class="exr-bar-label">{{ b.label }}</span>
+        <div class="exr-bar-row">
+          <span class="exr-bar-track in" title="Receivable"><span class="exr-bar-fill" style="width:{{ b.share }}%"></span></span>
+          <span class="exr-bar-amt">{{ b.amount|amount_format(0) }}</span>
+        </div>
+        <div class="exr-bar-row">
+          <span class="exr-bar-track out" title="Payable"><span class="exr-bar-fill" style="width:{{ pb.share }}%"></span></span>
+          <span class="exr-bar-amt">{{ pb.amount|amount_format(0) }}</span>
+        </div>
+      </div>
+      {% else %}
+      <div class="exr-pick-empty">No open balances to age.</div>
+      {% endfor %}
+      <div class="exr-chart-legend">
+        <span class="exr-legend-key in"></span> Receivable
+        <span class="exr-legend-key out"></span> Payable
+      </div>
+    </section>
+
+    <section class="exr-chart" aria-label="Largest exposures">
+      <h3 class="exr-chart-title">Largest exposures</h3>
+      <div class="exr-top-cols">
+        <div class="exr-top-col">
+          <h4>Receivables · top {{ recv_age.top|length }}</h4>
+          {% for t in recv_age.top %}
+          <a class="exr-top-row" href="{{ url_for('executive.party', account_id=t.account_id) }}">
+            <span class="exr-top-name">{{ t.name }}</span>
+            <span class="exr-top-track"><span class="exr-top-fill in" style="width:{{ t.share }}%"></span></span>
+            <span class="exr-top-amt">{{ t.amount|amount_format(0) }}<em>{{ t.share|round|int }}%</em></span>
+          </a>
+          {% else %}
+          <div class="exr-pick-empty">No open receivables.</div>
+          {% endfor %}
+        </div>
+        <div class="exr-top-col">
+          <h4>Payables · top {{ pay_age.top|length }}</h4>
+          {% for t in pay_age.top %}
+          <a class="exr-top-row" href="{{ url_for('executive.party', account_id=t.account_id) }}">
+            <span class="exr-top-name">{{ t.name }}</span>
+            <span class="exr-top-track"><span class="exr-top-fill out" style="width:{{ t.share }}%"></span></span>
+            <span class="exr-top-amt">{{ t.amount|amount_format(0) }}<em>{{ t.share|round|int }}%</em></span>
+          </a>
+          {% else %}
+          <div class="exr-pick-empty">No open payables.</div>
+          {% endfor %}
+        </div>
+      </div>
+    </section>
   </div>
   {% endif %}
 </div>

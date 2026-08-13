@@ -89,7 +89,9 @@
   <form method="GET" id="feedFilters" class="trk-filterbar">
     <div class="trk-chips">
       {% for key, label in [('unassigned','Unassigned'),('partial','Partial'),('review','Re-assign'),('assigned','Assigned'),('forced','No invoice')] %}
-      <label class="trk-chip">
+      {# A chip standing for nothing is dimmed even while selected: solid fill
+         on an empty bucket pulls the eye to the one place with no work in it. #}
+      <label class="trk-chip {{ 'is-empty' if not summary[key ~ '_count'] }}">
         <input type="checkbox" name="state" value="{{ key }}" {{ 'checked' if key in filters.state }}>
         <span>{{ label }}
           <b>{{ summary[key ~ '_count'] }}</b></span>
@@ -103,43 +105,107 @@
         <option value="receipt" {{ 'selected' if filters.flow == 'receipt' }}>Receipts in</option>
         <option value="payment" {{ 'selected' if filters.flow == 'payment' }}>Payments out</option>
       </select>
-      <select name="party" class="trk-select" aria-label="Customer or supplier">
-        <option value="">All parties</option>
+      {# Side narrows to a whole subledger; the picker beside it names one
+         party. Choosing a side filters the picker to that side's members, and
+         naming a party sets the side — the route keeps the two in step. #}
+      <select name="side" class="trk-select" aria-label="Customers or suppliers">
+        <option value="">Customers &amp; suppliers</option>
+        <option value="customer" {{ 'selected' if filters.side == 'customer' }}>Customers only</option>
+        <option value="supplier" {{ 'selected' if filters.side == 'supplier' }}>Suppliers only</option>
+      </select>
+      {# An empty optgroup still renders its label, so with no parties on file
+         this control used to open onto nothing but two dead group headings —
+         indistinguishable from a broken dropdown. Say what is actually true
+         instead, and drop whichever group has no members. #}
+      {% set show_customers = customers if filters.side != 'supplier' else [] %}
+      {% set show_suppliers = suppliers if filters.side != 'customer' else [] %}
+      {% set show_led_cust = ledger_customers if filters.side != 'supplier' else [] %}
+      {% set show_led_supp = ledger_suppliers if filters.side != 'customer' else [] %}
+      {% set has_any = show_customers or show_suppliers or show_led_cust or show_led_supp %}
+      <select name="party" class="trk-select" aria-label="Customer or supplier"
+              {{ 'disabled' if not has_any }}>
+        {% if not has_any %}
+        <option value="">
+          {%- if filters.side == 'customer' -%}No customers yet
+          {%- elif filters.side == 'supplier' -%}No suppliers yet
+          {%- else -%}No customers or suppliers yet{%- endif -%}
+        </option>
+        {% else %}
+        <option value="">
+          {%- if filters.side == 'customer' -%}All customers
+          {%- elif filters.side == 'supplier' -%}All suppliers
+          {%- else -%}All parties{%- endif -%}
+        </option>
+        {% if show_customers %}
         <optgroup label="Customers">
-          {% for c in customers %}
+          {% for c in show_customers %}
           <option value="customer:{{ c.id }}" {{ 'selected' if filters.party == 'customer:' ~ c.id }}>{{ c.name }}</option>
           {% endfor %}
         </optgroup>
+        {% endif %}
+        {% if show_suppliers %}
         <optgroup label="Suppliers">
-          {% for s in suppliers %}
+          {% for s in show_suppliers %}
           <option value="supplier:{{ s.id }}" {{ 'selected' if filters.party == 'supplier:' ~ s.id }}>{{ s.name }}</option>
           {% endfor %}
         </optgroup>
+        {% endif %}
+        {# Kept in their own groups: these settle a whole ledger and carry no
+           invoices, so they are closed with a reason rather than assigned. #}
+        {% if show_led_cust %}
+        <optgroup label="Receivable ledgers">
+          {% for l in show_led_cust %}
+          <option value="customer:{{ l.id }}" {{ 'selected' if filters.party == 'customer:' ~ l.id }}>{{ l.name }}</option>
+          {% endfor %}
+        </optgroup>
+        {% endif %}
+        {% if show_led_supp %}
+        <optgroup label="Payable ledgers">
+          {% for l in show_led_supp %}
+          <option value="supplier:{{ l.id }}" {{ 'selected' if filters.party == 'supplier:' ~ l.id }}>{{ l.name }}</option>
+          {% endfor %}
+        </optgroup>
+        {% endif %}
+        {% endif %}
       </select>
       <input type="search" name="q" value="{{ filters.q }}" class="trk-input trk-filterbar-search"
-             placeholder="Voucher no. or narration" aria-label="Search" autocomplete="off">
+             placeholder="Voucher no., narration or ledger" aria-label="Search" autocomplete="off">
       <input type="date" name="from" value="{{ filters['from'] }}" class="trk-input" aria-label="From date">
       <input type="date" name="to" value="{{ filters.to }}" class="trk-input" aria-label="To date">
       <button type="submit" class="btn btn-sm btn-primary">Apply</button>
-      {% if filters.flow or filters.party or filters.q or filters['from'] or filters.to %}
+      {% if filters.flow or filters.side or filters.party or filters.q or filters['from'] or filters.to %}
       <a href="{{ url_for('inv_tracking.feed') }}" class="trk-rowbtn">Reset</a>
       {% endif %}
     </div>
   </form>
 
-  <p class="trk-count">{{ rows|length }} item{{ '' if rows|length == 1 else 's' }}{% if drafts %} · {{ drafts }} unapproved voucher{{ '' if drafts == 1 else 's' }} not shown{% endif %}</p>
+  <p class="trk-count"><span id="feedCount">{{ rows|length }} item{{ '' if rows|length == 1 else 's' }}</span>{% if drafts %} · {{ drafts }} unapproved voucher{{ '' if drafts == 1 else 's' }} not shown{% endif %}</p>
 
       {% if rows %}
+      {# Shown by the live search when it filters everything out; the server's
+         own "no rows at all" state is the block further down. #}
+      <div class="trk-empty" id="feedNoMatch" hidden>
+        <strong>No match in these results</strong>
+        <p>Nothing here matches that text. Clear the box to see all
+          {{ rows|length }} again, or press Apply to search every voucher.</p>
+      </div>
       <div class="trk-feed">
         {% for r in rows %}
+        {# data-search is every field the server-side search looks at, so
+           typing narrows the rendered feed the same way Apply would. #}
         <article class="trk-item {{ 'is-payment' if r.flow == 'payment' else '' }}"
-                 data-line="{{ r.line_id }}" data-party="{{ r.party_name }}">
+                 data-line="{{ r.line_id }}" data-party="{{ r.party_name }}"
+                 data-search="{{ [r.voucher_number, r.voucher_type, r.party_name, r.description, r.notes, r.ledger_code, r.ledger_name, r.cash_account]|select|join(' ')|lower }}">
           <div class="trk-item-main">
             <div class="trk-item-top">
               <span class="trk-flow {{ 'in' if r.flow == 'receipt' else 'out' }}">
                 {{ 'Receipt' if r.flow == 'receipt' else 'Payment' }}
               </span>
+              {# "BRV" next to "BRV-00001" is the same word twice; the pill only
+                 earns its place when the number does not already say the type. #}
+              {% if not r.voucher_number.startswith(r.voucher_type) %}
               <span class="trk-vtype">{{ r.voucher_type }}</span>
+              {% endif %}
               <a href="{{ url_for('accounting.voucher_form', id=r.voucher_id) }}" class="trk-vno">{{ r.voucher_number }}</a>
               <span class="trk-state trk-state-{{ r.state }}"
                     {% if r.state == 'forced' %}title="Closed without an invoice: {{ r.forced_reason }}"{% elif r.state == 'review' %}title="This voucher was edited after it was assigned: {{ r.over_assigned|amount_format(2) }} more is assigned than it now carries"{% endif %}>
@@ -162,12 +228,17 @@
               {%- if r.description %} &middot; {{ r.description }}{% endif %}
             </div>
           </div>
+          {# Amount and progress share one column: the split of a payment only
+             means anything next to the payment, and holding them apart left a
+             lane of whitespace between the two numbers that matter most. #}
           <div class="trk-amount-col">
             <div class="trk-amount">{{ r.amount|amount_format(2) }}</div>
             <div class="trk-amount-sub">{{ 'received' if r.flow == 'receipt' else 'paid' }}</div>
-          </div>
-          <div class="trk-progress-col">
-            <div class="trk-filterbar"><i style="width:{{ '%.1f'|format(r.progress if r.progress < 100 else 100) }}%"></i></div>
+            {% if r.assigned > 0 or r.forced > 0 or r.state == 'review' %}
+            {# Only once there is a split to show. On an untouched line the bar
+               is empty and the legend just restates the amount and the state
+               badge, which is three ways of saying "nothing assigned yet". #}
+            <div class="trk-bar"><i style="width:{{ '%.1f'|format(r.progress if r.progress < 100 else 100) }}%"></i></div>
             <div class="trk-progress-legend">
               {# The forced part is broken out: "assigned" would otherwise read
                  as invoice-matched money when a person simply closed it. #}
@@ -176,8 +247,11 @@
               {% if r.forced %}
               <span title="{{ r.forced_reason }}">No invoice <b>{{ r.forced|amount_format(2) }}</b></span>
               {% endif %}
+              {% if r.unassigned > 0 %}
               <span>Left <b>{{ r.unassigned|amount_format(2) }}</b></span>
+              {% endif %}
             </div>
+            {% endif %}
           </div>
           <div class="trk-item-actions">
             {% if can_assign %}
@@ -277,6 +351,44 @@
 {% endblock %}
 
 {% block extra_scripts %}
+<script>
+// Live search over the rows already on screen. It narrows what the other
+// filters returned rather than re-querying, so results move as you type;
+// Enter/Apply still runs the server-side search across every voucher, which
+// can bring back rows this page never had.
+(function () {
+  var form = document.getElementById('feedFilters');
+  var feed = document.querySelector('.trk-feed');
+  if (!form || !feed) return;
+  var input = form.querySelector('input[name="q"]');
+  if (!input) return;
+  var items = Array.prototype.slice.call(feed.querySelectorAll('.trk-item'));
+  var countEl = document.getElementById('feedCount');
+  var noMatch = document.getElementById('feedNoMatch');
+  var total = items.length;
+
+  function apply() {
+    var term = input.value.trim().toLowerCase();
+    var shown = 0;
+    items.forEach(function (el) {
+      var hit = !term ||
+        (el.getAttribute('data-search') || '').indexOf(term) !== -1;
+      el.hidden = !hit;
+      if (hit) shown++;
+    });
+    if (countEl) {
+      countEl.textContent = shown + ' item' + (shown === 1 ? '' : 's') +
+        (term && shown !== total ? ' of ' + total : '');
+    }
+    if (noMatch) noMatch.hidden = shown !== 0;
+    feed.hidden = shown === 0;
+  }
+
+  input.addEventListener('input', apply);
+  input.addEventListener('search', apply);   // the "x" in a type=search box
+  apply();
+})();
+</script>
 {% if can_assign %}
 <script>
 (function () {

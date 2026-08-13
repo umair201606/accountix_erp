@@ -6,7 +6,10 @@ Output Sales Tax sub-account. The behaviour that matters most is the empty case
 output-tax credit, so these tables can be ignored entirely.
 """
 
-BASE_URL = "http://localhost:5000"
+import os
+
+# Same port the harness starts the server on (tests/e2e/conftest.py).
+BASE_URL = "http://localhost:" + os.environ.get("E2E_PORT", "5050")
 INVOICING_SETTINGS = f"{BASE_URL}/settings/?tab=invoicing"
 
 

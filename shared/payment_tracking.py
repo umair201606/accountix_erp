@@ -107,6 +107,54 @@ def _entity_codes(kind, ids):
     return {f"{parent}-{int(i) + ENTITY_ID_OFFSET:04d}": int(i) for i in ids}
 
 
+def ledger_party_id(account_id):
+    """The party id standing for a whole ledger rather than one entity.
+
+    Negative on purpose: customer and supplier ids are positive, so a ledger
+    can never be mistaken for entity #323 anywhere that stores or filters on a
+    party id.
+    """
+    return -int(account_id)
+
+
+def is_ledger_party(party_id):
+    """True for the synthetic parties above — the ones with no invoices."""
+    return party_id is not None and int(party_id) < 0
+
+
+def ledger_party_account_id(party_id):
+    """Back to the account a ledger party stands for."""
+    return -int(party_id)
+
+
+def _subledger_accounts(kind):
+    """Every account inside a subledger: the control account and its children."""
+    from shared.coa import ENTITY_PARENT_CODES
+    parent_code = ENTITY_PARENT_CODES[kind]
+    return ChartOfAccount.query.filter(
+        db.or_(ChartOfAccount.code == parent_code,
+               ChartOfAccount.code.like(parent_code + "-%"))).all()
+
+
+def ledger_parties(kind=None):
+    """The subledger accounts that stand in for a party, for filter pickers.
+
+    ``[{"id": <negative>, "name": ..., "kind": ..., "code": ...}, ...]``
+    """
+    index = party_account_index()
+    out = []
+    for k in ("customer", "supplier"):
+        if kind and k != kind:
+            continue
+        for acct in _subledger_accounts(k):
+            entry = index.get(acct.id)
+            if entry and is_ledger_party(entry[1]):
+                out.append({"id": entry[1], "name": acct.name,
+                            "kind": k, "code": acct.code})
+    out.sort(key=lambda r: r["code"])
+    return out
+
+
 def party_account_index():
     """``{account_id: (party_type, party_id, party_name)}`` for every account a
     customer or supplier settles through.
@@ -165,6 +213,21 @@ def party_account_index():
         kind, party_id = next(iter(keys))
         names = customers if kind == "customer" else suppliers
         index[account_id] = (kind, party_id, names.get(party_id) or "")
+
+    # 3. The subledger's own accounts — the control account and the seeded
+    #    catch-alls ("Trade Debtors — General"). Money settles these directly in
+    #    books that do not carry a customer or supplier record for every payer,
+    #    and such a line is still a receipt or a payment. It is added last so an
+    #    account belonging to a real entity always keeps that identity; only
+    #    what is left over is claimed as a ledger.
+    #
+    #    These parties own no invoices, so nothing can be assigned to them —
+    #    they are closed with a reason instead (see is_ledger_party).
+    for kind in ("customer", "supplier"):
+        for acct in _subledger_accounts(kind):
+            if acct.id in index:
+                continue
+            index[acct.id] = (kind, ledger_party_id(acct.id), acct.name)
     return index
 
 
@@ -583,7 +646,7 @@ def _flow_of(party_type, line, voucher):
 
 
 def _feed_dict(line, voucher, party, assigned, forced=Decimal("0"),
-               forced_reason=""):
+               forced_reason="", account=None):
     party_type, party_id, party_name = party
     flow = _flow_of(party_type, line, voucher)
     amount = _q(line.credit if flow == "receipt" else line.debit)
@@ -604,6 +667,11 @@ def _feed_dict(line, voucher, party, assigned, forced=Decimal("0"),
         "doc_type": DOC_FOR_PARTY[party_type],
         "cash_account": (voucher.cash_bank_account.name
                          if voucher.cash_bank_account else ""),
+        # The ledger the money moved through. Carried on the row so a client
+        # filtering the rendered feed can match the same text the server-side
+        # search does, instead of the two disagreeing about what "matches".
+        "ledger_code": account.code if account is not None else "",
+        "ledger_name": account.name if account is not None else "",
         "description": line.description or "",
         "notes": voucher.notes or "",
         "amount": _f(amount),
@@ -649,9 +717,19 @@ def feed_rows(assign_states=None, flow=None, party_type=None, party_id=None,
         q = q.filter(AccountingVoucher.voucher_date <= date_to)
     if search:
         term = f"%{search.strip()}%"
+        # The ledger the line settles through is matched with EXISTS rather than
+        # a join: a join would put the account on the row shape and risk a
+        # second copy of every line, and the account is only being tested here.
+        ledger_match = (db.session.query(ChartOfAccount.id)
+                        .filter(ChartOfAccount.id ==
+                                AccountingVoucherLine.account_id,
+                                db.or_(ChartOfAccount.name.ilike(term),
+                                       ChartOfAccount.code.ilike(term)))
+                        .exists())
         q = q.filter(db.or_(AccountingVoucher.voucher_number.ilike(term),
                             AccountingVoucherLine.description.ilike(term),
-                            AccountingVoucher.notes.ilike(term)))
+                            AccountingVoucher.notes.ilike(term),
+                            ledger_match))
     pairs = q.order_by(AccountingVoucher.voucher_date.desc(),
                        AccountingVoucher.id.desc(),
                        AccountingVoucherLine.line_no.asc()).all()
@@ -660,6 +738,11 @@ def feed_rows(assign_states=None, flow=None, party_type=None, party_id=None,
     assigned_map = allocated_by_line(line_ids)
     forced_map = forced_by_line(line_ids)
     reason_map = forced_note_by_line(line_ids)
+    # One query for every ledger on the page rather than one per row.
+    accounts = {}
+    if pairs:
+        accounts = {a.id: a for a in ChartOfAccount.query.filter(
+            ChartOfAccount.id.in_({l.account_id for l, _v in pairs})).all()}
     rows = []
     for line, voucher in pairs:
         party = index.get(line.account_id)
@@ -671,7 +754,8 @@ def feed_rows(assign_states=None, flow=None, party_type=None, party_id=None,
         row = _feed_dict(line, voucher, party,
                          assigned_map.get(line.id, Decimal("0")),
                          forced_map.get(line.id, Decimal("0")),
-                         reason_map.get(line.id, ""))
+                         reason_map.get(line.id, ""),
+                         accounts.get(line.account_id))
         if assign_states and row["state"] not in assign_states:
             continue
         rows.append(row)
@@ -692,7 +776,8 @@ def feed_row(line_id):
     assigned = allocated_by_line([line.id]).get(int(line_id), Decimal("0"))
     forced = forced_by_line([line.id]).get(int(line_id), Decimal("0"))
     reason = forced_note_by_line([line.id]).get(int(line_id), "")
-    return _feed_dict(line, voucher, party, assigned, forced, reason)
+    return _feed_dict(line, voucher, party, assigned, forced, reason,
+                      ChartOfAccount.query.get(line.account_id))
 
 
 def feed_summary(rows=None):

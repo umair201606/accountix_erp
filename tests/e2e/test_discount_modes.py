@@ -14,7 +14,10 @@ Every case uses one line of 2 x 1,000 = 2,000 so the expected figures differ per
 method and a passing test cannot be ambiguous about which rule ran.
 """
 
-BASE_URL = "http://localhost:5000"
+import os
+
+# Same port the harness starts the server on (tests/e2e/conftest.py).
+BASE_URL = "http://localhost:" + os.environ.get("E2E_PORT", "5050")
 SALES_INVOICE = f"{BASE_URL}/inventory/invoices/"
 PURCHASE_INVOICE = f"{BASE_URL}/inventory/purchase-invoice/"
 

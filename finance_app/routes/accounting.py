@@ -258,7 +258,12 @@ def voucher_form(id=None):
                 flash(errors, "error")
                 return render_template("accounting/voucher_form.html", voucher=voucher, **_err_ctx)
 
-        voucher.status = "unapproved" if action == "save" else "approved"
+        # Only a literal "approve" approves — and that path already ran
+        # _approve_voucher (journal posting + approved_by/at) or bailed with
+        # errors above. Any other action value, including a crafted one,
+        # saves the voucher unapproved, so an approved-but-never-posted
+        # voucher is impossible.
+        voucher.status = "approved" if action == "approve" else "unapproved"
         db.session.commit()
         # Editing a voucher can move money out from under an assignment that
         # was already made against it. The tracker derives everything else

@@ -3,51 +3,322 @@
 {% block page_title %}Executive Report Settings{% endblock %}
 {% block extra_css %}{% include "executive/_style.html" %}{% endblock %}
 {% block content %}
-<div class="exr">
+<div class="exr {{ 'is-ro' if not can_edit }}">
 
   <p class="exr-count" style="margin-bottom:14px;">
-    Tick the accounts these reports read. Ticking a parent takes everything
-    beneath it; untick <em>with children</em> to watch that one account alone
-    and pick its children individually. Which side a party lands on is decided
-    by its balance — debit is receivable, credit is payable — so nothing here
-    fixes an account to one side.
+    Tick accounts on the left and they appear on the right the moment you do.
+    Mark <strong>Sub-accounts</strong> on a parent to tell the reports to read
+    everything beneath it too. The right pane lists the level-5 accounts that
+    show up in the receivable and payable pages &mdash; nothing else.
   </p>
 
   <form method="POST">
-    <div class="exr-tree">
-      {% for a in accounts %}
-      <div class="exr-node {{ 'is-on' if a.selected }}"
-           style="padding-left:{{ 14 + (a.level - 1) * 16 }}px;">
-        <input type="checkbox" name="account" value="{{ a.id }}"
-               id="acct{{ a.id }}" {{ 'checked' if a.selected }}
-               {{ 'disabled' if not can_edit }}>
-        <label class="exr-node-main" for="acct{{ a.id }}">
-          <div class="exr-node-name">{{ a.name }}</div>
-          <div class="exr-node-sub">{{ a.code }} · {{ a.type|title }} · level {{ a.level }}</div>
-        </label>
-        <label class="exr-deep">
-          <input type="checkbox" name="deep" value="{{ a.id }}"
-                 {{ 'checked' if a.include_children }}
-                 {{ 'disabled' if not can_edit }}>
-          with children
-        </label>
-      </div>
-      {% else %}
-      <div class="exr-empty">
-        <strong>No chart of accounts yet</strong>
-        <p>Set up the chart of accounts first; these reports read balances
-          from it.</p>
-      </div>
-      {% endfor %}
+    <div class="exr-picker">
+
+      {# ── Left pane: the whole chart ── #}
+      <section class="exr-pane" aria-label="All accounts">
+        <div class="exr-pane-head">
+          <span class="exr-pane-title">All accounts</span>
+          <span class="exr-pane-sub" id="exrLeftCount">0 picked</span>
+        </div>
+        <div class="exr-pane-scroll">
+          <div class="exr-search-wrap">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+            <input type="search" id="exrSearchLeft" class="exr-search" placeholder="Search accounts or codes" autocomplete="off" aria-label="Search all accounts">
+          </div>
+          <div class="exr-tree">
+            {% for type, group in accounts|groupby('type') if type in ('asset', 'liability') %}
+            <section class="exr-section" data-type="{{ type }}">
+              <button type="button" class="exr-section-head" aria-expanded="true">
+                <span class="exr-section-name">{{ type|title }}</span>
+                <span class="exr-section-count" data-total="{{ group|length }}">{{ group|selectattr('selected')|list|length }} of {{ group|length }} selected</span>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+              </button>
+              {% for a in group %}
+              <div class="exr-node {{ 'is-on' if a.selected }} {{ 'is-picked' if a.selected }} {{ 'is-leaf' if not a.has_children }}"
+                   data-id="{{ a.id }}" data-lvl="{{ a.level or 5 }}"
+                   style="--lvl:{{ (a.level - 1) if a.level else 0 }};">
+                {% if a.has_children %}
+                <button type="button" class="exr-caret" aria-expanded="true"
+                        aria-label="Collapse {{ a.name }}">&#9660;</button>
+                {% else %}
+                <span class="exr-caret is-void" aria-hidden="true"></span>
+                {% endif %}
+                <label class="exr-node-check" for="acct{{ a.id }}">
+                  <input type="checkbox" name="account" value="{{ a.id }}"
+                         id="acct{{ a.id }}" {{ 'checked' if a.selected }}
+                         {{ 'disabled' if not can_edit }}>
+                  <span class="exr-checkbox" aria-hidden="true"></span>
+                  <span class="exr-node-name">{{ a.name }}</span>
+                </label>
+                <span class="exr-node-sub">{{ a.code }} &middot; level {{ a.level or 5 }}</span>
+                {% if a.has_children %}
+                <label class="exr-deep {{ '' if a.selected else 'is-off' }}" for="deep{{ a.id }}">
+                  <input type="checkbox" name="deep" value="{{ a.id }}"
+                         id="deep{{ a.id }}" {{ 'checked' if a.selected and a.include_children }}
+                         {{ 'disabled' if not can_edit }}>
+                  <span class="exr-switch" aria-hidden="true"></span>
+                  <span class="exr-deep-label">Sub-accounts</span>
+                </label>
+                {% endif %}
+              </div>
+              {% endfor %}
+            </section>
+            {% else %}
+            <div class="exr-empty">
+              <strong>No chart of accounts yet</strong>
+              <p>Set up the chart of accounts first; these reports read balances
+                from it.</p>
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+      </section>
+
+      {# ── Right pane: live scope preview ── #}
+      <section class="exr-pane" aria-label="Accounts in scope">
+        <div class="exr-pane-head">
+          <span class="exr-pane-title">In scope</span>
+          <span class="exr-pane-sub" id="exrRightCount">0 accounts</span>
+        </div>
+        <div class="exr-pane-scroll">
+          <div class="exr-search-wrap">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+            <input type="search" id="exrSearchRight" class="exr-search" placeholder="Filter selection" autocomplete="off" aria-label="Filter selected accounts">
+          </div>
+          <div class="exr-pick" id="exrPickList" aria-live="polite">
+            <div class="exr-pick-empty">
+              <strong>Nothing at level 5</strong>
+              Tick a parent with <strong>Sub-accounts</strong>, or pick a
+              level-5 account directly.
+            </div>
+          </div>
+        </div>
+      </section>
+
     </div>
 
     {% if can_edit and accounts %}
     <div class="exr-savebar">
+      <span class="exr-save-note" id="exrSaveNote">Nothing in scope yet — the
+        receivable and payable pages will both be empty.</span>
       <button type="submit" class="btn btn-primary">Save selection</button>
-      <a href="{{ url_for('executive.receivables') }}" class="btn btn-outline">Receivables</a>
-      <a href="{{ url_for('executive.payables') }}" class="btn btn-outline">Payables</a>
     </div>
     {% endif %}
   </form>
 </div>
+
+<script>
+(function () {
+  var ROWS = [
+    {% for a in accounts if a.type in ('asset', 'liability') %}
+    {id: {{ a.id }}, name: {{ a.name|tojson }}, code: {{ a.code|tojson }},
+     type: {{ a.type|tojson }}, level: {{ a.level or 5 }},
+     pid: {{ a.parent_id or 'null' }}, kids: {{ 'true' if a.has_children else 'false' }}}{% if not loop.last %},{% endif %}
+    {% endfor %}
+  ];
+  var byId = {}, kids = {};
+  ROWS.forEach(function (r) {
+    byId[r.id] = r;
+    if (r.pid) (kids[r.pid] = kids[r.pid] || []).push(r.id);
+  });
+
+  var leftIn = document.getElementById('exrSearchLeft');
+  var rightIn = document.getElementById('exrSearchRight');
+  var pickList = document.getElementById('exrPickList');
+  var rightCount = document.getElementById('exrRightCount');
+  var leftCount = document.getElementById('exrLeftCount');
+  var saveNote = document.getElementById('exrSaveNote');
+
+  var esc = function (s) {
+    return String(s).replace(/[&<>"']/g, function (c) {
+      return {'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c];
+    });
+  };
+  var descOf = function (id) {
+    var out = [], st = [id];
+    while (st.length) {
+      var n = st.pop();
+      (kids[n] || []).forEach(function (c) { out.push(c); st.push(c); });
+    }
+    return out;
+  };
+  var pickedOf = function (name) {
+    var out = [];
+    document.querySelectorAll('.exr-node input[name="' + name + '"]:checked')
+      .forEach(function (i) { out.push(+i.value); });
+    return out;
+  };
+
+  function effective() {
+    var deep = {}, eff = {};
+    pickedOf('deep').forEach(function (i) { deep[i] = 1; });
+    pickedOf('account').forEach(function (id) {
+      eff[id] = 0;
+      var r = byId[id];
+      if (r && r.kids && deep[id]) {
+        descOf(id).forEach(function (c) { if (!(c in eff)) eff[c] = id; });
+      }
+    });
+    return eff;
+  }
+
+  function renderRight() {
+    var picked = pickedOf('account');
+    var eff = effective();
+    var lvl5 = [], k;
+    for (k in eff) {
+      var r = byId[k];
+      if (r && r.level === 5) lvl5.push(r);
+    }
+    rightCount.textContent = lvl5.length + (lvl5.length === 1 ? ' account' : ' accounts');
+    if (saveNote) {
+      saveNote.textContent = lvl5.length
+        ? lvl5.length + ' level-5 account' + (lvl5.length === 1 ? '' : 's') +
+          ' in scope for the receivable and payable pages.'
+        : (picked.length
+          ? 'Nothing at level 5 — tick a parent with Sub-accounts, or pick a level-5 account directly.'
+          : 'Nothing in scope yet — the receivable and payable pages will both be empty.');
+    }
+    var term = rightIn.value.trim().toLowerCase();
+    var groups = {}, order = [];
+    lvl5.forEach(function (r) {
+      if (term && r.name.toLowerCase().indexOf(term) === -1 &&
+          r.code.toLowerCase().indexOf(term) === -1) return;
+      if (!groups[r.type]) { groups[r.type] = []; order.push(r.type); }
+      groups[r.type].push(r);
+    });
+    var html = '';
+    if (!order.length) {
+      html = '<div class="exr-pick-empty"><strong>' +
+        (lvl5.length ? 'No matches for &ldquo;' + esc(term) + '&rdquo;' : 'Nothing at level 5') +
+        '</strong>' + (lvl5.length
+          ? 'Try another name or code, or clear the filter.'
+          : 'Tick a parent with <strong>Sub-accounts</strong>, or pick a level-5 account directly.') + '</div>';
+    }
+    order.forEach(function (t) {
+      var g = groups[t];
+      html += '<div class="exr-pick-type">' + esc(t) +
+        ' <span class="exr-pick-type-n">' + g.length + '</span></div>';
+      g.forEach(function (r) {
+        html += '<div class="exr-pick-row">' +
+          '<span class="exr-pick-name" title="' + esc(r.name) + '">' + esc(r.name) + '</span>' +
+          '<span class="exr-pick-code">' + esc(r.code) + '</span>' +
+          '</div>';
+      });
+    });
+    pickList.innerHTML = html;
+  }
+
+  function computeMatches(term) {
+    var selfM = {}, hasD = {};
+    ROWS.forEach(function (r) {
+      selfM[r.id] = !term ||
+        r.name.toLowerCase().indexOf(term) !== -1 ||
+        r.code.toLowerCase().indexOf(term) !== -1;
+    });
+    for (var i = ROWS.length - 1; i >= 0; i--) {
+      var r = ROWS[i], d = false;
+      (kids[r.id] || []).forEach(function (c) { if (hasD[c]) d = true; });
+      hasD[r.id] = selfM[r.id] || d;
+    }
+    return {selfM: selfM, hasD: hasD};
+  }
+
+  function applyLeft() {
+    var term = leftIn.value.trim().toLowerCase();
+    var m = computeMatches(term);
+    var sections = document.querySelectorAll('.exr-section');
+    sections.forEach(function (sec) {
+      var nodes = sec.querySelectorAll('.exr-node');
+      var num = 0;
+      var openStack = [];
+      nodes.forEach(function (n) {
+        var id = +n.dataset.id, show;
+        if (term) {
+          show = m.hasD[id];
+          n.classList.toggle('exr-ghost', show && !m.selfM[id]);
+        } else {
+          while (openStack.length && openStack[openStack.length - 1] >= +n.dataset.lvl) {
+            openStack.pop();
+          }
+          show = openStack.length === 0 && !sec.classList.contains('is-close');
+          if (show && n.querySelector('.exr-caret') &&
+              n.querySelector('.exr-caret').getAttribute('aria-expanded') === 'false') {
+            openStack.push(+n.dataset.lvl);
+          }
+        }
+        n.classList.toggle('exr-is-hidden', !show);
+        if (show) num++;
+      });
+      sec.classList.toggle('exr-is-hidden', num === 0);
+      if (term) sec.classList.remove('is-close');
+    });
+  }
+
+  function counts() {
+    var picked = pickedOf('account');
+    leftCount.textContent = picked.length + (picked.length === 1 ? ' picked' : ' picked');
+    document.querySelectorAll('.exr-section').forEach(function (sec) {
+      var total = +sec.querySelector('.exr-section-head').dataset.total;
+      var sel = 0;
+      sec.querySelectorAll('input[name="account"]:checked').forEach(function () { sel++; });
+      sec.querySelector('.exr-section-count').textContent =
+        sel + ' of ' + total + ' selected';
+    });
+  }
+
+  function syncRow(node) {
+    var box = node.querySelector('input[name="account"]');
+    var picked = box.checked;
+    node.classList.toggle('is-on', picked);
+    node.classList.toggle('is-picked', picked);
+    var deep = node.querySelector('.exr-deep');
+    if (deep) {
+      var dp = deep.querySelector('input');
+      if (picked) dp.checked = true;
+      else dp.checked = false;
+      deep.classList.toggle('is-off', !picked);
+    }
+  }
+
+  document.querySelector('.exr-tree').addEventListener('change', function (e) {
+    var t = e.target;
+    var node = t.closest('.exr-node');
+    if (!node) return;
+    if (t.name === 'account') syncRow(node);
+    counts(); applyLeft(); renderRight();
+  });
+
+  document.querySelector('.exr-tree').addEventListener('click', function (e) {
+    var caret = e.target.closest('.exr-caret');
+    if (caret && !caret.classList.contains('is-void')) {
+      var open = caret.getAttribute('aria-expanded') === 'true';
+      caret.setAttribute('aria-expanded', open ? 'false' : 'true');
+      caret.setAttribute('aria-label', (open ? 'Expand ' : 'Collapse ') + 'account');
+      applyLeft();
+      return;
+    }
+    var head = e.target.closest('.exr-section-head');
+    if (head) {
+      var sec = head.closest('.exr-section');
+      var closed = sec.classList.toggle('is-close');
+      head.setAttribute('aria-expanded', closed ? 'false' : 'true');
+      applyLeft();
+    }
+  });
+
+  leftIn.addEventListener('input', applyLeft);
+  rightIn.addEventListener('input', renderRight);
+
+  document.querySelectorAll('.exr-caret[aria-expanded]').forEach(function (c) {
+    if (!c.classList.contains('is-void') && +c.closest('.exr-node').dataset.lvl >= 4) {
+      c.setAttribute('aria-expanded', 'false');
+      c.setAttribute('aria-label', 'Expand account');
+    }
+  });
+
+  counts(); applyLeft(); renderRight();
+})();
+</script>
 {% endblock %}

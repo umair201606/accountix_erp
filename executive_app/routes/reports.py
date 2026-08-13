@@ -39,10 +39,14 @@ def dashboard():
         return redirect(url_for("dashboard.hub"))
     as_of = _parse_date(request.args.get("as_of"))
     sides = er.both_sides(as_of)
+    ages = er.aging(as_of)
     return render_template(
         "executive/dashboard.html",
         receivable=sides[er.RECEIVABLE],
         payable=sides[er.PAYABLE],
+        recv_age=ages[er.RECEIVABLE],
+        pay_age=ages[er.PAYABLE],
+        liq=er.liquidity(as_of),
         configured=bool(er.selections()),
         as_of=request.args.get("as_of", ""),
         can_edit=current_user.can(RESOURCE, "edit"),

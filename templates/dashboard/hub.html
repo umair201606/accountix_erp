@@ -1,77 +1,43 @@
 {% extends "layouts/hub_base.html" %}
-{% block title %}Select Module{% endblock %}
+{% block title %}{{ company.name if company else 'Select Module' }}{% endblock %}
 {% block content %}
-  {% if has_hr %}
-  <a href="{{ url_for('dashboard') }}" class="mod-card" style="--hover:#2563eb">
-    <div class="mod-ico">&#128188;</div>
-    <h3 class="mod-title">HR Management</h3>
-    <p class="mod-desc">Employees, Attendance, Leave, Payroll, PF &amp; more</p>
-  </a>
-  {% endif %}
-  {% if has_inv %}
-  <a href="{{ url_for('inv_auth.dashboard') }}" class="mod-card" style="--hover:#2563eb">
-    <div class="mod-ico">&#128230;</div>
-    <h3 class="mod-title">Inventory Management</h3>
-    <p class="mod-desc">Products, Categories, Stock Movements, Vouchers, Reports</p>
-  </a>
-  {% endif %}
-  {% if has_invoicing %}
-  <a href="{{ url_for('invoicing.dashboard') }}" class="mod-card" style="--hover:#0d9488">
-    <div class="mod-ico">&#129534;</div>
-    <h3 class="mod-title">Invoicing</h3>
-    <p class="mod-desc">Suppliers, Customers, Purchase &amp; Sales, Invoices, Returns</p>
-  </a>
-  {% endif %}
-  {% if has_finance %}
-  <a href="{{ url_for('finance.dashboard') }}" class="mod-card" style="--hover:#2563eb">
-    <div class="mod-ico">&#128176;</div>
-    <h3 class="mod-title">Finance Management</h3>
-    <p class="mod-desc">Ledger, Trial Balance, P&L, Balance Sheet, Cash Flow</p>
-  </a>
-  {% endif %}
-  {% if has_accounting %}
-  <a href="{{ url_for('accounting.dashboard') }}" class="mod-card" style="--hover:#1d4ed8">
-    <div class="mod-ico">&#128202;</div>
-    <h3 class="mod-title">Accounting</h3>
-    <p class="mod-desc">Vouchers (CPV, CRV, BPV, BRV, JV), Chart of Accounts</p>
-  </a>
-  {% endif %}
-  {% if has_fbr %}
-  <a href="{{ url_for('fbr_dashboard.dashboard') }}" class="mod-card" style="--hover:#b5790a">
-    <div class="mod-ico">&#9878;</div>
-    <h3 class="mod-title">FBR Digital Invoicing</h3>
-    <p class="mod-desc">DI submissions, validation, configuration &amp; compliance</p>
-  </a>
-  {% endif %}
-  {% if has_fixed_assets %}
-  <a href="{{ url_for('fa_auth.dashboard') }}" class="mod-card" style="--hover:#b91c1c">
-    <div class="mod-ico">&#128188;</div>
-    <h3 class="mod-title">Fixed Assets Management</h3>
-    <p class="mod-desc">Assets, Categories, Depreciation, Reports</p>
-  </a>
-  {% endif %}
-  {% if has_executive %}
-  <a href="{{ url_for('executive.dashboard') }}" class="mod-card" style="--hover:#047857">
-    <div class="mod-ico">&#128200;</div>
-    <h3 class="mod-title">Executive Reports</h3>
-    <p class="mod-desc">Receivables &amp; payables, read live off the ledger</p>
-  </a>
-  {% endif %}
-  <a href="{{ url_for('settings.index') }}" class="mod-card" style="--hover:#1f2937">
-    <div class="mod-ico">&#9881;</div>
-    <h3 class="mod-title">Settings</h3>
-    <p class="mod-desc">
-      {% if has_settings %}Account, company, reports, inventory, invoices &amp; rights{% else %}Your account, preferences{% endif %}
-    </p>
-  </a>
-  <style>
-    .hub-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;}
-    .mod-card{display:flex;flex-direction:column;align-items:center;text-align:center;background:#fff;border-radius:10px;padding:36px 20px;text-decoration:none;color:#1f2937;border:1px solid #e5e7eb;transition:border-color .15s,box-shadow .15s}
-    .mod-card:hover{border-color:var(--hover);box-shadow:0 4px 12px rgba(0,0,0,.06)}
-    .mod-ico{font-size:40px;margin-bottom:12px;line-height:1}
-    .mod-title{margin:0 0 6px;font-size:16px;font-weight:600}
-    .mod-desc{margin:0;font-size:12px;color:#6b7280;line-height:1.4}
-    @media(max-width:900px){.hub-grid{grid-template-columns:repeat(2,1fr);}}
-    @media(max-width:500px){.hub-grid{grid-template-columns:1fr;}.mod-card{padding:24px 16px;}.mod-ico{font-size:32px;}.mod-title{font-size:15px;}}
-  </style>
+{% macro icon(name) -%}
+{% if name == 'people' -%}
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3.4"/><path d="M3.5 19c.6-3 2.8-4.6 5.5-4.6s4.9 1.6 5.5 4.6"/><path d="M15.5 5.4a3.2 3.2 0 0 1 0 5.9"/><path d="M17 14.6c1.9.6 3.2 1.9 3.7 4.4"/></svg>
+{% elif name == 'box' -%}
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7.5 12 3l8 4.5v9L12 21l-8-4.5z"/><path d="M4 7.5l8 4.5 8-4.5"/><path d="M12 12v9"/></svg>
+{% elif name == 'receipt' -%}
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h12v18l-2-1.5L14 21l-2-1.5L10 21l-2-1.5L6 21z"/><path d="M9 8h6M9 12h6M9 16h3"/></svg>
+{% elif name == 'chart' -%}
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h16"/><path d="M6.5 20v-6M11 20V8M15.5 20v-9M19 20V5"/></svg>
+{% elif name == 'calc' -%}
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M8 7h8M8 12h.01M12 12h.01M16 12h.01M8 16h.01M12 16h.01M16 16h.01"/></svg>
+{% elif name == 'shield' -%}
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l7 3v5c0 4.6-3 8.2-7 10-4-1.8-7-5.4-7-10V6z"/><path d="M9 11.5l2.2 2.2L15.5 9.5"/></svg>
+{% elif name == 'building' -%}
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 21V5.5A1.5 1.5 0 0 1 5.5 4h9A1.5 1.5 0 0 1 16 5.5V21"/><path d="M16 8h2.5A1.5 1.5 0 0 1 20 9.5V21"/><path d="M2 21h20M8 8h2M8 12h2M8 16h2"/></svg>
+{% elif name == 'pulse' -%}
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12h4l2.5-6 4 12L16 12h5"/></svg>
+{% elif name == 'gear' -%}
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5 5l2.1 2.1M16.9 16.9 19 19M19 5l-2.1 2.1M7.1 16.9 5 19"/></svg>
+{% endif -%}
+{% endmacro %}
+{% for m in modules %}
+<a href="{{ url_for(m.endpoint) }}" class="mod-card" style="--brand:{{ m.brand }};--ink2:{{ m.badge_fg }};" aria-label="{{ m.title }}">
+  <span class="mod-ico" aria-hidden="true">{{ icon(m.icon) }}</span>
+  <span class="mod-body">
+    <span class="mod-title">{{ m.title }}</span>
+    <span class="mod-desc">{{ m.desc }}</span>
+    <span class="mod-go">Open module &nbsp;&rarr;</span>
+  </span>
+</a>
+{% endfor %}
+<a href="{{ url_for('settings.index') }}" class="mod-card" style="--brand:linear-gradient(135deg,#475569,#64748b);--ink2:#475569;" aria-label="Settings">
+  <span class="mod-ico" aria-hidden="true">{{ icon('gear') }}</span>
+  <span class="mod-body">
+    <span class="mod-title">Settings</span>
+    <span class="mod-desc">{% if has_settings %}Account, company, reports, inventory, invoices &amp; rights{% else %}Your account &amp; preferences{% endif %}</span>
+    <span class="mod-go">Open settings &nbsp;&rarr;</span>
+  </span>
+</a>
 {% endblock %}

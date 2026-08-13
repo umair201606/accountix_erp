@@ -80,7 +80,7 @@ a:hover{text-decoration:underline;}
 /* ── Main Content ── */
 .main-content{flex:1;display:flex;flex-direction:column;min-width:0;}
 .topbar{display:flex;align-items:center;justify-content:space-between;padding:10px 24px;background:#fff;border-bottom:1px solid var(--line);}
-.sidebar-toggle{background:none;border:none;font-size:20px;cursor:pointer;color:var(--muted);padding:4px 8px;border-radius:3px;transition:background 0.2s;font-family:var(--font);}
+.sidebar-toggle{background:none;border:none;font-size:20px;cursor:pointer;color:var(--muted);padding:4px 8px;border-radius:3px;transition:background 0.2s;font-family:var(--font);min-width:36px;min-height:36px;display:inline-flex;align-items:center;justify-content:center;}
 .sidebar-toggle:hover{background:var(--paper);}
 .topbar-right{display:flex;align-items:center;gap:16px;}
 .notif-btn{background:none;border:none;font-size:18px;cursor:pointer;position:relative;padding:6px;color:var(--muted);border-radius:3px;transition:background 0.2s;}
@@ -110,15 +110,15 @@ a:hover{text-decoration:underline;}
 .flash-info{background:var(--ledger-dim);border:1px solid var(--ledger);color:var(--ledger);}
 
 /* ── Buttons ── */
-.btn{display:inline-flex;align-items:center;gap:6px;padding:9px 20px;border:1px solid var(--ledger);border-radius:3px;font-size:12px;font-weight:600;cursor:pointer;transition:all 0.2s;background:#fff;color:var(--ledger);font-family:var(--font);letter-spacing:0.02em;}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:9px 20px;border:1px solid var(--ledger);border-radius:3px;font-size:12px;font-weight:600;cursor:pointer;transition:all 0.2s;background:#fff;color:var(--ledger);font-family:var(--font);letter-spacing:0.02em;}
 .btn:hover{background:var(--ledger-dim);}
 .btn:active{transform:scale(0.97);}
 .btn-primary{background:var(--ledger);color:#fff;border-color:var(--ledger);}
-.btn-primary:hover{background:#0c4448;box-shadow:0 4px 12px rgba(15,82,87,0.3);}
+.btn-primary:hover{background:#0a2f5e;box-shadow:0 4px 12px rgba(0,32,69,0.3);}
 .btn-secondary{background:var(--paper);color:var(--ink);border-color:var(--line);}
-.btn-secondary:hover{background:#efede4;}
+.btn-secondary:hover{background:#eef1f6;}
 .btn-accent{background:var(--amber);color:#fff;border-color:var(--amber);}
-.btn-accent:hover{background:#9a6808;box-shadow:0 4px 12px rgba(181,121,10,0.3);}
+.btn-accent:hover{background:#5a616b;box-shadow:0 4px 12px rgba(67,71,78,0.3);}
 .btn-danger{background:var(--red);color:#fff;border-color:var(--red);}
 .btn-danger:hover{background:#8a3127;box-shadow:0 4px 12px rgba(161,58,47,0.3);}
 .btn-warning{background:var(--amber-dim);color:var(--amber);border-color:var(--amber);}
@@ -130,11 +130,21 @@ a:hover{text-decoration:underline;}
 .btn-sm{padding:6px 14px;font-size:11px;}
 .btn-block{width:100%;justify-content:center;}
 .btn-link{background:none;border:none;color:var(--link);font-size:12px;cursor:pointer;padding:4px;text-decoration:underline;font-family:var(--font);}
+/* Keyboard navigation must always be visible. */
+a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,
+textarea:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--primary);outline-offset:2px;}
 
 /* ── Cards ── */
 .card{background:#fff;border-radius:4px;padding:20px;box-shadow:0 1px 2px rgba(0,0,0,0.04);border:1px solid var(--line);transition:box-shadow 0.2s ease;}
 .card:hover{box-shadow:0 3px 10px rgba(0,0,0,0.06);}
 .card-header{font-size:14px;font-weight:700;color:var(--ink);margin-bottom:14px;padding-bottom:10px;border-bottom:2px solid var(--ledger);display:flex;justify-content:space-between;align-items:center;letter-spacing:0.02em;}
+
+/* ── Attention rows (dashboard "needs your attention" lists) ── */
+.attention-row{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 12px;font-size:13px;color:var(--ink);border-bottom:1px solid var(--line);transition:background .15s;}
+.attention-row:last-child{border-bottom:none;}
+a.attention-row{text-decoration:none;}
+a.attention-row:hover{background:var(--ledger-dim);}
+.attention-row strong{font-size:14px;color:var(--ledger);font-variant-numeric:tabular-nums;}
 
 /* ── Stats Grid ── */
 .stats-grid{display:grid;grid-template-columns:repeat(auto-fit, minmax(200px, 1fr));gap:14px;margin-bottom:20px;}
@@ -318,6 +328,26 @@ td{padding:10px 14px;border-top:1px solid var(--line);}
   .topbar{flex-wrap:wrap;gap:4px;}
   .content-area{padding:12px;}
   .notif-menu{width:240px;right:-120px;}
+}
+/* Preserve the systemic 16px input font on phones — anything smaller makes
+   iOS Safari auto-zoom into a field on focus (a classic mobile-form bug). */
+@media(max-width:480px){
+  input,select,textarea{font-size:16px !important;}
+}
+/* Fatter touch targets on small screens: 44px is the WCAG 2.2 minimum. */
+@media(max-width:768px){
+  .sidebar-toggle{min-width:44px;min-height:44px;}
+  .notif-btn{min-width:40px;min-height:40px;}
+  .nav-item,.nav-group-header,.sidebar-footer .nav-item{min-height:44px;align-items:center;}
+  .nav-group-items .nav-item{min-height:40px;}
+  .mod-switch-btn{min-height:44px;}
+  .company-switch-btn{min-height:40px;}
+  .btn{padding-top:10px;padding-bottom:10px;}
+  .tab-btn{min-height:44px;}
+}
+/* Respect users who asked for less motion. */
+@media(prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation-duration:.01ms !important;animation-iteration-count:1 !important;transition-duration:.01ms !important;scroll-behavior:auto !important;}
 }
 /* Hide number input spinners (up/down arrows) on all forms */
 input[type="number"]::-webkit-outer-spin-button,

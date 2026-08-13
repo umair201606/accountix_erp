@@ -7,34 +7,87 @@
        and branded with that company — not with the product. #}
     <title>{% block title %}{{ company.name if company else 'Select Module' }}{% endblock %}</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%231d4ed8'/><text x='16' y='22' font-size='18' font-family='Arial' font-weight='bold' text-anchor='middle' fill='white'>A</text></svg>">
     <style>
-      .hub-container{width:100%;max-width:1100px;margin:0 auto;}
-      .hub-header{text-align:center;margin-bottom:24px;}
-      .hub-brand{width:48px;height:48px;background:#1f2937;color:#fff;border-radius:10px;display:inline-flex;align-items:center;justify-content:center;font-size:22px;font-weight:800;margin-bottom:8px;}
-      .hub-title{margin:0;font-size:20px;font-weight:700;color:#1f2937;}
-      .hub-subtitle{margin:2px 0 0;color:#6b7280;font-size:13px;}
-      .hub-footer{text-align:center;margin-top:24px;}
-      .hub-footer a{font-size:13px;color:#9ca3af;text-decoration:none;}
-      .hub-footer a:hover{text-decoration:underline;}
-      @media(max-width:500px){
-        .hub-brand{width:40px;height:40px;font-size:18px;}
-        .hub-title{font-size:17px;}
-        .hub-subtitle{font-size:12px;}
-      }
+      :root { --hub-bg: radial-gradient(1200px 500px at 85% -10%, #dbeafe 0%, transparent 55%),
+                      radial-gradient(900px 420px at -10% 110%, #e0f2f1 0%, transparent 55%); }
+      body { background: var(--hub-bg), #f6f9ff; margin: 0; min-height: 100vh; }
+      .hub-wrap { width: 100%; max-width: 1080px; margin: 0 auto; padding: 40px 20px 32px;
+                  min-height: 100vh; display: flex; flex-direction: column; }
+      .hub-header { display: flex; align-items: center; gap: 16px; margin-bottom: 28px;
+                    background: rgba(255,255,255,.78); border: 1px solid var(--line);
+                    border-radius: 14px; padding: 18px 20px; backdrop-filter: blur(6px); }
+      .hub-brand { width: 48px; height: 48px; flex: none; border-radius: 12px;
+                   background: linear-gradient(135deg,#002045,#1a365d); color: #fff;
+                   display: flex; align-items: center; justify-content: center;
+                   font-size: 21px; font-weight: 800; box-shadow: 0 6px 16px rgba(0,32,69,.28); }
+      .hub-heading { min-width: 0; }
+      .hub-title { margin: 0; font-size: 18px; font-weight: 800; color: var(--ink);
+                   letter-spacing: -.2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .hub-subtitle { margin: 2px 0 0; color: var(--muted); font-size: 12.5px; }
+      .hub-count { margin-left: auto; flex: none; padding: 5px 12px; border-radius: 999px;
+                   background: var(--ledger-dim); color: var(--ledger); font-size: 11.5px;
+                   font-weight: 700; letter-spacing: .03em; }
+      .hub-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+      .mod-card { position: relative; display: flex; flex-direction: column; gap: 14px;
+                  background: #fff; border-radius: 14px; padding: 22px 20px 18px;
+                  text-decoration: none; color: var(--ink); border: 1px solid var(--line);
+                  overflow: hidden; transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease; }
+      .mod-card::before { content: ""; position: absolute; inset: 0 0 auto 0; height: 4px;
+                          background: var(--brand); opacity: .85; }
+      .mod-card:hover { transform: translateY(-3px); border-color: var(--ink2);
+                        box-shadow: 0 14px 30px rgba(16,42,67,.12); text-decoration: none; }
+      .mod-card:active { transform: translateY(-1px); }
+      .mod-card:focus-visible { outline: 3px solid var(--primary); outline-offset: 2px;
+                                border-radius: 16px; }
+      .mod-ico { width: 46px; height: 46px; border-radius: 12px;
+                 background: var(--brand); color: #fff; display: flex; align-items: center;
+                 justify-content: center; box-shadow: 0 6px 14px rgba(16,42,67,.18); }
+      .mod-ico svg { width: 24px; height: 24px; }
+      .mod-body { display: flex; flex-direction: column; gap: 5px; }
+      .mod-title { font-size: 14.5px; font-weight: 700; color: var(--ink); letter-spacing: -.1px; }
+      .mod-desc { font-size: 12px; color: var(--muted); line-height: 1.45; }
+      .mod-go { margin-top: 2px; font-size: 11.5px; font-weight: 700; color: var(--ink2);
+                letter-spacing: .02em; }
+      .hub-footer { display: flex; justify-content: center; margin-top: 28px; }
+      .hub-footer a { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px;
+                      color: var(--muted); text-decoration: none; padding: 8px 14px;
+                      border: 1px solid var(--line); border-radius: 999px; background: #fff;
+                      transition: color .15s, border-color .15s; }
+      .hub-footer a:hover { color: var(--red); border-color: var(--red); text-decoration: none; }
+      @media (max-width: 900px) { .hub-grid { grid-template-columns: repeat(2, 1fr); } }
+      @media (max-width: 560px) {
+        .hub-wrap { padding: 20px 14px 24px; }
+        .hub-header { padding: 14px 16px; gap: 12px; border-radius: 12px; }
+        .hub-brand { width: 42px; height: 42px; font-size: 18px; border-radius: 10px; }
+        .hub-title { font-size: 16px; }
+        .hub-count { display: none; }
+        .hub-grid { grid-template-columns: 1fr; gap: 12px; }
+        .mod-card { flex-direction: row; align-items: center; gap: 14px; padding: 16px; }
+        .mod-card::before { inset: auto 0 0 0; height: 3px; }
+        .mod-go { display: none; }
+        .mod-desc { -webkit-line-clamp: 2; } }
+      @media (prefers-reduced-motion: reduce) {
+        .mod-card { transition: none; }
+        .mod-card:hover { transform: none; } }
     </style>
 </head>
-<body style="background:#f5f5f5;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;padding:20px;">
-    <div class="hub-container">
-        <div class="hub-header">
+<body>
+    <div class="hub-wrap">
+        {% set hub_modules = modules|default([]) %}
+        <header class="hub-header">
             <div class="hub-brand">{{ (company.name if company else '?')[:1]|upper }}</div>
-            <h1 class="hub-title">{{ company.name if company else 'Select Module' }}</h1>
-            <p class="hub-subtitle">{{ current_user.full_name }} &bull; {{ current_user.get_role_name()|title }}</p>
-        </div>
+            <div class="hub-heading">
+                <h1 class="hub-title">{{ company.name if company else 'Select Module' }}</h1>
+                <p class="hub-subtitle">{{ current_user.full_name }} &bull; {{ current_user.get_role_name()|title }}</p>
+            </div>
+            {% if hub_modules %}<span class="hub-count">{{ hub_modules|length }} modules</span>{% endif %}
+        </header>
         <div class="hub-grid">
             {% block content %}{% endblock %}
         </div>
         <div class="hub-footer">
-            <a href="{{ url_for('auth.logout') }}">Logout</a>
+            <a href="{{ url_for('auth.logout') }}">&larr; Logout</a>
         </div>
     </div>
 </body>
