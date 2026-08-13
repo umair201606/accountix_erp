@@ -31,15 +31,57 @@
   .badge-plan { background: #fef3c7; color: #92400e; }
   .badge-in { background: #d1fae5; color: #065f46; }
   .badge-out { background: #fee2e2; color: #991b1b; }
+  .badge-hr { background: #ede9fe; color: #5b21b6; }
   .twcf-form label { font-size: 12px; font-weight: 600; color: #475569; display: block; margin-bottom: 4px; }
-  .twcf-form input, .twcf-form select { width: 100%; }
+  .twcf-form input:not([type="radio"]), .twcf-form select { width: 100%; }
   .line-row td { vertical-align: middle; }
+  /* At-a-glance summary strip */
+  .twcf-kpi { background: #fff; border: 1px solid #e2e8f0; border-radius: 10px; padding: 10px 12px; }
+  .twcf-kpi .k-label { font-size: 11px; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: .04em; display: flex; align-items: center; gap: 6px; }
+  .twcf-kpi .k-value { font-size: 18px; font-weight: 700; color: #0f172a; margin-top: 4px; line-height: 1.15; }
+  .twcf-kpi.k-closing { background: #0f172a; border-color: #0f172a; }
+  .twcf-kpi.k-closing .k-label { color: #94a3b8; }
+  .twcf-kpi.k-closing .k-value { color: #fff; }
+  /* Explainer */
+  #twcf-explain summary { cursor: pointer; font-weight: 700; font-size: 14px; color: #1e40af; list-style: none; display: flex; align-items: center; gap: 8px; }
+  #twcf-explain summary::-webkit-details-marker { display: none; }
+  #twcf-explain ul { margin: 10px 0 0; padding-left: 20px; color: #475569; font-size: 13px; display: grid; gap: 6px; }
+  /* Money in / out toggle */
+  .twcf-dir { display: flex; align-items: center; gap: 6px; border: 1px solid #cbd5e1; border-radius: 8px; padding: 8px 10px; background: #fff; cursor: pointer; font-weight: 600; font-size: 13px; color: #334155; flex: 1; }
+  .twcf-dir small { font-weight: 400; color: #64748b; }
+  .twcf-dir:has(input:checked) { background: #eff6ff; border-color: #2563eb; box-shadow: 0 0 0 1px #2563eb; }
+  .twcf-dir.twcf-dir-out:has(input:checked) { background: #fef2f2; border-color: #dc2626; box-shadow: 0 0 0 1px #dc2626; }
+  /* Live landing preview */
+  .twcf-hint { margin-top: 10px; font-size: 13px; color: #334155; background: #f8fafc; border: 1px dashed #cbd5e1; border-radius: 8px; padding: 8px 10px; }
+  .twcf-src { font-size: 10px; font-weight: 500; color: #64748b; }
+  .twcf-legend { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: 12px; color: #475569; }
   @media (max-width: 640px) {
     .twcf-form .grid { grid-template-columns: 1fr; }
     .twcf-line-actions { display: flex; gap: 6px; }
   }
 </style>
 
+<!-- At-a-glance summary -->
+<div id="twcf-kpis" class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6 no-print">
+  <div class="twcf-kpi">
+    <span class="k-label"><i class="fas fa-wallet"></i> Opening cash</span>
+    <span class="k-value">{{ matrix.opening|amount_format }}</span>
+  </div>
+  <div class="twcf-kpi">
+    <span class="k-label"><i class="fas fa-arrow-down text-green-600"></i> Total receipts</span>
+    <span class="k-value text-green-600">{{ matrix.total_in|amount_format }}</span>
+  </div>
+  <div class="twcf-kpi">
+    <span class="k-label"><i class="fas fa-arrow-up text-red-600"></i> Total payments</span>
+    <span class="k-value text-red-600">{{ matrix.total_out|amount_format }}</span>
+  </div>
+  <div class="twcf-kpi k-closing">
+    <span class="k-label"><i class="fas fa-flag-checkered"></i> Projected closing</span>
+    <span class="k-value {% if matrix.closing[-1] < 0 %}text-red-400{% else %}text-emerald-400{% endif %}">{{ matrix.closing[-1]|amount_format }}</span>
+  </div>
+</div>
+
+<!-- Forecast window -->
 <form method="get" class="card mb-6 no-print">
   <div class="flex flex-wrap items-end gap-4">
     <div>
@@ -51,11 +93,110 @@
       <button type="button" class="btn btn-outline" id="twcf-this-week"><i class="fas fa-calendar-week"></i> This week</button>
     </div>
     <p class="w-full text-sm text-slate-500 mt-1">
-      13 weekly columns, Mon–Sun. Weeks already finished show <strong>actual</strong> net cash and a variance row.
-      Rolling the start date forward re-buckets every auto and recurring line — that is how the forecast rolls.
+      13 weekly columns, Mon–Sun. Rolling the start date forward re-buckets every auto and recurring line — that is how the forecast rolls.
     </p>
   </div>
 </form>
+
+<!-- How it works -->
+<details id="twcf-explain" class="card mb-6 no-print">
+  <summary><i class="fas fa-circle-question text-blue-600"></i> How this forecast works</summary>
+  <ul>
+    <li><strong>Opening cash</strong> — the actual cash balance just before the window starts, straight from your general ledger.</li>
+    <li><strong>Auto rows</strong> — open customer and supplier balances are aged and spread across the weeks (0–30 days → weeks 1–2, 31–60 → weeks 3–5, 61–90 → weeks 6–8, older → weeks 9–13). No entry needed.</li>
+    <li><strong>Your lines</strong> — anything the ledger can't see yet: payroll, rent, taxes, loan repayments, one-off items. Add one below; it lands in the week of its date and repeats if you pick a frequency.</li>
+    {% if matrix.has_payroll_auto %}<li><strong>Salaries &amp; wages</strong> are forecast automatically from your approved HR payroll runs — add a payroll line only if you pay something extra.</li>{% endif %}
+    <li><strong>Finished weeks</strong> — replaced with actual cash movement; the variance row shows whether the forecast held. Set a minimum cash floor in <em>Finance Settings → Cash flow</em> to add a headroom check.</li>
+  </ul>
+</details>
+
+<!-- Add a future cash item -->
+<div class="card mb-6 no-print">
+  <div class="flex flex-wrap items-center justify-between gap-2 mb-1">
+    <h2 class="font-bold text-lg"><i class="fas fa-plus-circle text-blue-600"></i> Add a future cash item</h2>
+    {% if editing %}
+    <a href="?start={{ start.strftime('%Y-%m-%d') }}" class="btn btn-outline btn-sm"><i class="fas fa-times"></i> Cancel edit</a>
+    {% endif %}
+  </div>
+  <p class="text-sm text-slate-500 mb-4">Money you expect to receive or pay in the next 13 weeks. It appears in the matrix as a <span class="badge badge-plan">plan</span> row.</p>
+  <form method="post" action="{{ url_for('finance.twcf') }}" class="twcf-form">
+    <input type="hidden" name="start" value="{{ start.strftime('%Y-%m-%d') }}">
+    <input type="hidden" name="action" value="{{ 'edit' if editing else 'add' }}">
+    {% if editing %}<input type="hidden" name="line_id" value="{{ editing.id }}">{% endif %}
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div class="col-span-2 md:col-span-2">
+        <label>Money in or out?</label>
+        <div class="flex gap-2">
+          <label class="twcf-dir">
+            <input type="radio" name="direction" value="in" {{ 'checked' if not editing or editing.direction == 'in' }}>
+            <i class="fas fa-arrow-down text-green-600"></i> Receipt <small>money in</small>
+          </label>
+          <label class="twcf-dir twcf-dir-out">
+            <input type="radio" name="direction" value="out" {{ 'checked' if editing and editing.direction == 'out' }}>
+            <i class="fas fa-arrow-up text-red-600"></i> Payment <small>money out</small>
+          </label>
+        </div>
+      </div>
+      <div>
+        <label for="twcf-description">What is it?</label>
+        <input type="text" name="description" id="twcf-description" placeholder="e.g. August salaries" value="{{ editing.description if editing else '' }}" required>
+      </div>
+      <div>
+        <label for="twcf-category">Category</label>
+        <select name="category" id="twcf-category">
+          {% for cat in in_categories %}
+          <option value="{{ cat }}" data-dir="in" {{ 'selected' if editing and editing.category == cat }}>{{ out_cat_labels[cat] if cat in out_cat_labels else 'Other receipts' }}</option>
+          {% endfor %}
+          {% for cat in out_categories %}
+          <option value="{{ cat }}" data-dir="out" {{ 'selected' if editing and editing.category == cat }}>{{ out_cat_labels[cat] }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label for="twcf-amount">How much?</label>
+        <input type="number" name="amount" id="twcf-amount" step="0.01" min="0.01" placeholder="0.00" value="{{ '%.2f'|format(editing.amount) if editing else '' }}" required>
+      </div>
+      <div>
+        <label for="twcf-start-date">First date</label>
+        <input type="date" name="start_date" id="twcf-start-date" value="{{ editing.start_date.strftime('%Y-%m-%d') if editing else start.strftime('%Y-%m-%d') }}" required>
+      </div>
+      <div>
+        <label for="twcf-frequency">Frequency</label>
+        <select name="frequency" id="twcf-frequency">
+          {% for f in frequencies %}
+          <option value="{{ f }}" {{ 'selected' if editing and editing.frequency == f }}>{{ frequency_labels[f] }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="flex items-end">
+        <button type="submit" class="btn btn-primary w-full"><i class="fas fa-{{ 'save' if editing else 'plus' }}"></i> {{ 'Save changes' if editing else 'Add to forecast' }}</button>
+      </div>
+    </div>
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 hidden" id="twcf-recur-wrap">
+      <div id="twcf-day-week-wrap" class="hidden">
+        <label for="twcf-day-week">Repeats on</label>
+        <select name="day_of_week" id="twcf-day-week">
+          {% for d in range(7) %}
+          <option value="{{ d }}" {{ 'selected' if editing and editing.day_of_week == d }}>{{ ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'][d] }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div id="twcf-day-month-wrap" class="hidden">
+        <label for="twcf-day-month">Day of month</label>
+        <input type="number" name="day_of_month" id="twcf-day-month" min="1" max="31" value="{{ editing.day_of_month if editing else 1 }}">
+      </div>
+      <div id="twcf-month-wrap" class="hidden">
+        <label for="twcf-month">Month</label>
+        <select name="month" id="twcf-month">
+          {% for m in range(1, 13) %}
+          <option value="{{ m }}" {{ 'selected' if editing and editing.month == m }}>{{ ['','January','February','March','April','May','June','July','August','September','October','November','December'][m] }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+    <p id="twcf-preview-hint" class="twcf-hint"><i class="fas fa-circle-info text-blue-600"></i> <span id="twcf-preview-text">Choose the date and amount to see exactly where this lands in the 13 weeks.</span></p>
+  </form>
+</div>
 
 <div class="card report-sheet">
   <div class="report-head">
@@ -68,6 +209,13 @@
       <span class="badge badge-green">13 weeks</span>
       {% if matrix.floor is not none %}<span class="badge badge-blue">Floor {{ matrix.floor|amount_format }}</span>{% endif %}
     </div>
+  </div>
+
+  <div class="twcf-legend no-print mb-3">
+    <span class="badge badge-auto">auto — from your ledgers</span>
+    <span class="badge badge-plan">plan — your lines</span>
+    {% if matrix.has_payroll_auto %}<span class="badge badge-hr"><i class="fas fa-users"></i> from HR payroll</span>{% endif %}
+    <span class="text-xs text-slate-500"><i class="fas fa-check-circle text-green-600"></i> finished week — actual used</span>
   </div>
 
   <div class="twcf-scroll">
@@ -94,8 +242,9 @@
         {% elif row.kind == 'account' %}
         <tr>
           <td class="stick">
-            {{ row.label }}
-            {% if row.auto %}<span class="badge badge-auto">auto</span>{% else %}<span class="badge badge-plan">plan</span>{% endif %}
+            {% if row.key == 'out_payroll' and matrix.has_payroll_auto %}Additional payroll{% else %}{{ row.label }}{% endif %}
+            {% if row.auto %}<span class="badge badge-auto" title="Computed automatically from your data — no entry needed">auto</span>{% else %}<span class="badge badge-plan" title="From your forecast lines">plan</span>{% endif %}
+            {% if row.source == 'payroll' %}<small class="twcf-src"><i class="fas fa-users"></i> from HR payroll</small>{% endif %}
           </td>
           {% for v in row['values'] %}<td class="num wk {% if v is not none and v < 0 %}text-red-600{% endif %}">{{ v|amount_format if v is not none else '' }}</td>{% endfor %}
           <td class="num {% if row['values']|sum < 0 %}text-red-600{% endif %}">{{ row['values']|sum|amount_format }}</td>
@@ -143,9 +292,7 @@
   </div>
 
   <p class="report-footnote">
-    <strong>Auto</strong> rows are computed from aged customer / supplier balances:
-    <em>Collections from customers</em> spreads open receivables across the weeks by age bucket (0–30 days → weeks 1–2, 31–60 → weeks 3–5, 61–90 → weeks 6–8, 90+ → weeks 9–13);
-    <em>Payments to suppliers</em> mirrors that for open payables.
+    <strong>Auto</strong> rows are computed from your data: <em>Collections from customers</em> spreads open receivables across the weeks by age bucket (0–30 days → weeks 1–2, 31–60 → weeks 3–5, 61–90 → weeks 6–8, 90+ → weeks 9–13); <em>Payments to suppliers</em> mirrors that for open payables{% if matrix.has_payroll_auto %}; <em>Salaries &amp; wages</em> repeats your latest approved HR payroll run monthly on its pay date{% endif %}.
     <strong>Plan</strong> rows come from your forecast lines below. Elapsed weeks use actual journal cash movement.
   </p>
 </div>
@@ -156,79 +303,11 @@
       <i class="fas fa-list-check text-blue-600"></i> Forecast Lines
       <span class="text-sm font-normal text-slate-500">({{ lines|length }})</span>
     </h2>
-    {% if editing %}
-    <a href="?start={{ start.strftime('%Y-%m-%d') }}" class="btn btn-outline btn-sm"><i class="fas fa-times"></i> Cancel edit</a>
-    {% endif %}
   </div>
 
-  <form method="post" action="{{ url_for('finance.twcf') }}" class="twcf-form mb-6">
-    <input type="hidden" name="start" value="{{ start.strftime('%Y-%m-%d') }}">
-    <input type="hidden" name="action" value="{{ 'edit' if editing else 'add' }}">
-    {% if editing %}<input type="hidden" name="line_id" value="{{ editing.id }}">{% endif %}
-    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
-      <div>
-        <label for="twcf-direction">Direction</label>
-        <select name="direction" id="twcf-direction">
-          <option value="in" {{ 'selected' if editing and editing.direction == 'in' }}>Receipt (money in)</option>
-          <option value="out" {{ 'selected' if editing and editing.direction == 'out' }}>Payment (money out)</option>
-        </select>
-      </div>
-      <div>
-        <label for="twcf-category">Category</label>
-        <select name="category" id="twcf-category">
-          {% for cat in in_categories %}
-          <option value="{{ cat }}" data-dir="in" {{ 'selected' if editing and editing.category == cat }}>{{ out_cat_labels[cat] if cat in out_cat_labels else 'Other receipts' }}</option>
-          {% endfor %}
-          {% for cat in out_categories %}
-          <option value="{{ cat }}" data-dir="out" {{ 'selected' if editing and editing.category == cat }}>{{ out_cat_labels[cat] }}</option>
-          {% endfor %}
-        </select>
-      </div>
-      <div>
-        <label for="twcf-description">Description</label>
-        <input type="text" name="description" id="twcf-description" placeholder="e.g. August salaries" value="{{ editing.description if editing else '' }}" required>
-      </div>
-      <div>
-        <label for="twcf-amount">Amount</label>
-        <input type="number" name="amount" id="twcf-amount" step="0.01" min="0.01" placeholder="0.00" value="{{ '%.2f'|format(editing.amount) if editing else '' }}" required>
-      </div>
-      <div>
-        <label for="twcf-start-date">First occurrence</label>
-        <input type="date" name="start_date" id="twcf-start-date" value="{{ editing.start_date.strftime('%Y-%m-%d') if editing else start.strftime('%Y-%m-%d') }}" required>
-      </div>
-      <div>
-        <label for="twcf-frequency">Frequency</label>
-        <select name="frequency" id="twcf-frequency">
-          {% for f in frequencies %}
-          <option value="{{ f }}" {{ 'selected' if editing and editing.frequency == f }}>{{ frequency_labels[f] }}</option>
-          {% endfor %}
-        </select>
-      </div>
-      <div id="twcf-day-week-wrap" class="hidden">
-        <label for="twcf-day-week">Day of week</label>
-        <select name="day_of_week" id="twcf-day-week">
-          {% for d in range(7) %}
-          <option value="{{ d }}" {{ 'selected' if editing and editing.day_of_week == d }}>{{ ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'][d] }}</option>
-          {% endfor %}
-        </select>
-      </div>
-      <div id="twcf-day-month-wrap" class="hidden">
-        <label for="twcf-day-month">Day of month</label>
-        <input type="number" name="day_of_month" id="twcf-day-month" min="1" max="31" value="{{ editing.day_of_month if editing else 1 }}">
-      </div>
-      <div id="twcf-month-wrap" class="hidden">
-        <label for="twcf-month">Month</label>
-        <select name="month" id="twcf-month">
-          {% for m in range(1, 13) %}
-          <option value="{{ m }}" {{ 'selected' if editing and editing.month == m }}>{{ ['','January','February','March','April','May','June','July','August','September','October','November','December'][m] }}</option>
-          {% endfor %}
-        </select>
-      </div>
-      <div class="flex items-end">
-        <button type="submit" class="btn btn-primary w-full"><i class="fas fa-{{ 'save' if editing else 'plus' }}"></i> {{ 'Save changes' if editing else 'Add line' }}</button>
-      </div>
-    </div>
-  </form>
+  {% if matrix.has_payroll_auto %}
+  <p class="text-sm text-slate-500 mb-4"><i class="fas fa-users text-indigo-600"></i> Salaries &amp; wages are already forecast from approved HR payroll — add lines only for other payments.</p>
+  {% endif %}
 
   {% if lines %}
   <div class="overflow-x-auto">
@@ -272,22 +351,121 @@
 </div>
 
 <script>
+window.TWCF_WEEKS = [{% for wk in weeks %}{s:'{{ wk.start.strftime('%Y-%m-%d') }}',e:'{{ wk.end.strftime('%Y-%m-%d') }}'}{% if not loop.last %},{% endif %}{% endfor %}];
 (function () {
+  var WEEKS = window.TWCF_WEEKS;
+  var MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  var DAYS = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
+
+  function parseIso(s) {
+    var p = s.split('-');
+    return new Date(+p[0], +p[1] - 1, +p[2]);
+  }
+  function fmtDate(d) { return d.getDate() + ' ' + MONTHS[d.getMonth()].slice(0, 3); }
+  function fmtMoney(n) {
+    if (isNaN(n)) { return ''; }
+    var r = Math.round(n * 100) / 100;
+    return r.toLocaleString('en-US', { minimumFractionDigits: (r % 1 ? 2 : 0), maximumFractionDigits: 2 });
+  }
+  function ord(n) {
+    var s = ['th','st','nd','rd'], v = n % 100;
+    return n + (s[(v - 20) % 10] || s[v] || s[0]);
+  }
+  function pyWeekday(d) { return (d.getDay() + 6) % 7; }
+  function addDays(d, n) { var x = new Date(d); x.setDate(x.getDate() + n); return x; }
+  function monthLen(y, m) { return new Date(y, m + 1, 0).getDate(); }
+  function weekOf(d) {
+    var winStart = parseIso(WEEKS[0].s);
+    return Math.floor(Math.round((d - winStart) / 86400000) / 7);
+  }
+
+  function occurrences(first, freq, dow, dom, mon, winEnd) {
+    var out = [];
+    if (freq === 'oneoff') {
+      out.push(first);
+    } else if (freq === 'weekly') {
+      var off = (dow - pyWeekday(first) + 7) % 7;
+      var cur = addDays(first, off);
+      while (cur <= winEnd) { out.push(cur); cur = addDays(cur, 7); }
+    } else if (freq === 'monthly' || freq === 'quarterly') {
+      var step = freq === 'monthly' ? 1 : 3;
+      var y = first.getFullYear(), m = first.getMonth(), guard = 0;
+      while (guard++ < 80) {
+        var occ = new Date(y, m, Math.min(dom, monthLen(y, m)));
+        if (occ >= first) { out.push(occ); }
+        if (occ > winEnd) { break; }
+        m += step;
+        while (m > 11) { m -= 12; y += 1; }
+      }
+    } else if (freq === 'yearly') {
+      var yy = first.getFullYear(), guard2 = 0;
+      while (guard2++ < 30) {
+        var occ2 = new Date(yy, mon - 1, Math.min(dom, monthLen(yy, mon - 1)));
+        if (occ2 >= first) { out.push(occ2); }
+        if (occ2 > winEnd) { break; }
+        yy += 1;
+      }
+    }
+    return out;
+  }
+
+  function currentDir() {
+    var c = document.querySelector('input[name="direction"]:checked');
+    return c ? c.value : 'in';
+  }
+
+  function updateHint() {
+    var hint = document.getElementById('twcf-preview-text');
+    var amount = parseFloat(document.getElementById('twcf-amount').value);
+    var raw = document.getElementById('twcf-start-date').value;
+    var freq = document.getElementById('twcf-frequency').value;
+    if (!raw) {
+      hint.textContent = 'Choose the date and amount to see exactly where this lands in the 13 weeks.';
+      return;
+    }
+    var first = parseIso(raw);
+    var winEnd = parseIso(WEEKS[WEEKS.length - 1].e);
+    var dow = +(document.getElementById('twcf-day-week').value || 0);
+    var dom = +(document.getElementById('twcf-day-month').value || 1);
+    var mon = +(document.getElementById('twcf-month').value || 1);
+    var occs = occurrences(first, freq, dow, dom, mon, winEnd);
+
+    var whenText;
+    if (freq === 'oneoff') { whenText = 'Once on ' + fmtDate(first); }
+    else if (freq === 'weekly') { whenText = 'Every week on ' + DAYS[dow]; }
+    else if (freq === 'monthly') { whenText = 'Every month on the ' + ord(dom); }
+    else if (freq === 'quarterly') { whenText = 'Every quarter on the ' + ord(dom); }
+    else { whenText = 'Every year on ' + ord(dom) + ' ' + MONTHS[mon - 1]; }
+
+    var kept = occs.filter(function (d) { return weekOf(d) >= 0 && weekOf(d) < WEEKS.length; })
+                   .sort(function (a, b) { return a - b; });
+
+    if (kept.length === 0) {
+      hint.textContent = whenText + ' — none of the occurrences fall inside this 13-week window. Move the forecast start forward or pick a later date.';
+      return;
+    }
+    var amtTxt = isNaN(amount) ? 'amount not set' : fmtMoney(amount);
+    var totalTxt = isNaN(amount) ? '' : ' · ' + kept.length + ' × ' + fmtMoney(amount) + ' = ' + fmtMoney(amount * kept.length);
+    hint.textContent = whenText + ' · lands in Wk ' + kept.map(function (d) { return weekOf(d) + 1; }).join(', Wk ') + ' · ' + amtTxt + totalTxt;
+  }
+
   var freqSel = document.getElementById('twcf-frequency');
+  var recurWrap = document.getElementById('twcf-recur-wrap');
   var dayWeek = document.getElementById('twcf-day-week-wrap');
   var dayMonth = document.getElementById('twcf-day-month-wrap');
   var monthWrap = document.getElementById('twcf-month-wrap');
-  var dirSel = document.getElementById('twcf-direction');
   var catSel = document.getElementById('twcf-category');
 
   function syncFreq() {
     var f = freqSel.value;
+    recurWrap.classList.toggle('hidden', f === 'oneoff');
     dayWeek.classList.toggle('hidden', f !== 'weekly');
     dayMonth.classList.toggle('hidden', !(f === 'monthly' || f === 'quarterly' || f === 'yearly'));
     monthWrap.classList.toggle('hidden', f !== 'yearly');
+    updateHint();
   }
   function syncCat() {
-    var dir = dirSel.value;
+    var dir = currentDir();
     Array.prototype.forEach.call(catSel.options, function (o) {
       o.hidden = o.getAttribute('data-dir') !== dir;
       if (o.hidden && o.selected) { o.selected = false; }
@@ -298,9 +476,17 @@
       });
     }
   }
+
   freqSel.addEventListener('change', syncFreq);
-  dirSel.addEventListener('change', syncCat);
-  syncFreq(); syncCat();
+  Array.prototype.forEach.call(document.querySelectorAll('input[name="direction"]'), function (r) {
+    r.addEventListener('change', syncCat);
+  });
+  ['twcf-amount', 'twcf-start-date', 'twcf-day-week', 'twcf-day-month', 'twcf-month'].forEach(function (id) {
+    var el = document.getElementById(id);
+    el.addEventListener('input', updateHint);
+    el.addEventListener('change', updateHint);
+  });
+  syncFreq(); syncCat(); updateHint();
 
   var thisWeekBtn = document.getElementById('twcf-this-week');
   var dateInput = document.querySelector('input[name="start"]');

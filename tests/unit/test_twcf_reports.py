@@ -20,6 +20,7 @@ import shared.models.company  # noqa: F401
 import shared.models.company_settings  # noqa: F401
 import shared.models.invoice_template  # noqa: F401 (FK target)
 import shared.models.twcf  # noqa: F401
+import hr_app.models.compensation  # noqa: F401  (HR payroll_runs table)
 import shared.models.ledger  # noqa: F401
 
 
@@ -320,3 +321,38 @@ def test_build_matrix_auto_rows_respect_category_sum(app, chart):
     # Week 2: 400 (collections, current bucket -> weeks 1-2) + 300 (loan).
     assert rows["total_in"]["values"][1] == pytest.approx(700.0, abs=0.01)
     assert rows["total_in"]["total"] == pytest.approx(1100.0, abs=0.01)
+def test_auto_payroll_row_uses_latest_approved_hr_run(app, chart):
+    from hr_app.models.compensation import PayrollRun
+    from shared import twcf_reports as tw
+    start = date(2026, 8, 3)  # window ends 1 Nov 2026
+    # Two approved runs (Jun pay 20th, Jul pay 15th) and one unapproved.
+    db.session.add(PayrollRun(month=6, year=2026,
+                              run_date=datetime(2026, 6, 20, 10, 0),
+                              status="approved", total_net=11000.0))
+    db.session.add(PayrollRun(month=7, year=2026,
+                              run_date=datetime(2026, 7, 15, 10, 0),
+                              status="approved", total_net=12500.0))
+    db.session.add(PayrollRun(month=8, year=2026,
+                              run_date=datetime(2026, 8, 12, 10, 0),
+                              status="unapproved", total_net=99999.0))
+    db.session.commit()
+
+    m = tw.build_matrix(start, today=date(2026, 8, 3))
+    assert m["has_payroll_auto"] is True
+    rows = {r["key"]: r for r in m["rows"]}
+    auto = rows["out_payroll_auto"]
+    assert auto["auto"] is True and auto["source"] == "payroll"
+    # Latest approved run = Jul, pay date the 15th -> monthly on the 15th:
+    # Aug 15 (week 2), Sep 15 (week 7), Oct 15 (week 11), all inside window.
+    assert auto["values"] == [0.0, 12500.0, 0.0, 0.0, 0.0, 0.0, 12500.0,
+                              0.0, 0.0, 0.0, 12500.0, 0.0, 0.0]
+    assert sum(auto["values"]) == 37500.0
+    # The unapproved run (99,999) must never leak into the forecast.
+    assert 99999.0 not in auto["values"]
+
+
+def test_no_payroll_runs_means_no_auto_payroll_row(app, chart):
+    from shared import twcf_reports as tw
+    m = tw.build_matrix(date(2026, 8, 3), today=date(2026, 8, 3))
+    assert m["has_payroll_auto"] is False
+    assert "out_payroll_auto" not in {r["key"] for r in m["rows"]}

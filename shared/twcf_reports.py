@@ -17,6 +17,8 @@ posted journal lines plus the user's ``TwcfLine`` forecast lines:
   company sets a cash floor — a covenant headroom line.
 """
 
+import types
+
 from datetime import date, datetime, timedelta
 
 from shared.extensions import db
@@ -321,6 +323,39 @@ def _category_rows(lines, weeks, direction, categories):
                      "values": values})
     return rows
 
+
+def _payroll_auto_values(weeks):
+    """Salaries forecast straight from the HR module.
+
+    When the company has approved payroll runs, the latest run's net pay
+    repeats monthly on its pay date through the window — the forecast then
+    needs no manual line. ``None`` when HR holds no payroll data (the row
+    simply does not appear). Uses the HR engine's own numbers (total_net),
+    so the cash projection always mirrors what payroll actually paid.
+    """
+    from hr_app.models.compensation import PayrollRun
+    run = (PayrollRun.query
+           .filter(PayrollRun.status == "approved")
+           .order_by(PayrollRun.year.desc(), PayrollRun.month.desc(),
+                     PayrollRun.id.desc())
+           .first())
+    if run is None:
+        return None
+    amount = _f(run.total_net)
+    if amount <= 0:
+        return None
+    pay_date = (run.run_date.date() if run.run_date
+                else date(run.year, run.month, 1))
+    # Reuse the monthly occurrence expansion with the same input the user
+    # lines use, so the auto row rolls exactly like a manual monthly line.
+    line = types.SimpleNamespace(
+        start_date=pay_date, frequency=TWCF_MONTHLY, day_of_week=0,
+        day_of_month=pay_date.day, month=pay_date.month, amount=amount)
+    values = [0.0] * len(weeks)
+    for idx, value in line_week_values(line, weeks).items():
+        values[idx] = value
+    return values
+
 def build_matrix(start, today=None):
     """Assemble the full 13-week matrix.
 
@@ -343,6 +378,13 @@ def build_matrix(start, today=None):
     in_rows += _category_rows(lines, weeks, TWCF_IN, TWCF_USER_IN_CATEGORIES)
     out_rows = [{"key": "out_suppliers", "label": "Payments to suppliers",
                  "values": pay, "auto": True}]
+    payroll_values = _payroll_auto_values(weeks)
+    has_payroll_auto = payroll_values is not None
+    if has_payroll_auto:
+        out_rows.append({"key": "out_payroll_auto",
+                         "label": "Salaries & wages",
+                         "values": payroll_values, "auto": True,
+                         "source": "payroll"})
     out_rows += _category_rows(lines, weeks, TWCF_OUT, TWCF_USER_OUT_CATEGORIES)
 
     total_in = [sum(r["values"][i] for r in in_rows) for i in range(len(weeks))]
@@ -414,4 +456,5 @@ def build_matrix(start, today=None):
         "has_past_weeks": any(a is not None for a in actuals),
         "floor": floor,
         "has_scope": bool(_party_scope()),
+        "has_payroll_auto": has_payroll_auto,
     }

@@ -280,3 +280,46 @@ def test_start_date_defaults_to_current_week(client, book):
     today = datetime.utcnow().date()
     monday = today - timedelta(days=today.weekday())
     assert f"{monday:%Y-%m-%d}" in html
+def test_quick_add_form_flow_and_summary_kpis(client, book):
+    _clear_journals(book)
+    start = date(2026, 8, 3)
+    _post(book, book["cash"], debit=10000, when=datetime(2026, 8, 1, 12, 0))
+    r = client.get(f"/finance/twcf?start={start:%Y-%m-%d}")
+    assert r.status_code == 200
+    html = r.get_data(as_text=True)
+    assert 'name="direction"' in html
+    assert 'id="twcf-preview-hint"' in html
+    assert 'id="twcf-explain"' in html
+    assert "Add a future cash item" in html
+    assert "Add to forecast" in html
+    assert 'id="twcf-kpis"' in html
+    assert "Opening cash" in html and "Total receipts" in html
+    assert "Total payments" in html and "Projected closing" in html
+    kpis = html.split('id="twcf-kpis"')[1].split("</div>")[0]
+    assert "10,000.00" in kpis  # the cash posting lands in the opening KPI
+    assert "auto — from your ledgers" in html
+    assert "plan — your lines" in html
+
+
+def test_auto_payroll_row_comes_from_approved_hr_runs(client, book):
+    _clear_journals(book)
+    from hr_app.models.compensation import PayrollRun
+    start = date(2026, 8, 3)
+    with _ctx(book):
+        db.session.add(PayrollRun(month=6, year=2026,
+                                  run_date=datetime(2026, 6, 20, 10, 0),
+                                  status="approved", total_net=11000.0))
+        db.session.add(PayrollRun(month=7, year=2026,
+                                  run_date=datetime(2026, 7, 15, 10, 0),
+                                  status="approved", total_net=12500.0))
+        db.session.add(PayrollRun(month=8, year=2026,
+                                  run_date=datetime(2026, 8, 12, 10, 0),
+                                  status="unapproved", total_net=99999.0))
+        db.session.commit()
+    r = client.get(f"/finance/twcf?start={start:%Y-%m-%d}")
+    assert r.status_code == 200
+    html = r.get_data(as_text=True)
+    assert "from HR payroll" in html
+    assert "12,500.00" in html
+    assert "Additional payroll" in html  # plan payroll row is relabelled
+    assert "99,999.00" not in html
