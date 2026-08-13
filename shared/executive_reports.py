@@ -505,7 +505,14 @@ def liquidity(as_of=None):
             (liab_root, "liability", "Current Liabilities")):
         node = _named_child(kids, accounts, int(root.id), cname)
         nids = _subtree_ids(kids, int(node.id)) if node else []
-        current[ttype] = _f(sum(_net(nid) for nid in nids))
+        total = sum(_net(nid) for nid in nids)
+        # Liabilities are held in credit, so debit-minus-credit nets negative
+        # for a perfectly normal payable. Flip it to a positive magnitude, the
+        # same convention total_liabilities already uses — without this the
+        # denominator is negative on healthy books, the `cl > 0` guard below
+        # never passes, and the ratio tiles read "—" for every company that is
+        # not in trouble.
+        current[ttype] = _f(-total if ttype == "liability" else total)
 
     inventory = 0.0
     inv_node = next((a for a in accounts.values()

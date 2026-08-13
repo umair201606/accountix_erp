@@ -469,6 +469,28 @@ def test_ratios_are_the_documented_formulas(scope):
         assert liq["quick_ratio"] is None
 
 
+def test_healthy_payables_give_a_real_ratio(scope):
+    """A normal payable must yield a positive current-liability magnitude and
+    a real ratio. Liabilities are held in credit, and the liquidity snapshot
+    used to net them debit-minus-credit — negative on healthy books, so the
+    `cl > 0` guard never passed and the ratio tiles read "—" for every
+    company that was not in trouble."""
+    from shared import executive_reports as er
+    from shared.models.ledger import ChartOfAccount
+
+    payables = ChartOfAccount.query.filter_by(
+        name="Trade Creditors — General").first()
+    assert payables is not None, "seed chart has a current-liability account"
+    _post(payables.id, credit=400)
+
+    liq = er.liquidity()
+    assert liq["current_liabilities"] > 0
+    assert isinstance(liq["current_ratio"], float)
+    assert isinstance(liq["quick_ratio"], float)
+    assert liq["current_ratio"] == pytest.approx(
+        liq["current_assets"] / liq["current_liabilities"])
+
+
 def test_dashboard_leads_with_kpis_aging_and_exposures(client, scope):
     today = datetime.utcnow()
     _post(scope["a"], debit=1000, when=today - timedelta(days=45))
