@@ -536,18 +536,18 @@ def _migrate_schema(db):
         ("inv_purchase_order_items", "total_after_discount", "FLOAT DEFAULT 0"),
         # v3 ERP-standard: per-charge treatment + independent tax-base switches
         ("additional_charges", "treatment", "VARCHAR(10) DEFAULT 'bill'"),
-        ("additional_charges", "st_taxable", "BOOLEAN DEFAULT 1"),
-        ("additional_charges", "wht_taxable", "BOOLEAN DEFAULT 0"),
-        ("additional_charges", "extra_taxable", "BOOLEAN DEFAULT 0"),
+        ("additional_charges", "st_taxable", bool_true),
+        ("additional_charges", "wht_taxable", bool_false),
+        ("additional_charges", "extra_taxable", bool_false),
         # invoice_settings — §11 admin defaults, tolerance, field visibility
         ("invoice_settings", "over_invoice_tolerance_pct", "FLOAT DEFAULT 0"),
         ("invoice_settings", "withholding_base", "VARCHAR(10) DEFAULT 'taxable'"),
-        ("invoice_settings", "show_further_tax", "BOOLEAN DEFAULT 1"),
-        ("invoice_settings", "show_withholding_tax", "BOOLEAN DEFAULT 1"),
-        ("invoice_settings", "show_transport_block", "BOOLEAN DEFAULT 1"),
-        ("invoice_settings", "create_from_orders_enabled", "BOOLEAN DEFAULT 1"),
-        ("invoice_settings", "per_line_discount_enabled", "BOOLEAN DEFAULT 1"),
-        ("invoice_settings", "per_line_tax_enabled", "BOOLEAN DEFAULT 1"),
+        ("invoice_settings", "show_further_tax", bool_true),
+        ("invoice_settings", "show_withholding_tax", bool_true),
+        ("invoice_settings", "show_transport_block", bool_true),
+        ("invoice_settings", "create_from_orders_enabled", bool_true),
+        ("invoice_settings", "per_line_discount_enabled", bool_true),
+        ("invoice_settings", "per_line_tax_enabled", bool_true),
         ("company_info", "number_format", "VARCHAR(10) DEFAULT 'en'"),
         # Remittance details printed opposite the totals on a sales invoice
         ("company_info", "bank_name", "VARCHAR(200)"),
@@ -561,14 +561,14 @@ def _migrate_schema(db):
         ("asset_depreciation", "journal_entry_id", "INTEGER"),
         # Per-company module entitlement (super admin). DEFAULT 1 so every
         # company that predates this keeps the modules it already had.
-        ("companies", "mod_hr_enabled", "BOOLEAN DEFAULT 1"),
-        ("companies", "mod_inventory_enabled", "BOOLEAN DEFAULT 1"),
-        ("companies", "mod_invoicing_enabled", "BOOLEAN DEFAULT 1"),
-        ("companies", "mod_finance_enabled", "BOOLEAN DEFAULT 1"),
-        ("companies", "mod_accounting_enabled", "BOOLEAN DEFAULT 1"),
-        ("companies", "mod_fbr_enabled", "BOOLEAN DEFAULT 1"),
-        ("companies", "mod_fixed_assets_enabled", "BOOLEAN DEFAULT 1"),
-        ("companies", "mod_executive_enabled", "BOOLEAN DEFAULT 1"),
+        ("companies", "mod_hr_enabled", bool_true),
+        ("companies", "mod_inventory_enabled", bool_true),
+        ("companies", "mod_invoicing_enabled", bool_true),
+        ("companies", "mod_finance_enabled", bool_true),
+        ("companies", "mod_accounting_enabled", bool_true),
+        ("companies", "mod_fbr_enabled", bool_true),
+        ("companies", "mod_fixed_assets_enabled", bool_true),
+        ("companies", "mod_executive_enabled", bool_true),
         # Per-user company quotas; NULL falls back to GlobalLimits.
         ("users", "max_companies_owned", "INTEGER"),
         ("users", "max_companies_joined", "INTEGER"),
@@ -643,6 +643,14 @@ def _migrate_schema(db):
                 if col not in current or current[col] != "VARCHAR":
                     continue
                 try:
+                    # The legacy columns carry `''::character varying` defaults
+                    # (born on SQLite, where '' is how the old forms stored an
+                    # untouched amount). Postgres refuses to cast a column whose
+                    # default cannot follow it to the new type, so the default
+                    # goes first — the models set these client-side, so no
+                    # behaviour is lost.
+                    conn.execute(db.text(
+                        f"ALTER TABLE {table} ALTER COLUMN {col} DROP DEFAULT"))
                     conn.execute(db.text(
                         f"ALTER TABLE {table} ALTER COLUMN {col} TYPE {target} "
                         f"USING NULLIF(TRIM({col}), '')::{target}"))
