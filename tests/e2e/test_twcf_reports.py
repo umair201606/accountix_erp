@@ -323,3 +323,28 @@ def test_auto_payroll_row_comes_from_approved_hr_runs(client, book):
     assert "12,500.00" in html
     assert "Additional payroll" in html  # plan payroll row is relabelled
     assert "99,999.00" not in html
+def test_initial_open_requires_click_to_load(client, book):
+    _clear_journals(book)
+    _post(book, book["cash"], debit=10000, when=datetime(2026, 8, 1, 12, 0))
+    r = client.get("/finance/twcf")
+    assert r.status_code == 200
+    html = r.get_data(as_text=True)
+    # Bare open: window picker + load prompt, no computed matrix, no KPI
+    # strip, no add-item form, no exports.
+    assert "Load 13-week forecast" in html
+    assert 'id="twcf-load-prompt"' in html
+    assert "Total receipts" not in html
+    assert "Closing cash" not in html
+    assert "Add a future cash item" not in html
+    assert 'id="twcf-kpis"' not in html
+    # The picker still carries the default start, so Rebuild works.
+    today = datetime.utcnow().date()
+    monday = today - timedelta(days=today.weekday())
+    assert f"{monday:%Y-%m-%d}" in html
+    # Loading the window renders the full matrix.
+    r2 = client.get(f"/finance/twcf?start={monday:%Y-%m-%d}")
+    html2 = r2.get_data(as_text=True)
+    assert "Load 13-week forecast" not in html2
+    assert "Opening cash &amp; equivalents" in html2
+    assert "10,000.00" in html2
+    assert "Add a future cash item" in html2

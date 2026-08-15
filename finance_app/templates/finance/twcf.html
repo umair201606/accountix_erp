@@ -2,10 +2,12 @@
 {% block title %}13-Week Cash Flow (TWCF){% endblock %}
 {% block heading %}13-Week Cash Flow (TWCF){% endblock %}
 {% block actions %}
+{% if loaded %}
 <a href="?start={{ start.strftime('%Y-%m-%d') }}&format=excel" class="btn btn-success btn-sm"><i class="fas fa-file-excel"></i> Excel</a>
 <a href="?start={{ start.strftime('%Y-%m-%d') }}&format=pdf" class="btn btn-danger btn-sm"><i class="fas fa-file-pdf"></i> PDF</a>
-<a href="{{ url_for('settings.index', tab='cash_flow') }}" class="btn btn-outline btn-sm"><i class="fas fa-cog"></i> Settings</a>
 <button onclick="window.print()" class="btn btn-outline btn-sm"><i class="fas fa-print"></i> Print</button>
+{% endif %}
+<a href="{{ url_for('settings.index', tab='cash_flow') }}" class="btn btn-outline btn-sm"><i class="fas fa-cog"></i> Settings</a>
 {% endblock %}
 {% block content %}
 <style>
@@ -61,6 +63,7 @@
   }
 </style>
 
+{% if loaded %}
 <!-- At-a-glance summary -->
 <div id="twcf-kpis" class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6 no-print">
   <div class="twcf-kpi">
@@ -80,6 +83,7 @@
     <span class="k-value {% if matrix.closing[-1] < 0 %}text-red-400{% else %}text-emerald-400{% endif %}">{{ matrix.closing[-1]|amount_format }}</span>
   </div>
 </div>
+{% endif %}
 
 <!-- Forecast window -->
 <form method="get" class="card mb-6 no-print">
@@ -98,6 +102,7 @@
   </div>
 </form>
 
+{% if loaded %}
 <!-- How it works -->
 <details id="twcf-explain" class="card mb-6 no-print">
   <summary><i class="fas fa-circle-question text-blue-600"></i> How this forecast works</summary>
@@ -197,7 +202,19 @@
     <p id="twcf-preview-hint" class="twcf-hint"><i class="fas fa-circle-info text-blue-600"></i> <span id="twcf-preview-text">Choose the date and amount to see exactly where this lands in the 13 weeks.</span></p>
   </form>
 </div>
+{% else %}
+<!-- Load prompt (bare open, no start yet) -->
+<div class="card mb-6 no-print" id="twcf-load-prompt">
+  <div class="text-center py-10">
+    <i class="fas fa-calendar-week text-4xl text-slate-300 mb-3"></i>
+    <h2 class="font-bold text-lg text-slate-700">Choose a start date and load the forecast</h2>
+    <p class="text-sm text-slate-500 mt-1 mb-4">The 13-week matrix is computed on demand — pick <strong>Forecast starts on</strong> above and click <strong>Rebuild</strong>, or load from this week.</p>
+    <a href="?start={{ start.strftime('%Y-%m-%d') }}" class="btn btn-primary"><i class="fas fa-play"></i> Load 13-week forecast</a>
+  </div>
+</div>
+{% endif %}
 
+{% if loaded %}
 <div class="card report-sheet">
   <div class="report-head">
     <div>
@@ -349,10 +366,13 @@
   <p class="text-sm text-slate-500">No forecast lines yet. Add payroll, rent, taxes, loan repayments or one-off items — they land in the matrix as <span class="badge badge-plan">plan</span> rows.</p>
   {% endif %}
 </div>
+{% endif %}
 
+{% if loaded %}
 <script>
 window.TWCF_WEEKS = [{% for wk in weeks %}{s:'{{ wk.start.strftime('%Y-%m-%d') }}',e:'{{ wk.end.strftime('%Y-%m-%d') }}'}{% if not loop.last %},{% endif %}{% endfor %}];
 (function () {
+  if (!document.getElementById('twcf-frequency')) { return; }
   var WEEKS = window.TWCF_WEEKS;
   var MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
   var DAYS = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
@@ -500,4 +520,5 @@ window.TWCF_WEEKS = [{% for wk in weeks %}{s:'{{ wk.start.strftime('%Y-%m-%d') }
   });
 })();
 </script>
+{% endif %}
 {% endblock %}

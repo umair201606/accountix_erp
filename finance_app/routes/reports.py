@@ -2347,17 +2347,26 @@ def twcf():
                 flash(f"Forecast line deleted: {line.description}", "success")
             return redirect(back)
 
+    # The window is computed on demand: a bare open (no ``start``) shows the
+    # picker plus a load prompt; only a Rebuild/load click runs the matrix —
+    # same eat-as-you-order behaviour as the other finance reports.
     start_str = (request.args.get("start") or "").strip()
+    loaded = bool(start_str)
     start = _parse_date(start_str) if start_str else _twcf_default_start()
-    matrix = tw.build_matrix(start)
-    weeks = matrix["weeks"]
-    lines = TwcfLine.query.order_by(TwcfLine.start_date, TwcfLine.id).all()
-    edit_id = request.args.get("edit", type=int)
-    editing = scoped_get(TwcfLine, edit_id) if edit_id else None
+    if loaded:
+        matrix = tw.build_matrix(start)
+        weeks = matrix["weeks"]
+        lines = TwcfLine.query.order_by(TwcfLine.start_date,
+                                        TwcfLine.id).all()
+        edit_id = request.args.get("edit", type=int)
+        editing = scoped_get(TwcfLine, edit_id) if edit_id else None
+    else:
+        matrix = weeks = lines = None
+        editing = None
 
     fmt = request.args.get("format")
 
-    if fmt == "excel":
+    if loaded and fmt == "excel":
         ncols = len(weeks) + 2  # Category + 13 weeks + Total
         wb = openpyxl.Workbook()
         ws = wb.active
@@ -2446,7 +2455,7 @@ def twcf():
                          download_name="13_week_cash_flow.xlsx",
                          mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
-    if fmt == "pdf":
+    if loaded and fmt == "pdf":
         pdf_headers = (["Category"]
                        + [f"Wk {i + 1}\n{_twcf_week_label(wk)}"
                           for i, wk in enumerate(weeks)]
@@ -2479,7 +2488,7 @@ def twcf():
 
     return render_template(
         "finance/twcf.html",
-        matrix=matrix, weeks=weeks, start=start,
+        matrix=matrix, weeks=weeks, start=start, loaded=loaded,
         lines=lines, editing=editing,
         in_categories=TWCF_USER_IN_CATEGORIES,
         out_categories=TWCF_USER_OUT_CATEGORIES,
