@@ -73,22 +73,67 @@ def unpaid_leave_days(user_id, month, year):
     return round(days, 2)
 
 
+def leaving_date(user_id):
+    """The employee's last day in the active company, if HR has set one."""
+    from shared.models.company import CompanyMembership
+    from shared.tenancy import current_company_id
+    cid = current_company_id()
+    if cid is None:
+        return None
+    m = CompanyMembership.query.filter_by(company_id=cid, user_id=user_id).first()
+    return getattr(m, "date_of_leaving", None)
+
+
 def paid_ratio(user, month, year):
     """(ratio of the month that is paid, days in month, unpaid leave days),
-    or None when the employee had not joined by the month's end."""
+    or None when the employee was not employed at all in the month (not
+    joined yet, or left before it began)."""
     first, last = month_bounds(month, year)
     dim = last.day
     joined = getattr(user, "date_of_joining", None)
-    if joined and joined > last:
+    left = leaving_date(user.id)
+    if (joined and joined > last) or (left and left < first):
         return None
-    employed = dim - (joined.day - 1) if joined and joined >= first else dim
+    start = joined if joined and joined > first else first
+    end = left if left and left < last else last
+    employed = (end - start).days + 1
     unpaid = min(unpaid_leave_days(user.id, month, year), employed)
     return max(0.0, (employed - unpaid) / dim), dim, unpaid
 
 
 def tax_on(annual_income):
-    from .models.tax import IncomeTaxSlab
-    return IncomeTaxSlab.calculate_tax(max(0.0, float(annual_income)))
+    """Annual tax from the slabs, plus the surcharge on high salaried income."""
+    from .models.tax import IncomeTaxSlab, PayrollSettings
+    income = max(0.0, float(annual_income))
+    tax = IncomeTaxSlab.calculate_tax(income)
+    s = PayrollSettings.get()
+    if s.surcharge_pct and income > float(s.surcharge_threshold or 0):
+        tax = tax * (1 + float(s.surcharge_pct) / 100)
+    return round(tax, 2)
+
+
+def overtime_pay(hours, full_basic):
+    from .models.tax import PayrollSettings
+    s = PayrollSettings.get()
+    basis = float(s.overtime_hours_basis or 160) or 160
+    return round(float(hours or 0) * (float(full_basic or 0) / basis)
+                 * float(s.overtime_multiplier or 1.5), 2)
+
+
+def eobi(ratio=1.0):
+    """(employee share, employer share) for the month, or (0, 0) when EOBI is off.
+    Prorated with the paid part of the month."""
+    from .models.tax import PayrollSettings
+    s = PayrollSettings.get()
+    if not s.eobi_enabled:
+        return 0.0, 0.0
+    base = float(s.eobi_wage_base or 0) * min(1.0, ratio)
+    return (round(base * float(s.eobi_employee_pct or 0) / 100, 2),
+            round(base * float(s.eobi_employer_pct or 0) / 100, 2))
+
+
+def pf_base(pf_config, basic, gross):
+    return basic if (getattr(pf_config, "contribution_base", None) or "gross") == "basic" else gross
 
 
 def tax_year_months(month, year):
@@ -136,3 +181,92 @@ def withholding(user_id, month, year, regular_taxable, one_off_taxable=0.0,
     regular_part = max(0.0, (base_tax - ytd_tax) / left)
     one_off_part = tax_on(projected + float(one_off_taxable)) - base_tax if one_off_taxable else 0.0
     return round(regular_part + max(0.0, one_off_part), 2)
+
+
+def in_payroll(user, month, year):
+    """Active staff, plus a leaver deactivated before their final month was run."""
+    if user.is_active:
+        return True
+    left = leaving_date(user.id)
+    return bool(left and left >= month_bounds(month, year)[0])
+
+
+def service_years(joined, left):
+    """Completed years of service, a final part year over six months counting
+    as a full year (Standing Orders 12(6) practice)."""
+    if not joined or not left or left < joined:
+        return 0
+    months = (left.year - joined.year) * 12 + (left.month - joined.month)
+    if left.day < joined.day:
+        months -= 1
+    years, rest = divmod(max(0, months), 12)
+    return years + (1 if rest > 6 else 0)
+
+
+def final_settlement(user, month, year, full_basic, full_gross):
+    """{"Gratuity": x, "Leave encashment": y} when the employee's last working
+    day falls in this month and the company pays them; else {}."""
+    from .models.tax import PayrollSettings
+    left = leaving_date(user.id)
+    first, last = month_bounds(month, year)
+    if not left or not (first <= left <= last):
+        return {}
+    s = PayrollSettings.get()
+    out = {}
+    if s.gratuity_enabled:
+        base = full_gross if (s.gratuity_basis or "basic") == "gross" else full_basic
+        years = service_years(getattr(user, "date_of_joining", None), left)
+        amount = round(float(base) / 30 * float(s.gratuity_days_per_year or 30) * years, 2)
+        if amount:
+            out["Gratuity"] = amount
+    if s.leave_encashment_enabled:
+        from .models.leave import LeaveQuota, LeaveType
+        days = sum(float(q.remaining or 0) for q in
+                   LeaveQuota.query.join(LeaveType, LeaveQuota.leave_type_id == LeaveType.id)
+                   .filter(LeaveQuota.user_id == user.id, LeaveQuota.year == left.year,
+                           LeaveType.is_paid == True,  # noqa: E712
+                           LeaveType.carry_forward == True).all())  # noqa: E712
+        amount = round(float(full_basic) / 30 * max(0.0, days), 2)
+        if amount:
+            out["Leave encashment"] = amount
+    return out
+
+
+def basic_on(pp, day, revisions=None):
+    """Basic salary in force on ``day``: the latest salary revision effective
+    by then; before the first revision, what it replaced; with no revisions,
+    the profile's basic."""
+    from .models.compensation import SalaryRevision
+    if revisions is None:
+        revisions = (SalaryRevision.query.filter_by(user_id=pp.user_id)
+                     .order_by(SalaryRevision.effective_from, SalaryRevision.id).all())
+    if not revisions:
+        return float(pp.basic_salary or 0)
+    current = None
+    for r in revisions:
+        if r.effective_from and r.effective_from <= day:
+            current = float(r.new_basic or 0)
+    if current is not None:
+        return current
+    first = revisions[0]
+    return float(first.previous_basic if first.previous_basic is not None
+                 else pp.basic_salary or 0)
+
+
+def basic_for_month(pp, month, year):
+    """Full-month basic for the month, day-weighted when a revision takes
+    effect inside it (a raise on the 16th pays half the month at each rate).
+    Re-running an earlier month uses the rate of that month, not today's."""
+    from datetime import timedelta
+    from .models.compensation import SalaryRevision
+    revisions = (SalaryRevision.query.filter_by(user_id=pp.user_id)
+                 .order_by(SalaryRevision.effective_from, SalaryRevision.id).all())
+    first, last = month_bounds(month, year)
+    if not revisions:
+        return float(pp.basic_salary or 0)
+    total = 0.0
+    d = first
+    while d <= last:
+        total += basic_on(pp, d, revisions)
+        d += timedelta(days=1)
+    return round(total / last.day, 2)

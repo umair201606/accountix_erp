@@ -9,6 +9,8 @@ class ProvidentFundConfig(db.Model):
     company_id = db.Column(db.Integer, index=True)
     employee_contribution_pct = db.Column(Money, default=5.0)
     employer_contribution_pct = db.Column(Money, default=5.0)
+    # What the percentages apply to: "basic" (common practice) or "gross".
+    contribution_base = db.Column(db.String(10), default="basic")
     max_loan_percentage = db.Column(Money, default=50.0)
     interest_rate = db.Column(Money, default=0.0)
     min_service_months_for_loan = db.Column(db.Integer, default=12)
@@ -46,7 +48,11 @@ class PFLedger(db.Model):
     debit = db.Column(Money, default=0.0)
     credit = db.Column(Money, default=0.0)
     balance = db.Column(Money, default=0.0)
+    # PF loan id on loan / loan-repayment rows.
     reference_id = db.Column(db.Integer)
+    # The payroll run that wrote the row (contributions, loan recoveries), so
+    # deleting or replacing the run takes exactly its rows back out.
+    payroll_run_id = db.Column(db.Integer)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     user = db.relationship("User", backref="pf_ledger")

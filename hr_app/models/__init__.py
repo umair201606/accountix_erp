@@ -12,4 +12,4 @@ from .performance import PerformanceReview, PerformanceGoal, TimesheetMergedRepo
 from .loan import LoanAdvanceRequest, LoanRepayment
 from .project import Project, WorkPackage, ProjectTask
 from .holiday import CompanyHoliday, ApprovalWorkflow, OvertimeAccount, TimePolicy, AttendanceCorrection, BreakLog, PayrollAuditLog, ButtonPermission, PFProfitDistribution, PFSettlement
-from .tax import IncomeTaxSlab
+from .tax import IncomeTaxSlab, PayrollSettings

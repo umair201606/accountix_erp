@@ -14,7 +14,7 @@
 {% endblock %}
 {% block content %}
 {% from "partials/gl_entry.html" import gl_entry_button %}
-{% set gle_dep = [] %}{% for e in depreciation_entries %}{% set _ = gle_dep.append("FA-DEP:" ~ e.id) %}{% endfor %}{{ gl_entry_button("FA-ACQ", asset.id, also=gle_dep) }}
+{{ gl_entry_button("FA-ACQ", asset.id, also=gl_also) }}
 <div class="card" style="margin-bottom:16px;">
   <div class="card-body">
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;">
@@ -77,10 +77,15 @@
     {% if asset.status == 'active' %}
     <hr>
     <h4>Record a manual charge</h4>
-    <p class="text-muted" style="font-size:.85rem;">For an impairment or a one-off catch-up. Regular charges come from Post Depreciation.</p>
+    <p class="text-muted" style="font-size:.85rem;">A one-off catch-up, or an impairment (posted to Impairment Loss on Fixed Assets, not depreciation). Regular charges come from Post Depreciation.</p>
     <form method="POST" action="{{ url_for('fa_assets.record_depreciation', asset_id=asset.id) }}" style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;">
       <div><label class="form-label">Date</label><input type="date" name="entry_date" class="form-control" required></div>
-      <div><label class="form-label">Amount</label><input type="number" step="0.01" name="amount" class="form-control" placeholder="0.00" required></div>
+      <div><label class="form-label">Type</label>
+        <select name="kind" class="form-control">
+          <option value="depreciation">Depreciation catch-up</option>
+          <option value="impairment">Impairment loss (IAS 36)</option>
+        </select></div>
+      <div><label class="form-label">Amount</label><input type="number" step="0.01" min="0.01" name="amount" class="form-control" placeholder="0.00" required></div>
       <div><label class="form-label">Notes</label><input type="text" name="notes" class="form-control" placeholder="Optional"></div>
       <div><button type="submit" class="btn btn-primary">Record</button></div>
     </form>
@@ -134,7 +139,7 @@
         <label class="form-label">Received Into</label>
         <select name="proceeds_account_id" class="form-control">
           <option value="">Default (Main Cash)</option>
-          {% for a in accounts %}
+          {% for a in choices.proceeds %}
           <option value="{{ a.id }}">{{ a.code }} {{ a.name }}</option>
           {% endfor %}
         </select>

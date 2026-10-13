@@ -12,26 +12,32 @@ fa_reports_bp = Blueprint("fa_reports", __name__, url_prefix="/fixed-assets/repo
 def index():
     if not current_user.module_access("fixed_assets"):
         return render_template("access_denied.html")
-    assets = FixedAsset.query.filter_by(is_active=True)\
-        .join(AssetCategory, AssetCategory.id == FixedAsset.category_id)\
-        .order_by(AssetCategory.name, FixedAsset.name).all()
-    total_cost = sum(a.purchase_cost for a in assets)
-    total_dep = sum(a.accumulated_depreciation for a in assets)
+    # The register is the assets in service; depreciation is derived from the
+    # posted charges (the cached column was summed before, and could lag a
+    # reversal). The status summary covers every asset ever booked.
+    everything = (FixedAsset.query
+                  .filter(FixedAsset.status.notin_(("draft", "cancelled")))
+                  .join(AssetCategory, AssetCategory.id == FixedAsset.category_id)
+                  .order_by(AssetCategory.name, FixedAsset.name).all())
+    assets = [a for a in everything if a.status == "active"]
+    dep_of = {a.id: float(a.posted_depreciation or 0) for a in assets}
+    total_cost = sum(float(a.purchase_cost or 0) for a in assets)
+    total_dep = sum(dep_of.values())
     category_summary = {}
     for a in assets:
         cat_name = a.category_obj.name if a.category_obj else "Uncategorized"
         if cat_name not in category_summary:
             category_summary[cat_name] = {"count": 0, "cost": 0, "depreciation": 0}
         category_summary[cat_name]["count"] += 1
-        category_summary[cat_name]["cost"] += a.purchase_cost
-        category_summary[cat_name]["depreciation"] += a.accumulated_depreciation
+        category_summary[cat_name]["cost"] += float(a.purchase_cost or 0)
+        category_summary[cat_name]["depreciation"] += dep_of[a.id]
     status_summary = {}
-    for a in assets:
+    for a in everything:
         s = a.status or "unknown"
         if s not in status_summary:
             status_summary[s] = {"count": 0, "cost": 0}
         status_summary[s]["count"] += 1
-        status_summary[s]["cost"] += a.purchase_cost
+        status_summary[s]["cost"] += float(a.purchase_cost or 0)
     fmt = request.args.get("format")
     if fmt:
         return _export_register(fmt, assets, category_summary)
@@ -99,8 +105,10 @@ def _export_register(fmt, assets, category_summary):
                  sum(r[9] for r in rows), sum(r[10] for r in rows),
                  sum(r[11] for r in rows), sum(r[12] for r in rows), ""])
     kinds = ["plain"] * len(assets) + ["grand"]
+    from shared.clock import local_today
+    today = local_today()
     title = "Fixed Asset Register"
-    period = f"Active assets as at {date.today():%d %b %Y}"
+    period = f"Assets in service as at {today:%d %b %Y}"
     if fmt in ("excel", "xlsx"):
         summary = [[name, d["count"], float(d["cost"]), float(d["depreciation"]),
                     float(d["cost"] - d["depreciation"])]
@@ -111,7 +119,7 @@ def _export_register(fmt, assets, category_summary):
                                             ["Category", "Assets", "Cost",
                                              "Acc. depreciation", "Net book value"],
                                             summary)])
-        return rx.send_export(buf, "excel", title, date.today())
+        return rx.send_export(buf, "excel", title, today)
     return rx.export_table(fmt, title, headers, rows, period=period,
                            row_kinds=kinds, col_formats={8: "0"},
-                           file_period=date.today())
+                           file_period=today)

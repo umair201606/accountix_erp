@@ -241,21 +241,33 @@ def evaluate(uid):
         flash("Not your direct report.", "danger")
         return redirect(url_for("mss.index"))
     if request.method == "POST":
+        from shared.clock import local_today
+        from shared.forms import form_date
+        from ..models.compensation import PayrollProfile
         new_basic = request.form.get("new_basic", type=float)
         reason = request.form.get("reason", "").strip()
-        if new_basic:
-            old_basic = emp.payroll_profile.basic_salary if emp.payroll_profile else 0
-            revision = SalaryRevision(
+        effective = form_date("effective_from", default=False) or local_today()
+        # payroll_profile is a list backref (one profile per company), so
+        # ".basic_salary" on it raised and every evaluation of an employee
+        # with a salary package was a 500. Look the profile up in this company.
+        profile = PayrollProfile.query.filter_by(user_id=emp.id).first()
+        if new_basic and new_basic > 0:
+            old_basic = float(profile.basic_salary or 0) if profile else 0
+            db.session.add(SalaryRevision(
                 user_id=emp.id, previous_basic=old_basic, new_basic=new_basic,
-                reason=reason, approved_by=current_user.id, effective_from=date.today()
-            )
-            db.session.add(revision)
-            if emp.payroll_profile:
-                emp.payroll_profile.basic_salary = new_basic
-            flash("Evaluation submitted.", "success")
+                reason=reason, approved_by=current_user.id, effective_from=effective))
+            # Payroll reads the dated revision; the profile shows the rate in
+            # force today.
+            if profile and effective <= local_today():
+                profile.basic_salary = new_basic
+            flash(f"Salary revision recorded, effective {effective:%d %b %Y}.", "success")
             db.session.commit()
         else:
-            flash("Enter a new basic salary to submit.", "error")
+            flash("Enter a new basic salary above zero.", "error")
         return redirect(url_for("mss.index"))
     reviews = emp.performance_reviews
-    return render_template("mss/evaluate.html", employee=emp, reviews=reviews)
+    from shared.clock import local_today
+    from ..models.compensation import PayrollProfile
+    return render_template("mss/evaluate.html", employee=emp, reviews=reviews,
+                           profile=PayrollProfile.query.filter_by(user_id=emp.id).first(),
+                           today=local_today())

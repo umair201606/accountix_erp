@@ -50,6 +50,8 @@ class PayrollRun(db.Model):
     approved_by = db.Column(db.Integer, db.ForeignKey("users.id"))
     approved_at = db.Column(db.DateTime)
     notes = db.Column(db.Text)
+    # Set when the net salaries are paid (journal PRL-PAY / <run id>).
+    paid_at = db.Column(db.DateTime)
 
     processor = db.relationship("User", foreign_keys=[processed_by])
     approver = db.relationship("User", foreign_keys=[approved_by])

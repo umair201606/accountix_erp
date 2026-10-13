@@ -388,6 +388,16 @@ def user_edit(uid):
         u.designation = request.form.get("designation", "").strip()
         u.department = request.form.get("department", "").strip()
         u.phone = request.form.get("phone", "").strip()
+        from shared.forms import form_date
+        joined = form_date("date_of_joining", default=False, label="Date of joining")
+        left = form_date("date_of_leaving", default=False, label="Last working day")
+        if joined:
+            u.date_of_joining = joined
+        if membership is not None and "date_of_leaving" in request.form:
+            if left and u.date_of_joining and left < u.date_of_joining:
+                flash("The last working day cannot be before the joining date.", "danger")
+                return redirect(url_for("auth.user_edit", uid=uid))
+            membership.date_of_leaving = left or None
         u.is_active = request.form.get("is_active") == "1"
         password = request.form.get("password", "")
         if password:

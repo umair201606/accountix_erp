@@ -15,6 +15,14 @@
             <input type="number" name="employer_pct" class="form-control" step="0.5" value="{{ config.employer_contribution_pct or 5.0 }}" required>
         </div>
         <div class="form-group">
+            <label>Contributions are a percentage of</label>
+            {% set base = config.contribution_base or 'gross' %}
+            <select name="contribution_base" class="form-control">
+                <option value="basic" {{ 'selected' if base == 'basic' }}>Basic salary (usual practice)</option>
+                <option value="gross" {{ 'selected' if base == 'gross' }}>Gross pay</option>
+            </select>
+        </div>
+        <div class="form-group">
             <label>Max Loan (% of balance)</label>
             <input type="number" name="max_loan_pct" class="form-control" step="5" value="{{ config.max_loan_percentage or 50.0 }}" required>
         </div>

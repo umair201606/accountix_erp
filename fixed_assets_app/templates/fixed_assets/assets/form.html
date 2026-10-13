@@ -16,12 +16,16 @@
       <div class="form-row" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
         <div class="form-group">
           <label class="form-label">Category *</label>
-          <select name="category_id" class="form-control" required>
+          <select name="category_id" id="fa-category" class="form-control" required>
             <option value="">Select category</option>
             {% for c in categories %}
-            <option value="{{ c.id }}" {{ 'selected' if asset and asset.category_id == c.id }}>{{ c.name }}</option>
+            <option value="{{ c.id }}" data-life="{{ c.default_useful_life or '' }}"
+                    data-method="{{ c.default_depreciation_method or '' }}"
+                    data-salvage-pct="{{ (c.default_salvage_value_pct or 0)|float }}"
+                    {{ 'selected' if asset and asset.category_id == c.id }}>{{ c.name }}</option>
             {% endfor %}
           </select>
+          {% if not asset %}<small class="text-muted">Fills in the category's usual life, method and salvage; change them if this asset differs.</small>{% endif %}
         </div>
         <div class="form-group">
           <label class="form-label">Purchase Date *</label>
@@ -29,22 +33,22 @@
         </div>
         <div class="form-group">
           <label class="form-label">Purchase Cost *</label>
-          <input type="number" step="0.01" name="purchase_cost" class="form-control" value="{{ asset.purchase_cost if asset else '0' }}" required>
+          <input type="number" step="0.01" min="0.01" name="purchase_cost" id="fa-cost" class="form-control" value="{{ asset.purchase_cost if asset else '' }}" required>
         </div>
         <div class="form-group">
           <label class="form-label">Useful Life (years) *</label>
-          <input type="number" name="useful_life" class="form-control" value="{{ asset.useful_life if asset else '5' }}" required>
+          <input type="number" min="1" max="100" name="useful_life" id="fa-life" class="form-control" value="{{ asset.useful_life if asset else '5' }}" required>
         </div>
         <div class="form-group">
           <label class="form-label">Depreciation Method</label>
-          <select name="depreciation_method" class="form-control">
-            <option value="straight_line" {{ 'selected' if not asset or asset.depreciation_method == 'straight_line' }}>Straight Line</option>
-            <option value="declining_balance" {{ 'selected' if asset and asset.depreciation_method == 'declining_balance' }}>Declining Balance</option>
+          <select name="depreciation_method" id="fa-method" class="form-control">
+            <option value="straight_line" {{ 'selected' if not asset or asset.depreciation_method == 'straight_line' }}>Straight line</option>
+            <option value="declining_balance" {{ 'selected' if asset and asset.depreciation_method == 'declining_balance' }}>Reducing balance (double-declining, then straight line)</option>
           </select>
         </div>
         <div class="form-group">
           <label class="form-label">Salvage Value</label>
-          <input type="number" step="0.01" name="salvage_value" class="form-control" value="{{ asset.salvage_value if asset else '0' }}">
+          <input type="number" step="0.01" min="0" name="salvage_value" id="fa-salvage" class="form-control" value="{{ asset.salvage_value if asset else '0' }}">
         </div>
       </div>
       <div class="form-row" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
@@ -75,14 +79,15 @@
           <small style="display:block;margin-top:4px;color:var(--muted);">Depreciation of this asset is charged to the label's P&amp;L.</small>
         </div>
       </div>
-      {% if accounts %}
+      {% if choices %}
       <hr><h4>Chart of Accounts Mapping</h4>
+      <p class="text-muted" style="font-size:.85rem;">Each list offers only accounts of the right kind: the asset under Property, Plant &amp; Equipment (or Intangibles), accumulated depreciation under its own head, an expense account, and a payable, bank or cash account for what paid for it.</p>
       <div class="form-row" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;">
         <div class="form-group">
           <label class="form-label">Fixed Asset Account</label>
           <select name="fixed_asset_account_id" class="form-control">
             <option value="">Default (Fixed Assets — General)</option>
-            {% for a in accounts %}
+            {% for a in choices.fa %}
             <option value="{{ a.id }}" {{ 'selected' if asset and asset.fixed_asset_account_id == a.id }}>{{ a.code }} {{ a.name }}</option>
             {% endfor %}
           </select>
@@ -90,8 +95,8 @@
         <div class="form-group">
           <label class="form-label">Accum. Depreciation Account</label>
           <select name="accum_dep_account_id" class="form-control">
-            <option value="">Default (Accumulated Depreciation — General)</option>
-            {% for a in accounts %}
+            <option value="">Default (this asset's own account)</option>
+            {% for a in choices.accum %}
             <option value="{{ a.id }}" {{ 'selected' if asset and asset.accum_dep_account_id == a.id }}>{{ a.code }} {{ a.name }}</option>
             {% endfor %}
           </select>
@@ -100,7 +105,7 @@
           <label class="form-label">Depreciation Expense Account</label>
           <select name="dep_expense_account_id" class="form-control">
             <option value="">Default (Depreciation Expense)</option>
-            {% for a in accounts %}
+            {% for a in choices.expense %}
             <option value="{{ a.id }}" {{ 'selected' if asset and asset.dep_expense_account_id == a.id }}>{{ a.code }} {{ a.name }}</option>
             {% endfor %}
           </select>
@@ -109,7 +114,7 @@
           <label class="form-label">Paid From / Credit Account</label>
           <select name="acquisition_credit_account_id" class="form-control">
             <option value="">Default (Trade Creditors — General)</option>
-            {% for a in accounts %}
+            {% for a in choices.credit %}
             <option value="{{ a.id }}" {{ 'selected' if asset and asset.acquisition_credit_account_id == a.id }}>{{ a.code }} {{ a.name }}</option>
             {% endfor %}
           </select>
@@ -135,4 +140,27 @@
     </form>
   </div>
 </div>
+{% if not asset %}
+<script>
+(function () {
+  // A category's usual life, method and salvage % (they were stored on the
+  // category and never used by the form).
+  var cat = document.getElementById('fa-category'), cost = document.getElementById('fa-cost'),
+      life = document.getElementById('fa-life'), method = document.getElementById('fa-method'),
+      salvage = document.getElementById('fa-salvage'), touched = false;
+  if (!cat) return;
+  salvage.addEventListener('input', function () { touched = true; });
+  function apply() {
+    var o = cat.options[cat.selectedIndex];
+    if (!o || !o.value) return;
+    if (o.dataset.life) life.value = o.dataset.life;
+    if (o.dataset.method) method.value = o.dataset.method;
+    var pct = parseFloat(o.dataset.salvagePct || '0'), c = parseFloat(cost.value || '0');
+    if (!touched) salvage.value = (c > 0 ? (c * pct / 100) : 0).toFixed(2);
+  }
+  cat.addEventListener('change', apply);
+  cost.addEventListener('input', function () { if (!touched) apply(); });
+})();
+</script>
+{% endif %}
 {% endblock %}

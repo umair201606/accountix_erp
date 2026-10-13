@@ -13,7 +13,7 @@ The run also has a detail page now (slips, totals, accounting entry button).
 import calendar
 import os
 import tempfile
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 
 import pytest
@@ -218,7 +218,9 @@ def test_08_loan_instalment_reduces_the_loan_account(world):
         loan = LoanAdvanceRequest(user_id=world["user"], request_type="loan",
                                   amount=12000, purpose="bike", installment_months=12,
                                   monthly_installment=1000, remaining_amount=12000,
-                                  status="approved")
+                                  status="approved",
+                                  # paid out before payroll era: only paid-out loans are recovered
+                                  disbursed_at=datetime(2000, 1, 1))
         db.session.add(loan)
         db.session.flush()
         acct_name = create_entity_account("loan", loan.id, f"Loan #{loan.id} - {world['name']}").name

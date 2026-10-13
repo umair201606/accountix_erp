@@ -299,3 +299,35 @@ def get_or_create_account(code, name, type_, parent_code=None):
     db.session.add(acct)
     db.session.flush()
     return acct
+
+
+def cash_bank_accounts():
+    """Posting accounts money is paid from or into: everything under Cash &
+    Cash Equivalents (1-01-01), plus any asset account named cash/bank."""
+    return (ChartOfAccount.query.filter(
+        ChartOfAccount.is_active == True,  # noqa: E712
+        ChartOfAccount.type == "asset",
+        ChartOfAccount.level >= ChartOfAccount.POSTING_LEVEL,
+        db.or_(ChartOfAccount.code.like("1-01-01-%"),
+               ChartOfAccount.name.ilike("%cash%"),
+               ChartOfAccount.name.ilike("%bank%")))
+        .order_by(ChartOfAccount.code).all())
+
+
+def cash_bank_account(account_id):
+    """The chosen pay-from account, or None if it is not a cash/bank account
+    of this company (a posted form must not route money to any account)."""
+    if not account_id:
+        return None
+    return next((a for a in cash_bank_accounts() if a.id == int(account_id)), None)
+
+
+def accounts_under(prefix, types=None):
+    """Posting accounts whose code starts with ``prefix`` (e.g. "1-02-01")."""
+    q = ChartOfAccount.query.filter(
+        ChartOfAccount.is_active == True,  # noqa: E712
+        ChartOfAccount.level >= ChartOfAccount.POSTING_LEVEL,
+        ChartOfAccount.code.like(f"{prefix}%"))
+    if types:
+        q = q.filter(ChartOfAccount.type.in_(types))
+    return q.order_by(ChartOfAccount.code).all()

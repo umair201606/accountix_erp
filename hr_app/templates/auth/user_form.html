@@ -57,6 +57,19 @@
             <input type="text" name="phone" class="form-control" value="{{ user.phone if user else '' }}">
         </div>
         {% if user %}
+        {% if user %}
+        <div class="form-row">
+            <div class="form-group">
+                <label>Date of joining</label>
+                <input type="date" name="date_of_joining" class="form-control" value="{{ user.date_of_joining.isoformat() if user.date_of_joining else '' }}">
+            </div>
+            <div class="form-group">
+                <label>Last working day (leaving)</label>
+                <input type="date" name="date_of_leaving" class="form-control" value="{{ membership.date_of_leaving.isoformat() if membership and membership.date_of_leaving else '' }}">
+                <small class="text-muted">Payroll pays up to this day and stops after it. Leave blank while employed.</small>
+            </div>
+        </div>
+        {% endif %}
         <div class="form-group" style="display:flex;align-items:center;gap:10px;">
             <label style="margin:0;">Active</label>
             <input type="checkbox" name="is_active" value="1" {{ 'checked' if user.is_active }}>

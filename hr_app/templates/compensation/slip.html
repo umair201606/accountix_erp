@@ -14,7 +14,7 @@
         <tr><td style="font-weight:600;width:140px;">Employee</td><td>{{ slip.user.full_name }}</td>
             <td style="font-weight:600;width:140px;">Designation</td><td>{{ slip.user.designation or '-' }}</td></tr>
         <tr><td style="font-weight:600;">Department</td><td>{{ slip.user.department or '-' }}</td>
-            <td style="font-weight:600;">Code</td><td>{{ slip.user.employee_code }}</td></tr>
+            <td style="font-weight:600;">Code</td><td>{{ emp_code }}</td></tr>
         <tr><td style="font-weight:600;">CNIC</td><td colspan="3">{{ slip.user.cnic or '-' }}</td></tr>
     </table>
     <div class="grid-2" style="gap:20px;">

@@ -1,0 +1,58 @@
+{% extends "layouts/base.html" %}
+{% block title %}Staff Loans - Accountix ERP{% endblock %}
+{% block content %}
+<div class="page-header">
+    <div>
+        <a href="{{ url_for('compensation.index') }}" class="prd-back">&larr; Compensation</a>
+        <h1>Staff loans &amp; advances</h1>
+    </div>
+</div>
+<p class="text-muted" style="font-size:.85rem;">An approved loan is paid out here, from a bank or cash account (Dr the employee's loan account, Cr the bank). Payroll recovers instalments only after it has been paid out, and each recovery is credited back to the same loan account.</p>
+<div class="card">
+    <div class="table-wrap">
+        <table>
+            <thead><tr><th>#</th><th>Employee</th><th>Type</th><th class="r">Amount</th><th class="r">Instalment</th><th class="r">To recover</th><th>Status</th><th>Paid out</th></tr></thead>
+            <tbody>
+            {% for l in loans %}
+            <tr>
+                <td>{{ l.id }}</td>
+                <td>{{ l.user.full_name if l.user else '' }}</td>
+                <td>{{ (l.request_type or '')|title }}</td>
+                <td class="r">{{ l.amount|amount_format(0) }}</td>
+                <td class="r">{{ (l.monthly_installment or 0)|amount_format(0) }}</td>
+                <td class="r">{{ (l.remaining_amount or 0)|amount_format(0) }}</td>
+                <td><span class="badge badge-{{ 'success' if l.status in ('approved', 'paid') else 'danger' if l.status == 'rejected' else 'warning' }}">{{ l.status }}</span></td>
+                <td>
+                    {% if l.disbursed_at %}
+                        {{ l.disbursed_at.strftime('%d-%b-%Y') }}
+                        {% if l.status == 'approved' %}
+                        <form method="POST" action="{{ url_for('compensation.undo_loan_disbursement', lid=l.id) }}" style="display:inline;"
+                              onsubmit="return confirm('Reverse the payment of this loan?');">
+                            <button class="btn btn-sm btn-outline" type="submit">Undo</button>
+                        </form>
+                        {% endif %}
+                    {% elif l.status == 'approved' %}
+                        <form method="POST" action="{{ url_for('compensation.disburse_loan', lid=l.id) }}" class="loan-pay">
+                            <select name="account_id" class="form-control" required aria-label="Paid from">
+                                <option value="">Paid from…</option>
+                                {% for a in accounts %}<option value="{{ a.id }}">{{ a.code }} {{ a.name }}</option>{% endfor %}
+                            </select>
+                            <input type="date" name="paid_on" class="form-control" value="{{ today }}" aria-label="Paid on">
+                            <button class="btn btn-sm btn-primary" type="submit">Pay out</button>
+                        </form>
+                    {% else %}&mdash;{% endif %}
+                </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="8" class="text-center" style="color:var(--muted);">No loan requests yet.</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+<style>
+  .r { text-align: right; white-space: nowrap; }
+  .loan-pay { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+  .loan-pay .form-control { width: auto; min-width: 0; max-width: 100%; }
+</style>
+{% endblock %}

@@ -121,6 +121,9 @@ class CompanyMembership(db.Model):
     status = db.Column(db.String(10), default=ACTIVE, nullable=False)
     employee_code = db.Column(db.String(20), nullable=True)
     joined_at = db.Column(db.DateTime, default=datetime.utcnow)
+    # Last day of employment in this company: payroll pays up to it and
+    # stops after it. Per company — the user row is shared by every company.
+    date_of_leaving = db.Column(db.Date, nullable=True)
 
     __table_args__ = (
         db.UniqueConstraint("company_id", "user_id",

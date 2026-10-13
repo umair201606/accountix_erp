@@ -18,6 +18,7 @@ from ..models.tax import IncomeTaxSlab
 from ..models.loan import LoanAdvanceRequest, LoanRepayment
 from shared.formatting import format_amount as _m
 from shared.forms import REQUIRED, FormInputError, form_date, form_float, form_int
+from .. import payroll_engine as pe
 
 comp_bp = Blueprint("compensation", __name__, url_prefix="/compensation")
 
@@ -100,11 +101,41 @@ def tax_settings():
                 db.session.add(IncomeTaxSlab(min_income=lo, max_income=hi,
                                              rate_pct=rate, fixed_amount=fixed))
             flash("Tax year 2026 salaried slabs loaded (previous slabs deactivated).", "success")
+        elif action == "policy":
+            from ..models.tax import PayrollSettings
+            s = PayrollSettings.get()
+            mult = form_float("overtime_multiplier", 1.5, label="Overtime rate")
+            hours = form_float("overtime_hours_basis", 160, label="Hours a month")
+            base = form_float("eobi_wage_base", 0, label="EOBI wage base")
+            ee = form_float("eobi_employee_pct", 0, label="EOBI employee %")
+            er = form_float("eobi_employer_pct", 0, label="EOBI employer %")
+            thr = form_float("surcharge_threshold", 0, label="Surcharge threshold")
+            sur = form_float("surcharge_pct", 0, label="Surcharge %")
+            if (not 1 <= mult <= 5 or not 1 <= hours <= 400 or base < 0
+                    or not 0 <= ee <= 100 or not 0 <= er <= 100 or thr < 0
+                    or not 0 <= sur <= 100):
+                raise FormInputError("Overtime rate 1–5x, hours 1–400, percentages 0–100 "
+                                     "and amounts of zero or more.")
+            s.overtime_multiplier, s.overtime_hours_basis = mult, hours
+            s.eobi_enabled = request.form.get("eobi_enabled") == "1"
+            s.eobi_wage_base, s.eobi_employee_pct, s.eobi_employer_pct = base, ee, er
+            s.surcharge_threshold, s.surcharge_pct = thr, sur
+            days = form_float("gratuity_days_per_year", 30, label="Gratuity days a year")
+            if not 0 <= days <= 365:
+                raise FormInputError("Gratuity days a year must be between 0 and 365.")
+            s.gratuity_enabled = request.form.get("gratuity_enabled") == "1"
+            s.gratuity_basis = "gross" if request.form.get("gratuity_basis") == "gross" else "basic"
+            s.gratuity_days_per_year = days
+            s.leave_encashment_enabled = request.form.get("leave_encashment_enabled") == "1"
+            flash("Payroll settings saved.", "success")
         db.session.commit()
         return redirect(url_for("compensation.tax_settings"))
     # Active slabs only: loading a new tax year deactivates the old rows.
+    from ..models.tax import PayrollSettings
     slabs = IncomeTaxSlab.query.filter_by(is_active=True).order_by(IncomeTaxSlab.min_income).all()
-    return render_template("compensation/tax_settings.html", slabs=slabs)
+    policy = PayrollSettings.get()
+    db.session.commit()
+    return render_template("compensation/tax_settings.html", slabs=slabs, policy=policy)
 
 
 # ── Create Payroll Profile ──
@@ -123,6 +154,9 @@ def create_profile():
         if not uid or not basic or not effective:
             flash("All fields required.", "danger")
             return redirect(url_for("compensation.create_profile"))
+        if basic <= 0 or get_member(uid) is None:
+            flash("Pick an employee of this company and a basic salary above zero.", "danger")
+            return redirect(url_for("compensation.create_profile"))
         if PayrollProfile.query.filter_by(user_id=uid).first():
             flash("Profile already exists for this employee.", "warning")
             return redirect(url_for("compensation.edit_profile", uid=uid))
@@ -137,11 +171,13 @@ def create_profile():
         # Basic is the profile's own figure and gross = basic + allowances, so
         # a "Basic Salary" allowance (it used to be created here at 100% of
         # basic) paid the basic twice.
-        for cname in ["House Rent", "Medical Allowance", "Conveyance"]:
-            comp = PayrollComponent(profile_id=profile.id, name=cname, type="allowance",
-                                    value=basic * 0.25 if cname == "House Rent" else basic * 0.1,
-                                    is_taxable=True if cname != "Medical Allowance" else False)
-            db.session.add(comp)
+        # Starter allowances as a percentage of basic, so they follow every
+        # revision (they were stored as fixed amounts and went stale).
+        for cname, pct, taxable in (("House Rent", 25, True), ("Medical Allowance", 10, False),
+                                    ("Conveyance", 10, True)):
+            db.session.add(PayrollComponent(profile_id=profile.id, name=cname, type="allowance",
+                                            calculation_method="percent_of_basic", value=pct,
+                                            is_taxable=taxable))
         db.session.commit()
         flash(f"Profile created for {get_member(uid).full_name}.", "success")
         return redirect(url_for("compensation.edit_profile", uid=uid))
@@ -187,8 +223,20 @@ def edit_profile(uid):
             if value < 0 or (method == "percent_of_basic" and value > 100):
                 raise FormInputError(f"{name}: amount must be zero or more (a percentage at most 100).")
             clean.append((name, ctype, method, value, bool(comp.get("is_taxable", True))))
+        effective = form_date("effective_from")
+        old_basic = float(profile.basic_salary or 0)
+        if old_basic and round(basic, 2) != round(old_basic, 2):
+            # A raise is a dated revision: payroll pays each month at the rate
+            # in force then. With the date left unchanged it takes effect
+            # today, not retroactively from the package's original date.
+            from shared.clock import local_today
+            when = effective if effective != profile.effective_from else local_today()
+            db.session.add(SalaryRevision(user_id=uid, previous_basic=old_basic, new_basic=basic,
+                                          reason="Salary package edited",
+                                          approved_by=current_user.id, effective_from=when))
+            effective = when
         profile.basic_salary = basic
-        profile.effective_from = form_date("effective_from")
+        profile.effective_from = effective
         for old in profile.components.all():
             db.session.delete(old)
         for name, ctype, method, value, taxable in clean:
@@ -228,10 +276,12 @@ def _preview_employee(pp, month, year, pf_config, adjustments=None):
     if paid is None:
         return None
     ratio, days_in_month, unpaid_days = paid
-    full_basic = float(pp.basic_salary or 0)
+    # The basic in force in THIS month (salary revisions are dated).
+    full_basic = pe.basic_for_month(pp, month, year)
     basic = round(full_basic * ratio, 2)
 
     allowances = 0.0
+    full_allowances = 0.0
     taxable_regular = basic
     full_taxable = full_basic
     comps = {"allowances": {}, "deductions": {}}
@@ -243,6 +293,7 @@ def _preview_employee(pp, month, year, pf_config, adjustments=None):
         if c.type == "allowance":
             if allowances_override in (None, ""):
                 allowances += val
+                full_allowances += full
                 comps["allowances"][c.name] = val
                 if c.is_taxable:
                     taxable_regular += val
@@ -263,13 +314,18 @@ def _preview_employee(pp, month, year, pf_config, adjustments=None):
         extract("month", OvertimeAccount.date) == month,
         extract("year", OvertimeAccount.date) == year
     ).scalar() or 0
-    ot_pay = round(float(ot_hours) * (full_basic / 160) * 1.5, 2)
+    ot_pay = pe.overtime_pay(ot_hours, full_basic)
     bonus = _num(adj.get("bonus"))
     if ot_pay:
         comps["allowances"]["Overtime"] = ot_pay
     if bonus:
         comps["allowances"]["Bonus"] = round(bonus, 2)
-    one_off = ot_pay + bonus
+    # Final settlement in the leaving month (company policy; off by default).
+    settlement = pe.final_settlement(pp.user, month, year, full_basic,
+                                     full_basic + full_allowances)
+    for name, amt in settlement.items():
+        comps["allowances"][name] = amt
+    one_off = ot_pay + bonus + sum(settlement.values())
     allowances += one_off
     gross = round(basic + allowances, 2)
     taxable = round(taxable_regular + one_off, 2)
@@ -283,17 +339,23 @@ def _preview_employee(pp, month, year, pf_config, adjustments=None):
 
     pf_employee = pf_employer = 0.0
     if pf_config and pf_config.is_active is not False:
-        pf_employee = round(gross * float(pf_config.employee_contribution_pct or 0) / 100, 2)
-        pf_employer = round(gross * float(pf_config.employer_contribution_pct or 0) / 100, 2)
+        base = pe.pf_base(pf_config, basic, gross)
+        pf_employee = round(base * float(pf_config.employee_contribution_pct or 0) / 100, 2)
+        pf_employer = round(base * float(pf_config.employer_contribution_pct or 0) / 100, 2)
+    eobi_employee, eobi_employer = pe.eobi(ratio)
     custom_ded = round(_num(adj.get("custom_deduction")), 2)
 
     # Loans are recovered from what is left after everything else, never
     # beyond it: a big instalment used to drive net pay below zero.
-    available = gross - monthly_tax - pf_employee - component_deductions - custom_ded
+    available = (gross - monthly_tax - pf_employee - eobi_employee
+                 - component_deductions - custom_ded)
     loans = []
     loan_deduction = 0.0
+    # Only loans actually paid out are recovered: approval alone used to start
+    # the deductions on money the employee never received.
     active_loans = LoanAdvanceRequest.query.filter_by(user_id=pp.user_id, status="approved").filter(
-        LoanAdvanceRequest.remaining_amount > 0).order_by(LoanAdvanceRequest.id).all()
+        LoanAdvanceRequest.remaining_amount > 0,
+        LoanAdvanceRequest.disbursed_at.isnot(None)).order_by(LoanAdvanceRequest.id).all()
     for loan in active_loans:
         remaining = float(loan.remaining_amount or 0)
         if remaining <= 0:
@@ -307,15 +369,36 @@ def _preview_employee(pp, month, year, pf_config, adjustments=None):
             loans.append((loan, ded))
             loan_deduction += ded
     loan_deduction = round(loan_deduction, 2)
+    # PF loans: repaid into the fund, after everything else.
+    from ..models.pf import PFLoanRequest
+    pf_loans = []
+    pf_loan_deduction = 0.0
+    for pfl in (PFLoanRequest.query.filter_by(user_id=pp.user_id, status="approved")
+                .filter(PFLoanRequest.remaining_amount > 0).order_by(PFLoanRequest.id).all()):
+        remaining = float(pfl.remaining_amount or 0)
+        override = adj.get(f"pfloan_{pfl.id}")
+        due = (_num(override) if override not in (None, "")
+               else float(pfl.monthly_installment or 0)
+               or float(pfl.amount or 0) / max(pfl.installment_months or 1, 1))
+        ded = round(max(0.0, min(due, remaining,
+                                 available - loan_deduction - pf_loan_deduction)), 2)
+        if ded > 0:
+            pf_loans.append((pfl, ded))
+            pf_loan_deduction += ded
+    pf_loan_deduction = round(pf_loan_deduction, 2)
 
-    deductions = round(component_deductions + monthly_tax + pf_employee
-                       + loan_deduction + custom_ded, 2)
+    deductions = round(component_deductions + monthly_tax + pf_employee + eobi_employee
+                       + loan_deduction + pf_loan_deduction + custom_ded, 2)
     net = round(gross - deductions, 2)
     comps["deductions"]["Income Tax"] = round(monthly_tax, 2)
     if pf_config:
         comps["deductions"]["PF Employee"] = round(pf_employee, 2)
+    if eobi_employee:
+        comps["deductions"]["EOBI (employee)"] = eobi_employee
     if loan_deduction > 0:
         comps["deductions"]["Loan Repayment"] = loan_deduction
+    if pf_loan_deduction > 0:
+        comps["deductions"]["PF Loan Repayment"] = pf_loan_deduction
     if custom_ded:
         comps["deductions"]["Additional Deduction"] = custom_ded
     if unpaid_days or ratio < 1:
@@ -338,9 +421,14 @@ def _preview_employee(pp, month, year, pf_config, adjustments=None):
         "monthly_tax": monthly_tax,
         "pf_employee": pf_employee,
         "pf_employer": pf_employer,
+        "eobi_employee": eobi_employee,
+        "settlement": settlement,
+        "eobi_employer": eobi_employer,
         "component_deductions": round(component_deductions, 2),
         "loan_deduction": loan_deduction,
         "loans": loans,
+        "pf_loans": pf_loans,
+        "pf_loan_deduction": pf_loan_deduction,
         "custom_ded": custom_ded,
         "deductions_total": deductions,
         "net": net,
@@ -348,6 +436,39 @@ def _preview_employee(pp, month, year, pf_config, adjustments=None):
         "unpaid_days": unpaid_days,
         "active_loans": active_loans,
     }
+
+
+def _undo_run(run):
+    """Take a payroll run fully back out, flushed but not committed: its
+    journals, the staff-loan and PF-loan instalments it recovered, its PF
+    rows, its slips and the run itself. A closed period refuses (raises)."""
+    from shared.ledger_utils import reverse_journal_entry
+    from ..models.pf import PFLoanRequest
+    reverse_journal_entry("PRL", run.id)
+    for lr in LoanRepayment.query.filter_by(payroll_run_id=run.id).all():
+        loan = LoanAdvanceRequest.query.filter_by(id=lr.loan_id).first()
+        if loan is not None:
+            loan.remaining_amount = round(float(loan.remaining_amount or 0) + float(lr.amount or 0), 2)
+            if loan.status == "paid" and loan.remaining_amount > 0:
+                loan.status = "approved"
+        db.session.delete(lr)
+    for row in PFLedger.query.filter_by(payroll_run_id=run.id).all():
+        if row.transaction_type == "loan_repayment" and row.reference_id:
+            pfl = PFLoanRequest.query.filter_by(id=row.reference_id).first()
+            if pfl is not None:
+                pfl.remaining_amount = round(float(pfl.remaining_amount or 0)
+                                             + float(row.credit or 0), 2)
+                if pfl.status == "repaid":
+                    pfl.status = "approved"
+        db.session.delete(row)
+    PFContribution.query.filter_by(month=run.month, year=run.year).delete()
+    # Contribution rows written before runs were linked to them.
+    PFLedger.query.filter_by(description=f"PF contribution {run.month}/{run.year}",
+                             payroll_run_id=None).delete()
+    for slip in run.slips:
+        db.session.delete(slip)
+    db.session.delete(run)
+    db.session.flush()
 
 
 @comp_bp.route("/run-payroll", methods=["GET", "POST"])
@@ -377,27 +498,13 @@ def run_payroll():
         existing = PayrollRun.query.filter_by(month=month, year=year).first()
         if existing:
             if replace_all:
-                # Undo EVERYTHING the old run did before it goes: its journals
-                # (they used to stay posted, so a replaced month carried its
-                # salary expense twice), the loan instalments it recovered
-                # (balances used to stay reduced, so a re-run deducted again)
-                # and its PF postings. A closed period refuses here.
-                from shared.ledger_utils import reverse_journal_entry
-                reverse_journal_entry("PRL", existing.id, created_by=current_user.id)
-                for lr in LoanRepayment.query.filter_by(payroll_run_id=existing.id).all():
-                    loan = LoanAdvanceRequest.query.filter_by(id=lr.loan_id).first()
-                    if loan is not None:
-                        loan.remaining_amount = (loan.remaining_amount or 0) + (lr.amount or 0)
-                        if loan.status == "paid" and loan.remaining_amount > 0:
-                            loan.status = "approved"
-                    db.session.delete(lr)
-                PFContribution.query.filter_by(month=month, year=year).delete()
-                PFLedger.query.filter_by(
-                    description=f"PF contribution {month}/{year}").delete()
-                for slip in existing.slips:
-                    db.session.delete(slip)
-                db.session.delete(existing)
-                db.session.commit()
+                if existing.paid_at:
+                    flash(f"Payroll {month}/{year} is already paid. Undo the salary "
+                          "payment on the run page before replacing it.", "danger")
+                    return redirect(url_for("compensation.view_run", rid=existing.id))
+                # Flushed, not committed: if the new run is refused below,
+                # the rollback keeps the old one.
+                _undo_run(existing)
                 flash(f"Replaced existing payroll for {month}/{year}.", "info")
             else:
                 flash(f"Payroll already run for {month}/{year}. Use 'Replace All' to override.", "danger")
@@ -415,10 +522,12 @@ def run_payroll():
         total_gross = 0; total_ded = 0; total_net = 0; emp_count = 0
         total_tax = 0; total_pf_ee = 0; total_pf_er = 0; total_loan = 0; total_custom = 0
         total_other = 0
+        total_eobi_ee = 0; total_eobi_er = 0; total_pf_loan = 0
+        settlement_totals = {}   # "Gratuity" / "Leave encashment" -> amount
         loan_credits = {}   # loan id -> amount recovered this run
 
         for pp in profiles:
-            if not pp.user.is_active:
+            if not pe.in_payroll(pp.user, month, year):
                 continue
             uid_str = str(pp.user_id)
             if replace_ids and uid_str not in replace_ids and not replace_all:
@@ -452,6 +561,17 @@ def run_payroll():
                 db.session.add(LoanRepayment(loan_id=loan.id, amount=ded, payroll_run_id=pr.id,
                                               notes=f"Deducted via payroll {month}/{year}"))
                 loan_credits[loan.id] = (loan, loan_credits.get(loan.id, (None, 0))[1] + ded)
+            # PF loans are repaid into the member's fund.
+            for pfl, ded in preview["pf_loans"]:
+                pfl.remaining_amount = round(float(pfl.remaining_amount or 0) - ded, 2)
+                if pfl.remaining_amount <= 0:
+                    pfl.status = "repaid"
+                db.session.add(PFLedger(user_id=pp.user_id, transaction_date=period_end,
+                                        transaction_type="loan_repayment",
+                                        description=f"PF loan #{pfl.id} repayment {month}/{year}",
+                                        credit=ded, debit=0, reference_id=pfl.id,
+                                        payroll_run_id=pr.id))
+                total_pf_loan += ded
 
             slip = PayrollSlip(
                 payroll_run_id=pr.id, user_id=pp.user_id, basic_salary=basic,
@@ -468,11 +588,16 @@ def run_payroll():
             total_pf_er += pf_employer
             total_loan += loan_deduction
             total_custom += custom_ded
-            # Deduction-type profile components (EOBI, welfare fund, ...):
-            # whatever the slip deducted that is not tax / PF / loan / custom.
+            total_eobi_ee += preview["eobi_employee"]
+            for name, amt in preview["settlement"].items():
+                settlement_totals[name] = settlement_totals.get(name, 0) + amt
+            total_eobi_er += preview["eobi_employer"]
+            # Deduction-type profile components (welfare fund, ...): whatever
+            # the slip deducted that is not tax / PF / EOBI / loan / custom.
             # Derived from the slip's own total so the journal always balances.
             total_other += round(deductions - monthly_tax - pf_employee
-                                 - loan_deduction - custom_ded, 2)
+                                 - preview["eobi_employee"] - loan_deduction - custom_ded
+                                 - preview["pf_loan_deduction"], 2)
 
             if pf_config:
                 contrib = PFContribution(user_id=pp.user_id, month=month, year=year,
@@ -482,7 +607,8 @@ def run_payroll():
                 db.session.add(PFLedger(user_id=pp.user_id, transaction_date=period_end,
                                          transaction_type="contribution",
                                          description=f"PF contribution {month}/{year}",
-                                         credit=round(pf_employee + pf_employer, 2), debit=0))
+                                         credit=round(pf_employee + pf_employer, 2), debit=0,
+                                         payroll_run_id=pr.id))
             _notify(pp.user_id, "Salary Slip Generated",
                     f"Your salary slip for {month}/{year} is available.", "info", "compensation")
             if pp.user.manager_id:
@@ -505,15 +631,33 @@ def run_payroll():
         pf_exp = get_or_create_account("5122", "PF Employer Expense", "expense", parent_code="512")
         other_payable = get_or_create_account("2-01-02-02-0004", "Other Payroll Deductions Payable",
                                               "liability")
+        eobi_payable = get_or_create_account("2125", "EOBI Payable", "liability", parent_code="212")
+        eobi_exp = get_or_create_account("5123", "EOBI Employer Expense", "expense", parent_code="512")
 
-        lines = [{"account_id": salary_exp.id, "debit": round(total_gross, 2), "credit": 0,
+        # Final settlements are their own expenses, not salary: an auditor
+        # (and the P&L) must see gratuity and leave encashment separately.
+        settle_accounts = {
+            "Gratuity": get_or_create_account("5124", "Gratuity Expense", "expense",
+                                              parent_code="512"),
+            "Leave encashment": get_or_create_account("5125", "Leave Encashment Expense",
+                                                      "expense", parent_code="512"),
+        }
+        settled = round(sum(settlement_totals.values()), 2)
+        lines = [{"account_id": salary_exp.id, "debit": round(total_gross - settled, 2), "credit": 0,
                    "description": f"Gross salary {month}/{year}"}]
+        for name, amt in sorted(settlement_totals.items()):
+            if round(amt, 2) > 0:
+                lines.append({"account_id": settle_accounts[name].id, "debit": round(amt, 2),
+                              "credit": 0, "description": f"{name} on leaving {month}/{year}"})
         if round(total_tax, 2) > 0:
             lines.append({"account_id": tax_payable.id, "debit": 0, "credit": round(total_tax, 2),
                            "description": f"Income tax deducted"})
         if round(total_pf_ee, 2) > 0:
             lines.append({"account_id": pf_payable.id, "debit": 0, "credit": round(total_pf_ee, 2),
                            "description": f"PF employee contribution"})
+        if round(total_pf_loan, 2) > 0:
+            lines.append({"account_id": pf_payable.id, "debit": 0, "credit": round(total_pf_loan, 2),
+                          "description": "PF loan repayments"})
         # Each loan is recovered against its own ledger account (Employee
         # Loans & Advances, where the disbursement is debited). Repayments
         # used to go to a clearing LIABILITY, so the receivable never came
@@ -541,6 +685,10 @@ def run_payroll():
             lines.append({"account_id": other_payable.id, "debit": 0,
                            "credit": round(total_other + total_custom, 2),
                            "description": "Other payroll deductions"})
+        if round(total_eobi_ee, 2) > 0:
+            lines.append({"account_id": eobi_payable.id, "debit": 0,
+                          "credit": round(total_eobi_ee, 2),
+                          "description": "EOBI employee contribution"})
         lines.append({"account_id": salary_payable.id, "debit": 0, "credit": round(total_net, 2),
                        "description": f"Net salary payable"})
         post_journal_entry(voucher_type="PRL", voucher_id=pr.id,
@@ -560,12 +708,23 @@ def run_payroll():
                                lines=pf_lines, entry_date=period_end,
                                created_by=current_user.id)
 
+        if round(total_eobi_er, 2) > 0:
+            post_journal_entry(voucher_type="PRL", voucher_id=pr.id,
+                               voucher_number=f"PRL-{year}{month:02d}-EOBI",
+                               description=f"EOBI Employer Contribution {month}/{year}",
+                               lines=[{"account_id": eobi_exp.id, "debit": round(total_eobi_er, 2),
+                                       "credit": 0, "description": f"EOBI employer {month}/{year}"},
+                                      {"account_id": eobi_payable.id, "debit": 0,
+                                       "credit": round(total_eobi_er, 2),
+                                       "description": "EOBI employer contribution"}],
+                               entry_date=period_end, created_by=current_user.id)
+
         db.session.add(PayrollAuditLog(payroll_run_id=pr.id, action="payroll_run",
                                         performed_by=current_user.id, details=f"Run for {month}/{year}",
                                         ip_address=request.remote_addr))
         db.session.commit()
         flash(f"Payroll completed for {emp_count} employees. Net: Rs.{total_net:,.0f}", "success")
-        return redirect(url_for("compensation.index"))
+        return redirect(url_for("compensation.view_run", rid=pr.id))
 
     # GET: build preview for all employees
     from shared.clock import local_now, local_today
@@ -573,7 +732,7 @@ def run_payroll():
     preview_employees = []
     profiles = PayrollProfile.query.all()
     for pp in profiles:
-        if not pp.user.is_active:
+        if not pe.in_payroll(pp.user, today.month, today.year):
             continue
         p = _preview_employee(pp, today.month, today.year, pf_config)
         if p:
@@ -599,7 +758,7 @@ def payroll_preview_json():
     pf_config = ProvidentFundConfig.query.first()
     results = []
     for pp in PayrollProfile.query.all():
-        if not pp.user.is_active:
+        if not pe.in_payroll(pp.user, month, year):
             continue
         p = _preview_employee(pp, month, year, pf_config, adjustments)
         if p:
@@ -609,6 +768,7 @@ def payroll_preview_json():
                                   "monthly_installment": float(l.monthly_installment or 0)}
                                  for l in p.get("active_loans") or []]
             p["loans"] = [{"id": l.id, "amount": amt} for l, amt in p.get("loans") or []]
+            p["pf_loans"] = [{"id": l.id, "amount": amt} for l, amt in p.get("pf_loans") or []]
             results.append(p)
     return jsonify({"employees": results})
 
@@ -626,9 +786,12 @@ def download_payroll_template():
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "Payroll Data"
+    # Only columns the upload reads. The old sheet also had Basic Salary,
+    # Loan Deduction and Net Pay, which were silently ignored, and one
+    # made-up sample row instead of this company's staff.
     headers = [
-        "Employee Code", "Full Name", "Basic Salary", "Allowances", "Bonus",
-        "Income Tax", "Loan Deduction", "Custom Deduction", "Net Pay"
+        "Employee Code", "Full Name", "Bonus", "Income Tax (blank = automatic)",
+        "Custom Deduction", "Allowances (blank = salary package)",
     ]
     hf = Font(bold=True, color="FFFFFF", size=11)
     hfill = PatternFill(start_color="1A237E", end_color="1A237E", fill_type="solid")
@@ -638,10 +801,14 @@ def download_payroll_template():
     for ci, h in enumerate(headers, 1):
         c = ws.cell(row=1, column=ci, value=h)
         c.font = hf; c.fill = hfill; c.alignment = ha; c.border = thin
-    sample = ["EMP001", "John Doe", 50000, 25000, 5000, 2500, 2000, 0, 73500]
-    for ci, val in enumerate(sample, 1):
-        c = ws.cell(row=2, column=ci, value=val)
-        c.border = thin; c.alignment = ha
+    row = 1
+    for pp in PayrollProfile.query.all():
+        if not pp.user or not pp.user.is_active:
+            continue
+        row += 1
+        for ci, val in enumerate([_emp_code(pp.user_id), pp.user.full_name, None, None, None, None], 1):
+            c = ws.cell(row=row, column=ci, value=val)
+            c.border = thin
     from openpyxl.utils import get_column_letter
     for ci in range(1, len(headers) + 1):
         ws.column_dimensions[get_column_letter(ci)].width = 20
@@ -699,12 +866,20 @@ def upload_bulk_data():
                 continue
             uid = str(user.id)
             adj = {}
-            bonus = row.get("Bonus") or row.get("bonus")
+            def cell(*names):
+                for n in names:
+                    for k, v in row.items():
+                        if k and k.strip().lower().startswith(n.lower()) and str(v).strip():
+                            return str(v).strip()
+                return None
+            bonus = cell("Bonus")
             if bonus: adj["bonus"] = bonus
-            tax = row.get("Income Tax") or row.get("income_tax") or row.get("tax")
+            tax = cell("Income Tax", "income_tax", "tax")
             if tax: adj["income_tax"] = tax
-            custom = row.get("Custom Deduction") or row.get("custom_deduction") or row.get("extra_ded")
+            custom = cell("Custom Deduction", "custom_deduction", "extra_ded")
             if custom: adj["custom_deduction"] = custom
+            allowances = cell("Allowances", "allowances_override")
+            if allowances: adj["allowances_override"] = allowances
             if adj:
                 adjustments[uid] = adj
         msg = f"Bulk data loaded for {len(adjustments)} employees from {f.filename}."
@@ -767,11 +942,140 @@ def view_run(rid):
     if rest:
         deductions["Other"] = rest
     import calendar
+    from shared.clock import local_today
+    from shared.ledger_utils import cash_bank_accounts
     return render_template(
         "compensation/run_detail.html", run=run, slips=slips, codes=codes,
+        accounts=cash_bank_accounts(), today=local_today(),
         earnings={k: v for k, v in earnings.items() if round(v, 2)},
         deductions={k: v for k, v in deductions.items() if round(v, 2)},
         period=f"{calendar.month_name[run.month]} {run.year}")
+
+
+@comp_bp.route("/run/<int:rid>/pay", methods=["POST"])
+@login_required
+def pay_run(rid):
+    """Record the salary payment: Dr Salary Payable (net) / Cr the bank or
+    cash account it was paid from. Salary Payable used to stay credited until
+    someone remembered a manual voucher."""
+    if not current_user.is_admin():
+        flash("Access denied.", "danger")
+        return redirect(url_for("dashboard"))
+    from shared.ledger_utils import cash_bank_account
+    from shared.posting_helpers import parse_doc_date
+    from .. import payroll_posting as pp_
+    run = scoped_get_404(PayrollRun, rid)
+    account = cash_bank_account(request.form.get("account_id", type=int))
+    if account is None:
+        raise FormInputError("Choose the bank or cash account the salaries were paid from.")
+    when = parse_doc_date(request.form.get("paid_on")).date()
+    try:
+        pp_.record_salary_payment(run, account, when, current_user.id)
+    except ValueError as e:
+        raise FormInputError(str(e))
+    db.session.add(PayrollAuditLog(payroll_run_id=run.id, action="salary_paid",
+                                   performed_by=current_user.id,
+                                   details=f"Paid from {account.code} on {when}",
+                                   ip_address=request.remote_addr))
+    db.session.commit()
+    flash(f"Salaries of Rs.{float(run.total_net):,.0f} recorded as paid from {account.name}.", "success")
+    return redirect(url_for("compensation.view_run", rid=run.id))
+
+
+@comp_bp.route("/run/<int:rid>/unpay", methods=["POST"])
+@login_required
+def unpay_run(rid):
+    if not current_user.is_admin():
+        flash("Access denied.", "danger")
+        return redirect(url_for("dashboard"))
+    from .. import payroll_posting as pp_
+    run = scoped_get_404(PayrollRun, rid)
+    if not run.paid_at:
+        raise FormInputError("This payroll is not marked as paid.")
+    pp_.undo_salary_payment(run)
+    db.session.add(PayrollAuditLog(payroll_run_id=run.id, action="salary_payment_undone",
+                                   performed_by=current_user.id, ip_address=request.remote_addr))
+    db.session.commit()
+    flash("Salary payment reversed.", "success")
+    return redirect(url_for("compensation.view_run", rid=run.id))
+
+
+@comp_bp.route("/run/<int:rid>/delete", methods=["POST"])
+@login_required
+def delete_run(rid):
+    """Delete a run run by mistake: everything it posted comes back out."""
+    if not current_user.is_admin():
+        flash("Access denied.", "danger")
+        return redirect(url_for("dashboard"))
+    run = scoped_get_404(PayrollRun, rid)
+    if run.paid_at:
+        raise FormInputError("Undo the salary payment before deleting this payroll.")
+    label = f"{run.month}/{run.year}"
+    _undo_run(run)
+    db.session.add(PayrollAuditLog(action="payroll_deleted", performed_by=current_user.id,
+                                   details=f"Run for {label} deleted",
+                                   ip_address=request.remote_addr))
+    db.session.commit()
+    flash(f"Payroll {label} deleted; its journals, loan recoveries and PF entries were reversed.",
+          "success")
+    return redirect(url_for("compensation.index"))
+
+
+# ── Staff loans & advances (admin) ──
+
+@comp_bp.route("/loans")
+@login_required
+def loans_admin():
+    if not current_user.is_admin():
+        flash("Access denied.", "danger")
+        return redirect(url_for("dashboard"))
+    from shared.ledger_utils import cash_bank_accounts
+    rows = LoanAdvanceRequest.query.order_by(LoanAdvanceRequest.created_at.desc()).all()
+    from shared.clock import local_today
+    return render_template("compensation/loans.html", loans=rows,
+                           accounts=cash_bank_accounts(), today=local_today())
+
+
+@comp_bp.route("/loans/<int:lid>/disburse", methods=["POST"])
+@login_required
+def disburse_loan(lid):
+    if not current_user.is_admin():
+        flash("Access denied.", "danger")
+        return redirect(url_for("dashboard"))
+    from shared.ledger_utils import cash_bank_account
+    from shared.posting_helpers import parse_doc_date
+    from .. import payroll_posting as pp_
+    loan = scoped_get_404(LoanAdvanceRequest, lid)
+    account = cash_bank_account(request.form.get("account_id", type=int))
+    if account is None:
+        raise FormInputError("Choose the bank or cash account the loan is paid from.")
+    try:
+        pp_.disburse_loan(loan, account, parse_doc_date(request.form.get("paid_on")).date(),
+                          current_user.id)
+    except ValueError as e:
+        raise FormInputError(str(e))
+    _notify(loan.user_id, "Loan Paid", f"Your {loan.request_type} of Rs.{float(loan.amount):,.0f} "
+            "has been paid. Instalments start with the next payroll.", "success")
+    db.session.commit()
+    flash(f"{loan.request_type.title()} #{loan.id} paid out from {account.name}.", "success")
+    return redirect(url_for("compensation.loans_admin"))
+
+
+@comp_bp.route("/loans/<int:lid>/undo-disbursement", methods=["POST"])
+@login_required
+def undo_loan_disbursement(lid):
+    if not current_user.is_admin():
+        flash("Access denied.", "danger")
+        return redirect(url_for("dashboard"))
+    from .. import payroll_posting as pp_
+    loan = scoped_get_404(LoanAdvanceRequest, lid)
+    try:
+        pp_.undo_disbursement(loan)
+    except ValueError as e:
+        raise FormInputError(str(e))
+    db.session.commit()
+    flash("Loan payment reversed.", "success")
+    return redirect(url_for("compensation.loans_admin"))
 
 
 # ── View & Download Slip ──
@@ -784,7 +1088,8 @@ def view_slip(sid):
         flash("Access denied.", "danger")
         return redirect(url_for("dashboard"))
     comps = _normalize_comps(json.loads(slip.components_json)) if slip.components_json else {"allowances": {}, "deductions": {}}
-    return render_template("compensation/slip.html", slip=slip, comps=comps)
+    return render_template("compensation/slip.html", slip=slip, comps=comps,
+                           emp_code=_emp_code(slip.user_id))
 
 
 @comp_bp.route("/slip/<int:sid>/pdf")
@@ -829,7 +1134,7 @@ def download_slip_pdf(sid):
     c.drawString(col_mid + 10, y, f"Designation: {slip.user.designation or '-'}")
     y -= 15
     c.drawString(margin, y, f"Department: {slip.user.department or '-'}")
-    c.drawString(col_mid + 10, y, f"Code: {slip.user.employee_code}")
+    c.drawString(col_mid + 10, y, f"Code: {_emp_code(slip.user_id)}")
     y -= 15
     c.drawString(margin, y, f"CNIC: {slip.user.cnic or '-'}")
     y -= 22
@@ -918,12 +1223,32 @@ def download_slip_pdf(sid):
     # ── Footer ──
     c.setFont("Helvetica", 7.5)
     c.setFillColor(colors.HexColor("#9ca3af"))
-    c.drawCentredString(pw / 2, 30, f"Generated on {datetime.now():%d-%b-%Y %H:%M} | This is a computer-generated slip")
+    info = comps.get("info") or {}
+    if info:
+        c.setFont("Helvetica", 8.5)
+        c.setFillColor(colors.HexColor("#374151"))
+        c.drawString(margin, y, "  ".join(f"{k}: {v:g}" if isinstance(v, (int, float)) else f"{k}: {v}"
+                                         for k, v in info.items()))
+    from shared.clock import local_now
+    c.setFont("Helvetica", 7.5)
+    c.setFillColor(colors.HexColor("#9ca3af"))
+    c.drawCentredString(pw / 2, 30, f"Generated on {local_now():%d-%b-%Y %H:%M} | This is a computer-generated slip")
 
     c.save()
     buf.seek(0)
     return send_file(buf, mimetype="application/pdf", as_attachment=False,
                      download_name=f"salary_slip_{slip.payroll_run.month}_{slip.payroll_run.year}.pdf")
+
+
+def _emp_code(user_id):
+    """The employee's code in the active company (codes are per company)."""
+    from shared.models.company import CompanyMembership
+    m = CompanyMembership.query.filter_by(company_id=current_company_id(),
+                                          user_id=user_id).first()
+    if m is not None and m.employee_code:
+        return m.employee_code
+    u = User.query.get(user_id)
+    return u.employee_code if u else ""
 
 
 def _normalize_comps(comps):
@@ -996,13 +1321,28 @@ def export_bank_ledger(rid):
     for ci, h in enumerate(headers, 1):
         c = ws.cell(row=1, column=ci, value=h)
         c.font = hf; c.fill = hfill; c.alignment = Alignment(horizontal="center")
-    for ri, slip in enumerate(run.slips, 2):
+    # The company's own employee codes (the user row's code is a global
+    # placeholder), net pay as a number, nothing for a zero net, and a total
+    # that agrees with Salary Payable.
+    ri = 1
+    total = 0.0
+    for slip in run.slips:
+        net = round(float(slip.net_pay or 0), 2)
+        if net <= 0:
+            continue
+        ri += 1
+        total += net
         u = slip.user
-        for ci, val in enumerate([u.employee_code, u.full_name, u.bank_name or "",
+        for ci, val in enumerate([_emp_code(u.id), u.full_name, u.bank_name or "",
                                    u.bank_account_title or "", u.bank_account_number or "",
-                                   slip.net_pay], 1):
+                                   net], 1):
             cell = ws.cell(row=ri, column=ci, value=val)
-            cell.alignment = Alignment(horizontal="center")
+            cell.alignment = Alignment(horizontal="left" if ci < 6 else "right")
+        ws.cell(row=ri, column=6).number_format = "#,##0.00"
+    ws.cell(row=ri + 1, column=5, value="Total").font = Font(bold=True)
+    tc = ws.cell(row=ri + 1, column=6, value=round(total, 2))
+    tc.font = Font(bold=True)
+    tc.number_format = "#,##0.00"
     from openpyxl.utils import get_column_letter
     for ci in range(1, len(headers) + 1):
         ws.column_dimensions[get_column_letter(ci)].width = 22

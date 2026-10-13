@@ -64,6 +64,11 @@ def world():
             db.session.commit()
             cid = comp.id
         set_current_company(cid)
+        from shared.company_setup import provision_company
+        from shared.models.ledger import ChartOfAccount
+        provision_company(cid)
+        set_current_company(cid)
+        cash = ChartOfAccount.query.filter_by(code="1-01-01-01-0001").one().id
         db.session.add(ProvidentFundConfig(employee_contribution_pct=5,
                                            employer_contribution_pct=5,
                                            max_loan_percentage=50, interest_rate=0,
@@ -74,7 +79,8 @@ def world():
                                     credit=amt if side == "credit" else 0,
                                     debit=amt if side == "debit" else 0))
         db.session.commit()
-        w = {"company": cid, "admin": admin.id, "a": a.id, "b": b.id, "c": c.id}
+        w = {"company": cid, "admin": admin.id, "a": a.id, "b": b.id, "c": c.id,
+             "pay": {"account_id": cash, "paid_on": "2026-06-30"}}
 
     def client(uid):
         cl = flask_app.test_client()
@@ -127,10 +133,13 @@ def test_02_withdrawal_approves_once(world):
     world["cl"]["a"].post("/pf/request-withdrawal", data={"amount": 3000, "reason": "fees"})
     wid, status = latest(world, PFWithdrawalRequest)
     assert status == "pending"
-    r = world["cl"]["admin"].post(f"/pf/approve-withdrawal/{wid}")
+    r = world["cl"]["admin"].post(f"/pf/approve-withdrawal/{wid}", follow_redirects=True)
+    assert "Choose the bank or cash account" in r.get_data(as_text=True)
+    assert bal(world, "a") == 10000, "approved without saying where the money came from"
+    r = world["cl"]["admin"].post(f"/pf/approve-withdrawal/{wid}", data=world["pay"])
     assert r.status_code == 302, "plain form must redirect, not show JSON"
     assert bal(world, "a") == 7000
-    world["cl"]["admin"].post(f"/pf/approve-withdrawal/{wid}")
+    world["cl"]["admin"].post(f"/pf/approve-withdrawal/{wid}", data=world["pay"])
     assert bal(world, "a") == 7000, "approving twice debited twice"
 
 
@@ -142,9 +151,9 @@ def test_03_loan_debits_the_fund(world):
     c.post("/pf/request-loan", data={"amount": 2000, "installments": 10, "purpose": "roof"})
     lid, status = latest(world, PFLoanRequest)
     assert status == "pending"
-    world["cl"]["admin"].post(f"/pf/approve-loan/{lid}")
+    world["cl"]["admin"].post(f"/pf/approve-loan/{lid}", data=world["pay"])
     assert bal(world, "a") == 5000, "a loan out of the fund must reduce the balance"
-    world["cl"]["admin"].post(f"/pf/approve-loan/{lid}")
+    world["cl"]["admin"].post(f"/pf/approve-loan/{lid}", data=world["pay"])
     assert bal(world, "a") == 5000
 
 
@@ -175,12 +184,12 @@ def test_06_employee_page_shows_the_balance_after_profit(world):
 
 def test_07_settlement_closes_the_ledger_once(world):
     from hr_app.models.holiday import PFSettlement
-    world["cl"]["admin"].post(f"/pf/settle/{world['a']}")
+    world["cl"]["admin"].post(f"/pf/settle/{world['a']}", data=world["pay"])
     assert bal(world, "a") == 0, "settlement must pay out the whole ledger balance"
     with Ctx(world):
         s = PFSettlement.query.filter_by(user_id=world["a"]).one()
         assert float(s.net_settlement) == 5500
-    world["cl"]["admin"].post(f"/pf/settle/{world['a']}")
+    world["cl"]["admin"].post(f"/pf/settle/{world['a']}", data=world["pay"])
     with Ctx(world):
         assert PFSettlement.query.filter_by(user_id=world["a"]).count() == 1
 

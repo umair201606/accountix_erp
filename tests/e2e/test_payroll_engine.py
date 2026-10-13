@@ -10,7 +10,7 @@ plain slab arithmetic:
 import json
 import os
 import tempfile
-from datetime import date
+from datetime import date, datetime
 
 import pytest
 
@@ -208,10 +208,174 @@ def test_08_loan_instalment_never_drives_net_below_zero(world):
                                   amount=1_000_000, installment_months=1,
                                   monthly_installment=1_000_000,
                                   remaining_amount=1_000_000, purpose="house",
-                                  status="approved")
+                                  status="approved", disbursed_at=datetime(2025, 1, 1))
         db.session.add(loan)
         db.session.commit()
     p = preview(world, 9, 2025)
     assert p["net"] == 0
     assert p["loan_deduction"] == pytest.approx(p["gross"] - p["monthly_tax"]
                                                 - p["pf_employee"], abs=0.01)
+
+
+def test_09_payroll_settings_page_validates_and_saves(world):
+    c = world["client"]
+    page = c.get("/compensation/tax-settings").get_data(as_text=True)
+    assert "Payroll settings" in page and "Surcharge" in page
+    r = c.post("/compensation/tax-settings", data={
+        "action": "policy", "overtime_multiplier": "9", "overtime_hours_basis": "160",
+        "eobi_wage_base": "37000", "eobi_employee_pct": "1", "eobi_employer_pct": "5",
+        "surcharge_threshold": "10000000", "surcharge_pct": "9"},
+        headers={"Referer": "/compensation/tax-settings"}, follow_redirects=True)
+    assert "Overtime rate 1" in r.get_data(as_text=True)
+    r = c.post("/compensation/tax-settings", data={
+        "action": "policy", "overtime_multiplier": "2", "overtime_hours_basis": "208",
+        "eobi_enabled": "1", "eobi_wage_base": "37000", "eobi_employee_pct": "1",
+        "eobi_employer_pct": "5", "surcharge_threshold": "10000000", "surcharge_pct": "9"})
+    assert r.status_code in (302, 303)
+    with Ctx(world):
+        from hr_app.models.tax import PayrollSettings
+        s = PayrollSettings.get()
+        assert float(s.overtime_multiplier) == 2 and s.eobi_enabled
+
+
+def test_10_overtime_follows_the_policy(world):
+    from hr_app.models.holiday import OvertimeAccount
+    with Ctx(world):
+        db.session.add(OvertimeAccount(user_id=world["user"], date=date(2025, 10, 6),
+                                       regular_hours=8, overtime_hours=10))
+        db.session.commit()
+    p = preview(world, 10, 2025)
+    assert p["ot_pay"] == pytest.approx(10 * BASIC / 208 * 2, abs=0.01)
+
+
+def test_11_eobi_is_deducted_and_posted(world):
+    """Employee 1% and employer 5% of the 37,000 wage base, both to EOBI Payable."""
+    from hr_app.models.loan import LoanAdvanceRequest
+    with Ctx(world):
+        LoanAdvanceRequest.query.update({"status": "rejected"})   # test_08's loan
+        db.session.commit()
+    p = preview(world, 11, 2025)
+    assert p["eobi_employee"] == 370 and p["eobi_employer"] == 1850
+    assert p["deductions_breakdown"]["EOBI (employee)"] == 370
+    r = world["client"].post("/compensation/run-payroll", data={"month": 11, "year": 2025})
+    assert r.status_code in (302, 303)
+    from shared.models.ledger import ChartOfAccount, JournalEntry, JournalLine
+    from hr_app.models.compensation import PayrollRun
+    with Ctx(world):
+        run = PayrollRun.query.filter_by(month=11, year=2025).one()
+        rows = (db.session.query(ChartOfAccount.name, JournalLine.debit, JournalLine.credit)
+                .join(JournalLine, JournalLine.account_id == ChartOfAccount.id)
+                .join(JournalEntry, JournalLine.journal_entry_id == JournalEntry.id)
+                .filter(JournalEntry.voucher_type == "PRL", JournalEntry.voucher_id == run.id,
+                        JournalEntry.is_posted == True).all())  # noqa: E712
+    net = {}
+    for name, dr, cr in rows:
+        net[name] = net.get(name, 0) + float(cr or 0) - float(dr or 0)
+    assert net["EOBI Payable"] == pytest.approx(370 + 1850)
+    assert net["EOBI Employer Expense"] == pytest.approx(-1850)
+    assert sum(net.values()) == pytest.approx(0, abs=0.01)
+    from shared import integrity
+    with Ctx(world):
+        assert not integrity.failures()
+
+
+def test_12_surcharge_on_high_income(world):
+    with Ctx(world):
+        from hr_app.payroll_engine import tax_on
+        from hr_app.models.tax import IncomeTaxSlab
+        base = IncomeTaxSlab.calculate_tax(12_000_000)
+        assert tax_on(12_000_000) == pytest.approx(base * 1.09, abs=0.01)
+        assert tax_on(9_000_000) == IncomeTaxSlab.calculate_tax(9_000_000)
+
+
+def test_13_pf_on_basic_or_gross(world):
+    from hr_app.models.pf import ProvidentFundConfig
+    set_components(world, [{"name": "Conveyance", "type": "allowance", "method": "fixed",
+                            "value": 10_000, "is_taxable": True}])
+    with Ctx(world):
+        db.session.add(ProvidentFundConfig(employee_contribution_pct=5,
+                                           employer_contribution_pct=5))
+        db.session.commit()
+    p = preview(world, 12, 2025)
+    assert p["pf_employee"] == BASIC * 0.05            # new configs: basic
+    world["client"].post("/pf/config", data={
+        "employee_pct": "5", "employer_pct": "5", "contribution_base": "gross",
+        "max_loan_pct": "50", "interest_rate": "0", "min_months": "12"})
+    p = preview(world, 12, 2025)
+    assert p["pf_employee"] == pytest.approx(p["gross"] * 0.05, abs=0.01)
+    set_components(world, [])
+
+
+def test_14_leaving_date_prorates_and_then_stops(world):
+    c = world["client"]
+    with Ctx(world):
+        from hr_app.models.user import User
+        u = User.query.get(world["user"])
+        form = {"email": u.email, "full_name": u.full_name, "role_id": u.role_id,
+                "is_active": "1", "date_of_joining": "2000-01-01",
+                "date_of_leaving": "2026-01-10"}
+        from shared.models.company import CompanyMembership
+        form["role_id"] = CompanyMembership.query.filter_by(
+            company_id=world["company"], user_id=world["user"]).one().role_id
+    r = c.post(f"/auth/users/{world['user']}/edit", data=form)
+    assert r.status_code in (302, 303)
+    p = preview(world, 1, 2026)
+    assert p["basic"] == pytest.approx(BASIC * 10 / 31, abs=0.01)
+    assert preview_or_none(world, 2, 2026) is None
+    form["date_of_leaving"] = ""
+    c.post(f"/auth/users/{world['user']}/edit", data=form)
+    assert preview_or_none(world, 2, 2026) is not None
+
+
+def test_15_final_settlement_gratuity_and_leave_encashment(world):
+    """Joined 1 Jan 2000, leaves 15 Mar 2026: 26 years 2 months -> 26 years.
+    Gratuity 30 days of basic a year = 150,000 x 26; 10 unused days of
+    carry-forward leave at basic / 30."""
+    from hr_app.models.leave import LeaveQuota, LeaveType
+    from shared.models.company import CompanyMembership
+    c = world["client"]
+    r = c.post("/compensation/tax-settings", data={
+        "action": "policy", "overtime_multiplier": "2", "overtime_hours_basis": "208",
+        "eobi_wage_base": "37000", "eobi_employee_pct": "1", "eobi_employer_pct": "5",
+        "surcharge_threshold": "10000000", "surcharge_pct": "9",
+        "gratuity_enabled": "1", "gratuity_days_per_year": "30", "gratuity_basis": "basic",
+        "leave_encashment_enabled": "1"})
+    assert r.status_code in (302, 303)
+    with Ctx(world):
+        al = LeaveType(name="Annual leave", code="AL", is_paid=True, carry_forward=True)
+        db.session.add(al)
+        db.session.flush()
+        db.session.add(LeaveQuota(user_id=world["user"], leave_type_id=al.id, year=2026,
+                                  total=14, used=4, pending=0, remaining=10))
+        CompanyMembership.query.filter_by(company_id=world["company"],
+                                          user_id=world["user"]).one().date_of_leaving = date(2026, 3, 15)
+        db.session.commit()
+    p = preview(world, 3, 2026)
+    assert p["settlement"] == {"Gratuity": BASIC * 26, "Leave encashment": BASIC / 30 * 10}
+    assert p["basic"] == pytest.approx(BASIC * 15 / 31, abs=0.01)
+    assert preview(world, 2, 2026)["settlement"] == {}
+    r = c.post("/compensation/run-payroll", data={"month": 3, "year": 2026})
+    assert r.status_code in (302, 303)
+    from shared.models.ledger import ChartOfAccount, JournalEntry, JournalLine
+    from hr_app.models.compensation import PayrollRun
+    with Ctx(world):
+        run = PayrollRun.query.filter_by(month=3, year=2026).one()
+        rows = (db.session.query(ChartOfAccount.name, JournalLine.debit, JournalLine.credit)
+                .join(JournalLine, JournalLine.account_id == ChartOfAccount.id)
+                .join(JournalEntry, JournalLine.journal_entry_id == JournalEntry.id)
+                .filter(JournalEntry.voucher_type == "PRL", JournalEntry.voucher_id == run.id,
+                        JournalEntry.is_posted == True).all())  # noqa: E712
+        gross = float(run.total_gross)
+    dr = {}
+    for name, d, cr in rows:
+        dr[name] = dr.get(name, 0) + float(d or 0) - float(cr or 0)
+    assert dr["Gratuity Expense"] == pytest.approx(BASIC * 26)
+    assert dr["Leave Encashment Expense"] == pytest.approx(50_000)
+    assert dr["Salary Expense"] == pytest.approx(gross - BASIC * 26 - 50_000, abs=0.01)
+    assert sum(dr.values()) == pytest.approx(0, abs=0.01)
+    from shared import integrity
+    with Ctx(world):
+        assert not integrity.failures()
+        CompanyMembership.query.filter_by(company_id=world["company"],
+                                          user_id=world["user"]).one().date_of_leaving = None
+        db.session.commit()

@@ -23,6 +23,53 @@ class IncomeTaxSlab(db.Model):
         income = float(annual_gross or 0)
         for slab in reversed(slabs):
             if income > float(slab.min_income or 0):
-                tax = float(slab.fixed_amount or 0) + (income - float(slab.min_income or 0))                     * float(slab.rate_pct or 0) / 100
+                tax = (float(slab.fixed_amount or 0)
+                       + (income - float(slab.min_income or 0)) * float(slab.rate_pct or 0) / 100)
                 return round(tax, 2)
         return 0.0
+
+
+class PayrollSettings(db.Model):
+    """Company payroll policy that differs between employers.
+
+    One row per company (created on first read). Defaults follow common
+    Pakistani practice; every figure is editable on Tax & payroll settings.
+    """
+    __tablename__ = "payroll_settings"
+    id = db.Column(db.Integer, primary_key=True)
+    company_id = db.Column(db.Integer, index=True)
+    # Overtime pay per hour = basic / overtime_hours_basis x multiplier.
+    # Factories Act s.47 sets double rate for factory workers.
+    overtime_multiplier = db.Column(Money, default=1.5)
+    overtime_hours_basis = db.Column(Money, default=160)
+    # EOBI: contributions on a statutory wage base (the minimum wage).
+    eobi_enabled = db.Column(db.Boolean, default=False)
+    eobi_wage_base = db.Column(Money, default=37000)
+    eobi_employee_pct = db.Column(Money, default=1)
+    eobi_employer_pct = db.Column(Money, default=5)
+    # Surcharge on the income tax of salaried individuals above a threshold
+    # (Finance Act 2025: 9% of the tax where taxable income exceeds 10m).
+    surcharge_threshold = db.Column(Money, default=10_000_000)
+    surcharge_pct = db.Column(Money, default=9)
+    # Final settlement, paid in the leaver's last payroll month.
+    # Gratuity: days' wages per year of service (a part year over six months
+    # counts as a year — Standing Orders 12(6) practice), on basic or gross.
+    gratuity_enabled = db.Column(db.Boolean, default=False)
+    gratuity_basis = db.Column(db.String(10), default="basic")
+    gratuity_days_per_year = db.Column(Money, default=30)
+    # Unused days of paid leave types that carry forward, at basic / 30 a day.
+    leave_encashment_enabled = db.Column(db.Boolean, default=False)
+
+    @staticmethod
+    def get():
+        s = PayrollSettings.query.first()
+        if s is None:
+            s = PayrollSettings(overtime_multiplier=1.5, overtime_hours_basis=160,
+                                eobi_enabled=False, eobi_wage_base=37000,
+                                eobi_employee_pct=1, eobi_employer_pct=5,
+                                surcharge_threshold=10_000_000, surcharge_pct=9,
+                                gratuity_enabled=False, gratuity_basis="basic",
+                                gratuity_days_per_year=30, leave_encashment_enabled=False)
+            db.session.add(s)
+            db.session.flush()
+        return s

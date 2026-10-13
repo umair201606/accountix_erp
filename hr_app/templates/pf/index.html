@@ -46,8 +46,9 @@
                     <td>Rs. {{ w.amount|amount_format(0) }}</td>
                     <td>{{ w.reason[:40] }}</td>
                     <td>
-                        <form method="POST" action="{{ url_for('pf.approve_withdrawal', wid=w.id) }}" style="display:inline;">
-                            <button class="btn btn-sm btn-accent">Approve</button>
+                        <form method="POST" action="{{ url_for('pf.approve_withdrawal', wid=w.id) }}" class="pf-pay">
+                            <select name="account_id" class="form-control pf-inline" required aria-label="Paid from"><option value="">Paid from…</option>{% for a in accounts %}<option value="{{ a.id }}">{{ a.code }} {{ a.name }}</option>{% endfor %}</select><input type="date" name="paid_on" class="form-control pf-inline" value="{{ today }}" aria-label="Paid on">
+                            <button class="btn btn-sm btn-accent">Approve &amp; pay</button>
                         </form>
                         <form method="POST" action="{{ url_for('pf.approve_withdrawal', wid=w.id) }}" style="display:inline;">
                             <input type="hidden" name="action" value="reject">
@@ -75,8 +76,9 @@
                     <td>Rs. {{ l.monthly_installment|amount_format(0) }}</td>
                     <td>{{ l.purpose[:30] }}</td>
                     <td>
-                        <form method="POST" action="{{ url_for('pf.approve_loan', lid=l.id) }}" style="display:inline;">
-                            <button class="btn btn-sm btn-accent">Approve</button>
+                        <form method="POST" action="{{ url_for('pf.approve_loan', lid=l.id) }}" class="pf-pay">
+                            <select name="account_id" class="form-control pf-inline" required aria-label="Paid from"><option value="">Paid from…</option>{% for a in accounts %}<option value="{{ a.id }}">{{ a.code }} {{ a.name }}</option>{% endfor %}</select><input type="date" name="paid_on" class="form-control pf-inline" value="{{ today }}" aria-label="Paid on">
+                            <button class="btn btn-sm btn-accent">Approve &amp; pay</button>
                         </form>
                         <form method="POST" action="{{ url_for('pf.approve_loan', lid=l.id) }}" style="display:inline;">
                             <input type="hidden" name="action" value="reject">
@@ -89,4 +91,46 @@
         </table>
     </div>
 </div>
+
+<p class="text-muted" style="font-size:.85rem;">Every payment out of the fund posts Dr PF Payable / Cr the bank or cash account; profit credited to members posts Dr PF Profit Credited to Members / Cr PF Payable; PF loans are repaid through payroll. Books Integrity checks that the members' ledger equals PF Payable.</p>
+
+{% if can_profit %}
+<div class="card">
+    <div class="card-header">Distribute profit</div>
+    <form method="POST" action="{{ url_for('pf.distribute_profit') }}" class="pf-pay" style="padding:12px;">
+        <input type="number" name="month" class="form-control pf-inline" min="1" max="12" value="{{ today.month }}" required aria-label="Month">
+        <input type="number" name="year" class="form-control pf-inline" min="2000" max="2100" value="{{ today.year }}" required aria-label="Year">
+        <input type="number" name="total_profit" class="form-control pf-inline" min="0.01" step="0.01" placeholder="Total profit (Rs.)" required aria-label="Total profit">
+        <button class="btn btn-sm btn-primary">Distribute</button>
+        <span class="text-muted" style="font-size:.8rem;">Shared over members with a positive balance, in proportion to it.</span>
+    </form>
+</div>
+{% endif %}
+
+{% if can_settle %}
+<div class="card">
+    <div class="card-header">Final settlement</div>
+    <div class="table-wrap">
+        <table>
+            <thead><tr><th>Member</th><th class="r">Balance</th><th>Pay out</th></tr></thead>
+            <tbody>
+            {% for m, b in members %}
+            <tr><td>{{ m.full_name }}</td><td class="r">Rs. {{ b|amount_format(0) }}</td>
+                <td>{% if b > 0 %}
+                    <form method="POST" action="{{ url_for('pf.settle', uid=m.id) }}" class="pf-pay"
+                          onsubmit="return confirm('Pay out this member\'s whole PF balance and close it?');">
+                        <select name="account_id" class="form-control pf-inline" required aria-label="Paid from"><option value="">Paid from…</option>{% for a in accounts %}<option value="{{ a.id }}">{{ a.code }} {{ a.name }}</option>{% endfor %}</select><input type="date" name="paid_on" class="form-control pf-inline" value="{{ today }}" aria-label="Paid on">
+                        <button class="btn btn-sm btn-danger">Settle</button>
+                    </form>{% else %}<span class="text-muted">Owes the fund</span>{% endif %}</td></tr>
+            {% else %}<tr><td colspan="3" class="text-center" style="color:var(--muted);">No member balances</td></tr>{% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endif %}
+<style>
+  .pf-pay { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+  .pf-inline { width: auto; min-width: 0; max-width: 100%; display: inline-block; }
+  .r { text-align: right; white-space: nowrap; }
+</style>
 {% endblock %}

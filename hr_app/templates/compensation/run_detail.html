@@ -8,7 +8,7 @@
         <h1>Payroll &middot; {{ period }}</h1>
         <p class="prd-sub">
             Posted {{ run.run_date.strftime('%d-%b-%Y') if run.run_date }}{% if run.processor %} by {{ run.processor.full_name }}{% endif %}
-            &middot; <span class="badge badge-{{ 'success' if run.status == 'completed' else 'warning' }}">{{ run.status }}</span>
+            &middot; <span class="badge badge-{{ 'success' if run.status in ('completed', 'paid') else 'warning' }}">{{ 'paid ' ~ run.paid_at.strftime('%d-%b-%Y') if run.paid_at else run.status }}</span>
         </p>
     </div>
     <div style="display:flex;gap:6px;flex-wrap:wrap;">
@@ -51,6 +51,32 @@
                 <tfoot><tr><td>Total</td><td class="r">{{ run.total_deductions|amount_format(0) }}</td></tr></tfoot>
             </table>
         </div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">Salary payment</div>
+    <div style="padding:12px;">
+    {% if run.paid_at %}
+        <p style="margin:0 0 8px;">Net salaries of Rs. {{ run.total_net|amount_format(0) }} recorded as paid on {{ run.paid_at.strftime('%d-%b-%Y') }} (Dr Salary Payable, Cr the bank or cash account).</p>
+        <form method="POST" action="{{ url_for('compensation.unpay_run', rid=run.id) }}" onsubmit="return confirm('Reverse the salary payment journal?');">
+            <button type="submit" class="btn btn-sm btn-outline">Undo payment</button>
+        </form>
+    {% else %}
+        <form method="POST" action="{{ url_for('compensation.pay_run', rid=run.id) }}" class="prd-pay">
+            <select name="account_id" class="form-control" required aria-label="Paid from">
+                <option value="">Paid from…</option>
+                {% for a in accounts %}<option value="{{ a.id }}">{{ a.code }} {{ a.name }}</option>{% endfor %}
+            </select>
+            <input type="date" name="paid_on" class="form-control" value="{{ today }}" aria-label="Paid on">
+            <button type="submit" class="btn btn-primary btn-sm">Record payment</button>
+        </form>
+        <p class="prd-sub" style="margin-top:8px;">Posts Dr Salary Payable / Cr the account, for the net on the bank sheet. Until then the salaries show as owed.</p>
+        <form method="POST" action="{{ url_for('compensation.delete_run', rid=run.id) }}" style="margin-top:10px;"
+              onsubmit="return confirm('Delete this payroll? Its journals, loan recoveries and PF entries are reversed.');">
+            <button type="submit" class="btn btn-sm btn-danger">Delete payroll</button>
+        </form>
+    {% endif %}
     </div>
 </div>
 
@@ -98,5 +124,7 @@
 .prd-num { font-variant-numeric:tabular-nums; width:100%; }
 .prd-num .r { text-align:right; white-space:nowrap; }
 .prd-num tfoot td { font-weight:600; border-top:1px solid var(--line, rgba(127,127,127,.3)); }
+.prd-pay { display:flex; gap:6px; flex-wrap:wrap; align-items:center; }
+.prd-pay .form-control { width:auto; min-width:0; max-width:100%; }
 </style>
 {% endblock %}

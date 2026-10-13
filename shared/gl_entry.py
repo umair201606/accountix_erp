@@ -21,7 +21,7 @@ from decimal import Decimal
 from shared.models.ledger import ChartOfAccount, JournalEntry, JournalLine
 
 # Codes a document also posts under besides its own (keyed by its own code).
-RELATED = {"PI": ["PMT"], "FA-ACQ": ["FA-DISP"]}
+RELATED = {"PI": ["PMT"], "FA-ACQ": ["FA-DISP"], "PRL": ["PRL-PAY"]}
 
 TITLES = {
     "SI": "Sales invoice", "PI": "Purchase invoice", "SR": "Sales return",
@@ -31,7 +31,9 @@ TITLES = {
     "ADJ": "Stock adjustment", "FA-ACQ": "Asset acquisition",
     "FA-DEP": "Depreciation", "FA-DISP": "Asset disposal",
     "FA-CAP": "Capitalisation", "FA-TRF": "Transfer to inventory",
-    "PRL": "Payroll", "OPENING": "Opening stock",
+    "PRL": "Payroll", "PRL-PAY": "Salary payment", "OPENING": "Opening stock",
+    "LOAN-DSB": "Staff loan paid out", "PF-WD": "PF withdrawal", "PF-LOAN": "PF loan",
+    "PF-SETTLE": "PF settlement", "PF-PROFIT": "PF profit", "PF-ADJ": "PF adjustment",
 }
 
 

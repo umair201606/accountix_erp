@@ -18,11 +18,16 @@
         <form method="POST">
             <div class="form-group">
                 <label>Current Basic Salary</label>
-                <input type="text" class="form-control" value="{{ employee.payroll_profile.basic_salary|amount_format(0) if employee.payroll_profile else 'Not set' }}" disabled>
+                <input type="text" class="form-control" value="{{ profile.basic_salary|amount_format(0) if profile else 'Not set' }}" disabled>
             </div>
             <div class="form-group">
                 <label>New Basic Salary</label>
                 <input type="number" name="new_basic" class="form-control" step="1000" required placeholder="Enter new salary">
+            </div>
+            <div class="form-group">
+                <label>Effective from</label>
+                <input type="date" name="effective_from" class="form-control" value="{{ today }}" required>
+                <small class="text-muted">Payroll pays each month at the rate in force then; a raise from the 16th pays half that month at each rate.</small>
             </div>
             <div class="form-group">
                 <label>Reason / Notes</label>

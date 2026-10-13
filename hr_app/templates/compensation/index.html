@@ -6,7 +6,8 @@
     {% if current_user.is_admin() %}
     <div style="display:flex;gap:6px;flex-wrap:wrap;">
         <a href="{{ url_for('compensation.run_payroll') }}" class="btn btn-accent">&#9889; Run Payroll</a>
-        <a href="{{ url_for('compensation.tax_settings') }}" class="btn btn-outline">&#128202; Income Tax</a>
+        <a href="{{ url_for('compensation.tax_settings') }}" class="btn btn-outline">&#128202; Tax &amp; Payroll Settings</a>
+        <a href="{{ url_for('compensation.loans_admin') }}" class="btn btn-outline">Staff Loans</a>
         <a href="{{ url_for('compensation.create_profile') }}" class="btn btn-primary">+ New Profile</a>
     </div>
     {% endif %}
@@ -55,7 +56,7 @@
                         <td>{{ r.employee_count }}</td>
                         <td>Rs. {{ r.total_gross|amount_format(0) }}</td>
                         <td>Rs. {{ r.total_net|amount_format(0) }}</td>
-                        <td><span class="badge badge-{{ 'success' if r.status == 'completed' else 'warning' }}">{{ r.status }}</span></td>
+                        <td><span class="badge badge-{{ 'success' if r.status in ('completed', 'paid') else 'warning' }}">{{ r.status }}</span></td>
                         <td style="white-space:nowrap;"><a href="{{ url_for('compensation.view_run', rid=r.id) }}" class="btn btn-sm btn-outline">View</a>
                             <a href="{{ url_for('compensation.export_bank_ledger', rid=r.id) }}" class="btn btn-sm btn-outline">Bank sheet</a></td>
                     </tr>

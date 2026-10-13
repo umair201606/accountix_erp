@@ -11,6 +11,35 @@ from .depreciation import post_asset_depreciation
 from shared.forms import form_date, form_float, form_int, FormInputError, REQUIRED
 
 
+def account_choices():
+    """The accounts each mapping may point at. Every field used to list the
+    whole chart, so an asset could be "booked" to a revenue or expense
+    account and the asset register stopped agreeing with the ledger."""
+    from shared.ledger_utils import accounts_under, cash_bank_accounts
+    cash = cash_bank_accounts()
+    return {
+        "fa": accounts_under("1-02-01") + accounts_under("1-02-03"),
+        "accum": accounts_under("1-02-02"),
+        "expense": ChartOfAccount.query.filter(
+            ChartOfAccount.level >= ChartOfAccount.POSTING_LEVEL,
+            ChartOfAccount.is_active == True,  # noqa: E712
+            ChartOfAccount.type == "expense").order_by(ChartOfAccount.code).all(),
+        "credit": accounts_under("2-") + cash + accounts_under("1-01-03-02"),
+        "proceeds": cash + accounts_under("1-01-02") + accounts_under("1-01-03"),
+    }
+
+
+def _mapped(field, allowed, current=None, label="account"):
+    """The account id posted in ``field`` if it is one of ``allowed``; blank
+    keeps ``current``; anything else is refused."""
+    aid = request.form.get(field, type=int)
+    if not aid:
+        return current
+    if aid not in {a.id for a in allowed}:
+        raise FormInputError(f"That {label} cannot be used here.")
+    return aid
+
+
 def _read_terms(category):
     """Cost, life, salvage and method off the form, checked the way an
     auditor would: a zero-cost or zero-life asset, or salvage at or above
@@ -109,20 +138,19 @@ def create_asset():
     if not current_user.module_access("fixed_assets"):
         return render_template("access_denied.html")
     categories = AssetCategory.query.filter_by(is_active=True).all()
-    accounts = ChartOfAccount.query.filter(
-        ChartOfAccount.level >= ChartOfAccount.POSTING_LEVEL,
-        ChartOfAccount.is_active == True,
-    ).order_by(ChartOfAccount.code).all()
+    choices = account_choices()
     if request.method == "POST":
         name = request.form.get("name", "").strip()
         if not name:
             flash("Asset name is required.", "error")
-            return render_template("fixed_assets/assets/form.html", asset=None, categories=categories, accounts=accounts)
+            return render_template("fixed_assets/assets/form.html", asset=None, categories=categories, choices=choices)
         category_id = form_int("category_id", 0)
         category = scoped_get(AssetCategory, category_id)
         purchase_date = form_date("purchase_date", REQUIRED, label="Purchase date")
         purchase_cost, useful_life, salvage_value, method = _read_terms(category)
-        fa_acct_id = request.form.get("fixed_asset_account_id", type=int) or posting_account("fixed_assets").id
+        choices = account_choices()
+        fa_acct_id = (_mapped("fixed_asset_account_id", choices["fa"], label="fixed-asset account")
+                      or posting_account("fixed_assets").id)
         asset = FixedAsset(
             asset_code=FixedAsset.next_code(),
             name=name,
@@ -141,11 +169,13 @@ def create_asset():
             serial_number=request.form.get("serial_number", ""),
             label_id=request.form.get("label_id", type=int),
             fixed_asset_account_id=fa_acct_id,
-            accum_dep_account_id=request.form.get("accum_dep_account_id", type=int) or None,
-            dep_expense_account_id=request.form.get("dep_expense_account_id", type=int) or None,
+            accum_dep_account_id=_mapped("accum_dep_account_id", choices["accum"],
+                                         label="accumulated depreciation account"),
+            dep_expense_account_id=_mapped("dep_expense_account_id", choices["expense"],
+                                           label="expense account"),
             notes=request.form.get("notes", ""),
-            acquisition_credit_account_id=request.form.get(
-                "acquisition_credit_account_id", type=int) or None,
+            acquisition_credit_account_id=_mapped("acquisition_credit_account_id",
+                                                  choices["credit"], label="credit account"),
         )
         db.session.add(asset)
         db.session.flush()
@@ -155,12 +185,12 @@ def create_asset():
             db.session.rollback()
             flash(f"Asset not created — acquisition entry failed: {e}", "error")
             return render_template("fixed_assets/assets/form.html", asset=None,
-                                   categories=categories, accounts=accounts)
+                                   categories=categories, choices=choices)
         asset.recalculate()
         db.session.commit()
         flash(f"Asset '{name}' created and booked to the ledger.", "success")
         return redirect(url_for("fa_assets.list_assets"))
-    return render_template("fixed_assets/assets/form.html", asset=None, categories=categories, accounts=accounts)
+    return render_template("fixed_assets/assets/form.html", asset=None, categories=categories, choices=choices)
 
 
 @fa_assets_bp.route("/<int:asset_id>")
@@ -175,14 +205,18 @@ def view_asset(asset_id):
                             .filter_by(asset_id=asset.id)
                             .order_by(AssetDepreciation.entry_date.desc(),
                                       AssetDepreciation.id.desc()).all())
-    accounts = ChartOfAccount.query.filter(
-        ChartOfAccount.level >= ChartOfAccount.POSTING_LEVEL,
-        ChartOfAccount.is_active == True,
-    ).order_by(ChartOfAccount.code).all()
+    choices = account_choices()
     from .depreciation import depreciation_schedule
-    return render_template("fixed_assets/assets/view.html", asset=asset,
+    from shared.models.asset_transfer import AssetTransfer
+    # Every journal that touched this asset, for the "Accounting entry" panel:
+    # its depreciation, its disposal, and the capitalisation / transfer
+    # vouchers (keyed by transfer id, so they were missing before).
+    gl_also = [f"FA-DEP:{e.id}" for e in depreciation_entries] + [f"FA-DISP:{asset.id}"]
+    for t in AssetTransfer.query.filter_by(asset_id=asset.id).all():
+        gl_also.append(f"{'FA-CAP' if t.direction != 'to_inventory' else 'FA-TRF'}:{t.id}")
+    return render_template("fixed_assets/assets/view.html", asset=asset, gl_also=gl_also,
                            depreciation_entries=depreciation_entries,
-                           accounts=accounts, schedule=depreciation_schedule(asset))
+                           choices=choices, schedule=depreciation_schedule(asset))
 
 
 @fa_assets_bp.route("/<int:asset_id>/edit", methods=["GET", "POST"])
@@ -192,10 +226,7 @@ def edit_asset(asset_id):
         return render_template("access_denied.html")
     asset = scoped_get_404(FixedAsset, asset_id)
     categories = AssetCategory.query.filter_by(is_active=True).all()
-    accounts = ChartOfAccount.query.filter(
-        ChartOfAccount.level >= ChartOfAccount.POSTING_LEVEL,
-        ChartOfAccount.is_active == True,
-    ).order_by(ChartOfAccount.code).all()
+    choices = account_choices()
     if request.method == "POST":
         # Descriptive fields are always editable.
         name = request.form.get("name", "").strip()
@@ -238,9 +269,10 @@ def edit_asset(asset_id):
         if posted and cost - salvage < posted - 0.005:
             raise FormInputError(f"{posted:,.2f} of depreciation is already posted; "
                                  f"cost less salvage cannot be below that.")
+        choices = account_choices()
         # Blank = automatic: keep the account the asset already uses.
-        new_accum = (request.form.get("accum_dep_account_id", type=int)
-                     or asset.accum_dep_account_id)
+        new_accum = _mapped("accum_dep_account_id", choices["accum"], asset.accum_dep_account_id,
+                            label="accumulated depreciation account")
         if posted and new_accum != asset.accum_dep_account_id:
             raise FormInputError("Accumulated depreciation is already posted to this "
                                  "asset's account; it cannot be moved to another.")
@@ -254,13 +286,16 @@ def edit_asset(asset_id):
         asset.useful_life = life
         asset.depreciation_method = method
         asset.salvage_value = salvage
-        asset.fixed_asset_account_id = (request.form.get("fixed_asset_account_id", type=int)
-                                        or asset.fixed_asset_account_id)
+        asset.fixed_asset_account_id = _mapped("fixed_asset_account_id", choices["fa"],
+                                               asset.fixed_asset_account_id,
+                                               label="fixed-asset account")
         asset.accum_dep_account_id = new_accum
-        asset.dep_expense_account_id = request.form.get("dep_expense_account_id", type=int) or None
+        asset.dep_expense_account_id = _mapped("dep_expense_account_id", choices["expense"],
+                                               label="expense account")
         asset.label_id = request.form.get("label_id", type=int)
-        asset.acquisition_credit_account_id = request.form.get(
-            "acquisition_credit_account_id", type=int) or asset.acquisition_credit_account_id
+        asset.acquisition_credit_account_id = _mapped(
+            "acquisition_credit_account_id", choices["credit"],
+            asset.acquisition_credit_account_id, label="credit account")
         # Changes in life / salvage / method are prospective: the engine spreads
         # what is left over the life that is left. Anything the acquisition
         # journal was built from (cost, date, accounts, label) re-posts it, or
@@ -281,7 +316,7 @@ def edit_asset(asset_id):
         db.session.commit()
         flash("Asset updated successfully.", "success")
         return redirect(url_for("fa_assets.view_asset", asset_id=asset.id))
-    return render_template("fixed_assets/assets/form.html", asset=asset, categories=categories, accounts=accounts)
+    return render_template("fixed_assets/assets/form.html", asset=asset, categories=categories, choices=choices)
 
 
 @fa_assets_bp.route("/<int:asset_id>/depreciate", methods=["POST"])
@@ -310,9 +345,20 @@ def record_depreciation(asset_id):
         return redirect(url_for("fa_assets.view_asset", asset_id=asset.id))
     # One shared implementation: this route used to duplicate the posting logic
     # and drifted from it (same voucher_id for every charge, no journal link).
+    impairment = request.form.get("kind") == "impairment"
+    expense_id = None
+    if impairment:
+        # IAS 36: an impairment is its own loss, not depreciation; it reduces
+        # the carrying amount through the same contra account.
+        from shared.ledger_utils import get_or_create_account
+        expense_id = get_or_create_account("5710", "Impairment Loss on Fixed Assets",
+                                           "expense").id
+    note = (request.form.get("notes") or "").strip()[:150]
     try:
         charged = post_asset_depreciation(asset, entry_date, current_user.id,
-                                          amount=amount)
+                                          amount=amount, expense_account_id=expense_id,
+                                          notes=(("Impairment" + (f": {note}" if note else ""))
+                                                 if impairment else note or None))
     except Exception as e:
         db.session.rollback()
         flash(f"Depreciation entry failed: {e}", "error")
@@ -375,7 +421,8 @@ def dispose_asset(asset_id):
     accum_dep = asset.posted_depreciation
     net_book = purchase_cost - accum_dep
 
-    proceeds_acct_id = (request.form.get("proceeds_account_id", type=int)
+    proceeds_acct_id = (_mapped("proceeds_account_id", account_choices()["proceeds"],
+                                label="account for the proceeds")
                         or posting_account("cash").id)
 
     lines = [

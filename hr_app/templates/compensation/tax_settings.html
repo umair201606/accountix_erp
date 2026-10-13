@@ -2,10 +2,52 @@
 {% block title %}Income Tax Settings - Accountix ERP{% endblock %}
 {% block content %}
 <div class="page-header">
-    <h1>Income Tax Configuration</h1>
+    <h1>Tax &amp; Payroll Settings</h1>
     <form method="POST" style="display:inline;">
         <input type="hidden" name="action" value="seed_defaults">
         <button class="btn btn-outline" title="Salaried individuals, Finance Act 2025">Load tax year 2026 slabs</button>
+    </form>
+</div>
+<div class="card mb-20">
+    <div class="card-header">Payroll settings</div>
+    <form method="POST" style="padding:12px;">
+        <input type="hidden" name="action" value="policy">
+        <div class="form-row">
+            <div class="form-group"><label>Overtime rate (x hourly basic)</label><input type="number" name="overtime_multiplier" class="form-control" step="0.05" min="1" max="5" value="{{ policy.overtime_multiplier|float }}"><small class="text-muted">Factories Act s.47: 2 for factory workers.</small></div>
+            <div class="form-group"><label>Hours a month (hourly basic = basic / hours)</label><input type="number" name="overtime_hours_basis" class="form-control" step="1" min="1" max="400" value="{{ policy.overtime_hours_basis|float }}"></div>
+        </div>
+        <div class="form-group" style="display:flex;align-items:center;gap:8px;">
+            <input type="checkbox" id="eobi_enabled" name="eobi_enabled" value="1" {{ 'checked' if policy.eobi_enabled }}>
+            <label for="eobi_enabled" style="margin:0;">Deduct and post EOBI</label>
+        </div>
+        <div class="form-row">
+            <div class="form-group"><label>EOBI wage base (Rs.)</label><input type="number" name="eobi_wage_base" class="form-control" step="1" min="0" value="{{ policy.eobi_wage_base|float }}"><small class="text-muted">The notified minimum wage.</small></div>
+            <div class="form-group"><label>Employee %</label><input type="number" name="eobi_employee_pct" class="form-control" step="0.01" min="0" max="100" value="{{ policy.eobi_employee_pct|float }}"></div>
+            <div class="form-group"><label>Employer %</label><input type="number" name="eobi_employer_pct" class="form-control" step="0.01" min="0" max="100" value="{{ policy.eobi_employer_pct|float }}"></div>
+        </div>
+        <div class="form-row">
+            <div class="form-group"><label>Surcharge above taxable income of (Rs.)</label><input type="number" name="surcharge_threshold" class="form-control" step="1" min="0" value="{{ policy.surcharge_threshold|float }}"></div>
+            <div class="form-group"><label>Surcharge (% of the tax)</label><input type="number" name="surcharge_pct" class="form-control" step="0.01" min="0" max="100" value="{{ policy.surcharge_pct|float }}"><small class="text-muted">Finance Act 2025: 9% for salaried income over 10m.</small></div>
+        </div>
+        <div style="font-weight:600;margin:6px 0;">Final settlement on leaving</div>
+        <div class="form-row">
+            <div class="form-group" style="display:flex;align-items:center;gap:8px;">
+                <input type="checkbox" id="gratuity_enabled" name="gratuity_enabled" value="1" {{ 'checked' if policy.gratuity_enabled }}>
+                <label for="gratuity_enabled" style="margin:0;">Pay gratuity</label>
+            </div>
+            <div class="form-group"><label>Days' wages per year of service</label><input type="number" name="gratuity_days_per_year" class="form-control" step="1" min="0" max="365" value="{{ (policy.gratuity_days_per_year or 30)|float }}"></div>
+            <div class="form-group"><label>On</label>
+                <select name="gratuity_basis" class="form-control">
+                    <option value="basic" {{ 'selected' if (policy.gratuity_basis or 'basic') == 'basic' }}>Last basic salary</option>
+                    <option value="gross" {{ 'selected' if policy.gratuity_basis == 'gross' }}>Last gross salary</option>
+                </select></div>
+        </div>
+        <div class="form-group" style="display:flex;align-items:center;gap:8px;">
+            <input type="checkbox" id="leave_encashment_enabled" name="leave_encashment_enabled" value="1" {{ 'checked' if policy.leave_encashment_enabled }}>
+            <label for="leave_encashment_enabled" style="margin:0;">Encash unused leave (paid leave types that carry forward, at basic / 30 a day)</label>
+        </div>
+        <small class="text-muted" style="display:block;margin-bottom:8px;">Paid with the last month's salary once HR sets the last working day. A part year over six months counts as a full year. Both are taxed with that month as one-off pay and posted to their own expense accounts.</small>
+        <button type="submit" class="btn btn-primary btn-sm">Save settings</button>
     </form>
 </div>
 <div class="card mb-20">

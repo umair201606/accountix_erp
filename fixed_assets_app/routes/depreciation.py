@@ -105,7 +105,8 @@ def _add_months(d, n):
     return d.replace(year=y, month=m, day=min(d.day, calendar.monthrange(y, m)[1]))
 
 
-def post_asset_depreciation(asset, entry_date, created_by, amount=None):
+def post_asset_depreciation(asset, entry_date, created_by, amount=None,
+                            expense_account_id=None, notes=None):
     """Post one depreciation charge for an asset. Returns the amount charged.
 
     ``amount`` overrides the computed figure (manual charge) but is still capped
@@ -127,17 +128,19 @@ def post_asset_depreciation(asset, entry_date, created_by, amount=None):
         _, accum_acct = create_fixed_asset_accounts(asset, asset.name)
         asset.accum_dep_account_id = accum_acct.id
     accum_dep_acct_id = asset.accum_dep_account_id
-    dep_expense_acct_id = asset.dep_expense_account_id or posting_account("depreciation_expense").id
+    dep_expense_acct_id = (expense_account_id or asset.dep_expense_account_id
+                           or posting_account("depreciation_expense").id)
     dep_entry = AssetDepreciation(
         asset_id=asset.id, entry_date=entry_date, amount=amount,
-        notes=f"Depreciation posted {entry_date}",
+        notes=notes or f"Depreciation posted {entry_date}",
     )
     db.session.add(dep_entry)
     db.session.flush()
     je = post_journal_entry(
         voucher_type="FA-DEP", voucher_id=dep_entry.id,
         voucher_number=f"FA-DEP-{asset.asset_code}-{dep_entry.id}",
-        description=f"Depreciation for {asset.name} - {entry_date}",
+        description=(f"{notes} - {asset.name}" if notes else
+                     f"Depreciation for {asset.name} - {entry_date}"),
         entry_date=entry_date, created_by=created_by,
         lines=[
             {"account_id": dep_expense_acct_id, "debit": amount, "credit": 0,

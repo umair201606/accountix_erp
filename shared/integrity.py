@@ -13,6 +13,11 @@ any sequence of additions, back-dated postings, edits and reversals:
     fixed_assets_vs_gl   asset register cost / accumulated depreciation == GL
     documents_posted     every approved document has a posted journal, and
                          no unapproved one does
+    payroll_vs_gl        each payroll run's net = Salary Payable credited, and
+                         a paid run's payment journal debits the same
+    staff_loans_vs_gl    a staff loan paid out through payroll: its account
+                         holds exactly what is still to be recovered
+    pf_fund_vs_gl        the members' PF ledger adds up to PF Payable
 
 Each check returns a dict {key, label, ok, expected, actual, detail}. The
 Executive "Books integrity" page renders them; the E2E suite asserts them
@@ -171,7 +176,7 @@ def fixed_assets_vs_gl():
             if a.status not in ("disposed", "transferred", "inactive", "draft", "cancelled")]
     cost = sum((_d(a.purchase_cost) for a in live), ZERO)
     dep = sum((_d(a.posted_depreciation) for a in live), ZERO)
-    gl_cost = _gl_balance(("1-02-01",))
+    gl_cost = _gl_balance(("1-02-01", "1-02-03"))
     gl_dep = -_gl_balance(("1-02-02",))
     ok = abs(cost - gl_cost) <= TOL and abs(dep - gl_dep) <= TOL
     return {"key": "fixed_assets_vs_gl", "label": "Asset register = fixed-asset accounts",
@@ -265,8 +270,82 @@ def reporting_table():
                   tol=0)
 
 
+def _legacy_account(code):
+    """The account a payroll call site's legacy code ("2121") resolves to."""
+    from shared.coa import LEGACY_CODE_MAP
+    from shared.models.ledger import ChartOfAccount
+    return (ChartOfAccount.query.filter_by(code=code).first()
+            or ChartOfAccount.query.filter_by(code=LEGACY_CODE_MAP.get(code, code)).first())
+
+
+def _voucher_account_net(vtype, vid, account_id):
+    """Credit minus debit on one account in a voucher's posted journals."""
+    from shared.models.ledger import JournalEntry, JournalLine
+    dr, cr = (db.session.query(db.func.coalesce(db.func.sum(JournalLine.debit), 0),
+                               db.func.coalesce(db.func.sum(JournalLine.credit), 0))
+              .join(JournalEntry, JournalLine.journal_entry_id == JournalEntry.id)
+              .filter(JournalEntry.voucher_type == vtype, JournalEntry.voucher_id == vid,
+                      JournalEntry.is_posted == True,  # noqa: E712
+                      JournalLine.account_id == account_id).one())
+    return _d(cr) - _d(dr)
+
+
+def payroll_vs_gl():
+    """Every payroll run's net pay is what its journal credited to Salary
+    Payable, and a run marked paid has a payment journal debiting it."""
+    from hr_app.models.compensation import PayrollRun
+    runs = PayrollRun.query.all()
+    payable = _legacy_account("2121")
+    bad = []
+    for r in runs:
+        net = _d(r.total_net)
+        got = _voucher_account_net("PRL", r.id, payable.id) if payable else ZERO
+        if abs(got - net) > TOL:
+            bad.append(f"{r.month}/{r.year}: net {net:,.2f}, Salary Payable credited {got:,.2f}")
+        if r.paid_at:
+            paid = -_voucher_account_net("PRL-PAY", r.id, payable.id) if payable else ZERO
+            if abs(paid - net) > TOL:
+                bad.append(f"{r.month}/{r.year}: marked paid, payment journal {paid:,.2f}")
+    return _check("payroll_vs_gl", "Payroll runs = salary journals", 0, len(bad),
+                  "; ".join(bad[:5]) if bad else f"{len(runs)} runs checked", tol=0)
+
+
+def staff_loans_vs_gl():
+    """Each staff loan paid out through the system: its ledger account holds
+    exactly what is still to be recovered."""
+    from hr_app.models.loan import LoanAdvanceRequest
+    from shared.models.ledger import JournalEntry
+    from shared.coa import ENTITY_PARENT_CODES, ENTITY_ID_OFFSET
+    paid_ids = {vid for (vid,) in db.session.query(JournalEntry.voucher_id).filter(
+        JournalEntry.voucher_type == "LOAN-DSB", JournalEntry.is_posted == True)}  # noqa: E712
+    loans = LoanAdvanceRequest.query.filter(LoanAdvanceRequest.id.in_(paid_ids or {0})).all()
+    bad = []
+    for loan in loans:
+        code = f"{ENTITY_PARENT_CODES['loan']}-{loan.id + ENTITY_ID_OFFSET:04d}"
+        bal = _gl_balance((code,))
+        owed = _d(loan.remaining_amount) if loan.status in ("approved", "paid") else ZERO
+        if abs(bal - owed) > TOL:
+            bad.append(f"#{loan.id}: still to recover {owed:,.2f}, account {bal:,.2f}")
+    return _check("staff_loans_vs_gl", "Staff loans = loan accounts", 0, len(bad),
+                  "; ".join(bad[:5]) if bad else
+                  f"{len(loans)} loans paid out through payroll checked", tol=0)
+
+
+def pf_fund_vs_gl():
+    """The members' PF ledger adds up to PF Payable in the general ledger."""
+    from hr_app.models.pf import PFLedger
+    fund = _legacy_account("2123")
+    dr, cr = db.session.query(db.func.coalesce(db.func.sum(PFLedger.debit), 0),
+                              db.func.coalesce(db.func.sum(PFLedger.credit), 0)).one()
+    members = _d(cr) - _d(dr)
+    gl = -_gl_balance((), extra_ids=(fund.id,)) if fund else ZERO
+    return _check("pf_fund_vs_gl", "PF members' ledger = PF Payable", members, gl,
+                  f"Members' balances {members:,.2f} vs PF Payable {gl:,.2f}")
+
+
 CHECKS = (trial_balance, journals_balanced, reporting_table, inventory_vs_gl, stock_layers,
-          stock_quantity, fixed_assets_vs_gl, documents_posted)
+          stock_quantity, fixed_assets_vs_gl, documents_posted, payroll_vs_gl,
+          staff_loans_vs_gl, pf_fund_vs_gl)
 
 
 def run_all():

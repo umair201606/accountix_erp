@@ -28,6 +28,18 @@ def _reply(ok, msg, status=200):
     return redirect(url_for("pf.index"))
 
 
+def _paid_from():
+    """(account, date, None) for the bank/cash account and date a PF payment
+    is made from, or (None, None, error reply)."""
+    from shared.ledger_utils import cash_bank_account
+    from shared.posting_helpers import parse_doc_date
+    account = cash_bank_account(request.form.get("account_id", type=int))
+    if account is None:
+        return None, None, _reply(False, "Choose the bank or cash account the payment is made from.",
+                                  400)
+    return account, parse_doc_date(request.form.get("paid_on")).date(), None
+
+
 def _has_button_perm(button_code):
     if current_user.is_admin():
         return True
@@ -46,9 +58,18 @@ def index():
         profits = PFProfitDistribution.query.order_by(PFProfitDistribution.distributed_at.desc()).limit(12).all()
         settlements = PFSettlement.query.order_by(PFSettlement.created_at.desc()).limit(10).all()
         perms = ButtonPermission.query.all()
+        from shared.ledger_utils import cash_bank_accounts
+        balances = [(get_member(uid), round(float(b or 0), 2)) for uid, b in db.session.query(
+            PFLedger.user_id,
+            func.coalesce(func.sum(PFLedger.credit), 0) - func.coalesce(func.sum(PFLedger.debit), 0))
+            .group_by(PFLedger.user_id).all()]
+        members = sorted([(m, b) for m, b in balances if m is not None and abs(b) > 0.004],
+                         key=lambda x: x[0].full_name or "")
         return render_template("pf/index.html", config=config, contributions=contributions,
                                withdrawals=withdrawals, loans=loans, profits=profits,
                                settlements=settlements, perms=perms,
+                               accounts=cash_bank_accounts(), today=local_today(),
+                               members=members,
                                can_calc=_has_button_perm("BUTTON_CALCULATE_CONTRIBUTIONS"),
                                can_profit=_has_button_perm("BUTTON_CALCULATE_PROFIT"),
                                can_settle=_has_button_perm("BUTTON_PROCESS_SETTLEMENT"))
@@ -87,6 +108,8 @@ def config():
     if request.method == "POST":
         cfg.employee_contribution_pct = request.form.get("employee_pct", 5.0, type=float)
         cfg.employer_contribution_pct = request.form.get("employer_pct", 5.0, type=float)
+        if request.form.get("contribution_base") in ("basic", "gross"):
+            cfg.contribution_base = request.form.get("contribution_base")
         cfg.max_loan_percentage = request.form.get("max_loan_pct", 50.0, type=float)
         cfg.interest_rate = request.form.get("interest_rate", 0.0, type=float)
         cfg.min_service_months_for_loan = request.form.get("min_months", 12, type=int)
@@ -183,14 +206,23 @@ def approve_withdrawal(wid):
         return _reply(True, "Withdrawal rejected.")
     if float(wr.amount or 0) > _balance(wr.user_id) + 0.005:
         return _reply(False, "The member's PF balance is below this withdrawal.", 400)
+    account, when, err = _paid_from()
+    if err:
+        return err
     wr.status = "approved"
     wr.approved_by = current_user.id
     wr.approved_at = datetime.utcnow()
-    db.session.add(PFLedger(user_id=wr.user_id, transaction_date=local_today(),
+    wr.disbursed_at = wr.approved_at
+    db.session.add(PFLedger(user_id=wr.user_id, transaction_date=when,
                              transaction_type="withdrawal", description=f"PF withdrawal approved",
-                             credit=0, debit=wr.amount))
+                             credit=0, debit=wr.amount, reference_id=wr.id))
+    # The fund pays the member: PF Payable comes down with the member's
+    # balance. It used to move only the members' ledger.
+    from .. import payroll_posting as pp_
+    pp_.pf_cash_out("PF-WD", wr.id, f"PF-WD-{wr.id}", wr.amount, account, when,
+                    current_user.id, f"PF withdrawal - {wr.user.full_name}")
     db.session.commit()
-    return _reply(True, "Withdrawal approved.")
+    return _reply(True, "Withdrawal approved and paid.")
 
 
 @pf_bp.route("/approve-loan/<int:lid>", methods=["POST"])
@@ -207,16 +239,25 @@ def approve_loan(lid):
         loan.status = "rejected"
         db.session.commit()
         return _reply(True, "Loan rejected.")
+    account, when, err = _paid_from()
+    if err:
+        return err
     loan.status = "approved"
     loan.approved_by = current_user.id
     loan.approved_at = datetime.utcnow()
+    if not loan.remaining_amount:
+        loan.remaining_amount = loan.amount
     # The loan is paid out of the member's fund: a DEBIT. It was credited,
-    # so borrowing from the fund increased the member's balance.
-    db.session.add(PFLedger(user_id=loan.user_id, transaction_date=local_today(),
+    # so borrowing from the fund increased the member's balance. Payroll
+    # recovers the instalments back into the fund.
+    db.session.add(PFLedger(user_id=loan.user_id, transaction_date=when,
                              transaction_type="loan", description=f"PF loan approved",
-                             credit=0, debit=loan.amount))
+                             credit=0, debit=loan.amount, reference_id=loan.id))
+    from .. import payroll_posting as pp_
+    pp_.pf_cash_out("PF-LOAN", loan.id, f"PF-LOAN-{loan.id}", loan.amount, account, when,
+                    current_user.id, f"PF loan - {loan.user.full_name}")
     db.session.commit()
-    return _reply(True, "Loan approved.")
+    return _reply(True, "Loan approved and paid.")
 
 
 @pf_bp.route("/distribute-profit", methods=["POST"])
@@ -245,6 +286,9 @@ def distribute_profit():
     dist = PFProfitDistribution(month=month, year=year, total_profit=total_profit,
                                   distributed_by=current_user.id)
     db.session.add(dist)
+    db.session.flush()
+    from .. import payroll_posting as pp_
+    pp_.pf_profit(dist, local_today(), current_user.id)
     given = 0.0
     for i, (uid, bal) in enumerate(users):
         share = (round(total_profit - given, 2) if i == len(users) - 1
@@ -282,18 +326,34 @@ def settle(uid):
     # used to be contributions - loan, ignoring withdrawals and profit, so
     # the ledger did not close at zero.
     net = round(_balance(uid), 2)
+    if net < 0:
+        return _reply(False, f"The member owes the fund Rs.{-net:,.0f}; recover it before settling.",
+                      400)
+    account, when, err = (None, local_today(), None) if not net else _paid_from()
+    if err:
+        return err
     settlement = PFSettlement(
         user_id=uid, total_employee_contrib=employee_contrib, total_employer_contrib=employer_contrib,
         total_profit_distributed=profit_share, outstanding_loan=outstanding_loan,
         net_settlement=net, settled_by=current_user.id, settled_at=datetime.utcnow(), status="completed"
     )
     db.session.add(settlement)
+    db.session.flush()
+    # Any PF loan still open was already netted off the balance paid out.
+    for pfl in PFLoanRequest.query.filter_by(user_id=uid, status="approved").all():
+        pfl.remaining_amount = 0
+        pfl.status = "settled"
     if net:
-        db.session.add(PFLedger(user_id=uid, transaction_date=local_today(),
+        db.session.add(PFLedger(user_id=uid, transaction_date=when,
                                  transaction_type="settlement", description=f"Final PF settlement",
-                                 credit=0 if net > 0 else -net, debit=net if net > 0 else 0))
+                                 credit=0, debit=net, reference_id=settlement.id))
+        from .. import payroll_posting as pp_
+        member = get_member(uid)
+        pp_.pf_cash_out("PF-SETTLE", settlement.id, f"PF-SETTLE-{settlement.id}", net, account,
+                        when, current_user.id,
+                        f"Final PF settlement - {member.full_name if member else uid}")
     db.session.commit()
-    return _reply(True, f"Settlement calculated: Rs.{net:,.0f}.")
+    return _reply(True, f"Settlement paid: Rs.{net:,.0f}.")
 
 
 @pf_bp.route("/button-permissions", methods=["POST"])
@@ -327,10 +387,30 @@ def add_ledger_entry():
         return jsonify({"error": "All fields required"}), 400
     if get_member(user_id) is None:
         return jsonify({"error": "Not a member of this company"}), 404
+    # A manual fund entry (e.g. an opening balance) needs the other side of
+    # the journal, or PF Payable stops agreeing with the members' ledger.
+    from shared.models.ledger import ChartOfAccount
+    from shared.tenancy import scoped_get
+    counter = scoped_get(ChartOfAccount, request.form.get("counter_account_id", type=int) or 0)
+    if counter is None or (counter.level or 0) < ChartOfAccount.POSTING_LEVEL:
+        return jsonify({"error": "Choose the posting account on the other side"}), 400
     entry = PFLedger(user_id=user_id, transaction_date=local_today(),
                       transaction_type=ttype, description=description,
                       credit=amount if ttype == "credit" else 0,
                       debit=amount if ttype == "debit" else 0)
     db.session.add(entry)
+    db.session.flush()
+    from shared.ledger_utils import post_journal_entry
+    from .. import payroll_posting as pp_
+    fund = pp_.pf_payable()
+    dr, cr = (counter, fund) if ttype == "credit" else (fund, counter)
+    post_journal_entry(voucher_type="PF-ADJ", voucher_id=entry.id,
+                       voucher_number=f"PF-ADJ-{entry.id}",
+                       description=description or "PF ledger adjustment",
+                       entry_date=entry.transaction_date, created_by=current_user.id,
+                       lines=[{"account_id": dr.id, "debit": amount, "credit": 0,
+                               "description": description or "PF adjustment"},
+                              {"account_id": cr.id, "debit": 0, "credit": amount,
+                               "description": description or "PF adjustment"}])
     db.session.commit()
     return jsonify({"success": True})

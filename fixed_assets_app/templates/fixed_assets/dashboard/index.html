@@ -5,7 +5,7 @@
 <div class="dashboard-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin-bottom:24px;">
   <div class="stat-card">
     <div class="stat-value">{{ total_assets }}</div>
-    <div class="stat-label">Total Assets</div>
+    <div class="stat-label">Assets in service</div>
   </div>
   <div class="stat-card">
     <div class="stat-value">{{ "{:,.0f}".format(total_cost) }}</div>
@@ -20,8 +20,8 @@
     <div class="stat-label">Net Book Value</div>
   </div>
   <div class="stat-card">
-    <div class="stat-value">{{ active_count }}</div>
-    <div class="stat-label">Active</div>
+    <div class="stat-value">{{ disposed_count }}</div>
+    <div class="stat-label">Disposed</div>
   </div>
   <div class="stat-card">
     <div class="stat-value">{{ categories }}</div>
