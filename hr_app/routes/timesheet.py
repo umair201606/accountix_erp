@@ -8,6 +8,8 @@ from ..models.timesheet import TimesheetWeek, TimesheetEntry, TimesheetApproval
 from ..models.project import Project, WorkPackage, ProjectTask
 from ..models.communication import Notification, NotificationRecipient
 from ..models.performance import TimesheetMergedReport
+from ..models.user import User
+from shared.clock import local_today
 
 timesheet_bp = Blueprint("timesheet", __name__, url_prefix="/timesheets")
 
@@ -20,7 +22,7 @@ def _week_range(d):
 @timesheet_bp.route("/")
 @login_required
 def index():
-    today = date.today()
+    today = local_today()
     week_start, week_end = _week_range(today)
     week = TimesheetWeek.query.filter_by(user_id=current_user.id, week_start=week_start).first()
     if not week:
@@ -47,16 +49,27 @@ def index():
 @login_required
 def add_entry():
     week_id = request.form.get("week_id", type=int)
-    day = datetime.strptime(request.form.get("day"), "%Y-%m-%d").date()
+    try:
+        day = datetime.strptime(request.form.get("day") or "", "%Y-%m-%d").date()
+    except ValueError:
+        return jsonify({"error": "Pick a day"}), 400
     project_id = request.form.get("project_id", type=int)
     task_name = request.form.get("task", "").strip()
     hours = request.form.get("hours", type=float)
     description = request.form.get("description", "").strip()
     if not task_name or not hours:
         return jsonify({"error": "Task and hours required"}), 400
+    if not (0 < hours <= 24):
+        return jsonify({"error": "Hours must be between 0 and 24"}), 400
     week = scoped_get_404(TimesheetWeek, week_id)
     if week.user_id != current_user.id:
         return jsonify({"error": "Not authorized"}), 403
+    # A submitted or approved week is frozen: entries used to be addable and
+    # deletable after the manager had signed it off.
+    if week.status != "unapproved":
+        return jsonify({"error": f"This week is {week.status}; it can no longer be changed"}), 400
+    if not (week.week_start <= day <= week.week_end):
+        return jsonify({"error": "That day is not in this week"}), 400
     entry = TimesheetEntry(week_id=week_id, day=day, project=task_name,
                            task=task_name, hours=hours, description=description)
     db.session.add(entry)
@@ -73,6 +86,8 @@ def delete_entry(eid):
     week = scoped_get(TimesheetWeek, entry.week_id)
     if week.user_id != current_user.id:
         return jsonify({"error": "Not authorized"}), 403
+    if week.status != "unapproved":
+        return jsonify({"error": f"This week is {week.status}; it can no longer be changed"}), 400
     week.total_hours = max(0, (week.total_hours or 0) - entry.hours)
     db.session.delete(entry)
     db.session.commit()
@@ -85,16 +100,31 @@ def submit(wid):
     week = scoped_get_404(TimesheetWeek, wid)
     if week.user_id != current_user.id:
         return jsonify({"error": "Not authorized"}), 403
-    week.status = "submitted"
+    # Submitting twice used to queue a second approval for the same week.
+    if week.status != "unapproved":
+        flash(f"This week is already {week.status}.", "danger")
+        return redirect(url_for("timesheet.index"))
+    if not TimesheetEntry.query.filter_by(week_id=wid).first():
+        flash("Add at least one entry before submitting.", "danger")
+        return redirect(url_for("timesheet.index"))
+    from ..leave_flow import approver_for
+    approver = approver_for(current_user)
     week.submitted_at = datetime.utcnow()
-    if current_user.manager_id:
-        approval = TimesheetApproval(week_id=wid, approver_id=current_user.manager_id)
-        db.session.add(approval)
+    if approver is None:
+        # Nobody else to sign it off (the company's only admin).
+        week.status = "approved"
+        week.approved_at = datetime.utcnow()
+        week.approved_by = current_user.id
+    else:
+        # A manager outside this company, or none, used to leave the week
+        # submitted with no approver at all.
+        week.status = "submitted"
+        db.session.add(TimesheetApproval(week_id=wid, approver_id=approver))
         notif = Notification(title="Timesheet Submitted", message=f"{current_user.full_name} submitted timesheet",
                              notification_type="info", module="timesheets", reference_id=wid, created_by=current_user.id)
         db.session.add(notif)
         db.session.flush()
-        db.session.add(NotificationRecipient(notification_id=notif.id, user_id=current_user.manager_id))
+        db.session.add(NotificationRecipient(notification_id=notif.id, user_id=approver))
     db.session.commit()
     flash("Timesheet submitted for approval.", "success")
     return redirect(url_for("timesheet.index"))
@@ -118,6 +148,9 @@ def review(aid):
         return jsonify({"error": "Not authorized"}), 403
     action = request.form.get("action")
     comment = request.form.get("comment", "")
+    if approval.status != "pending":
+        flash("This timesheet has already been decided.", "danger")
+        return redirect(url_for("timesheet.approvals"))
     if action == "approve":
         approval.status = "approved"
         approval.week.status = "approved"
@@ -170,8 +203,11 @@ def create_project():
 def merge_report():
     if not current_user.is_admin():
         return jsonify({"error": "Access denied"}), 403
-    period_start = datetime.strptime(request.form["period_start"], "%Y-%m-%d").date()
-    period_end = datetime.strptime(request.form["period_end"], "%Y-%m-%d").date()
+    try:
+        period_start = datetime.strptime(request.form.get("period_start") or "", "%Y-%m-%d").date()
+        period_end = datetime.strptime(request.form.get("period_end") or "", "%Y-%m-%d").date()
+    except ValueError:
+        return jsonify({"error": "Pick a period"}), 400
     users = User.employees().filter(User.is_active.is_(True)).all()
     results = []
     for u in users:

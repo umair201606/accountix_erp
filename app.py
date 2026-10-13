@@ -133,7 +133,8 @@ def _create_app():
 
     @app.context_processor
     def inject_now():
-        return {"now": __import__("datetime").datetime.utcnow()}
+        from shared.clock import local_now
+        return {"now": local_now()}
 
     @app.context_processor
     def inject_labels():

@@ -7,7 +7,7 @@
 </div>
 <div class="card" style="max-width:700px;">
     <div style="text-align:center;margin-bottom:20px;border-bottom:2px solid var(--ledger);padding-bottom:12px;">
-        <h2 style="color:var(--ledger);margin:0;">Solarkon (Private) Limited</h2>
+        <h2 style="color:var(--ledger);margin:0;">{{ company.name if company and company.name else 'Salary Slip' }}</h2>
         <p style="font-size:13px;color:var(--muted);margin:4px 0 0;">Salary Slip - {{ slip.payroll_run.month }}/{{ slip.payroll_run.year }}</p>
     </div>
     <table style="margin-bottom:16px;">

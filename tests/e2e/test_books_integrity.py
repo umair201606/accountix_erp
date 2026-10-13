@@ -605,3 +605,25 @@ def test_21_uneven_landed_cost_keeps_stock_equal_to_the_ledger(world):
         row = StockLedger.query.filter_by(voucher_type="PI", voucher_id=body["id"]).one()
         assert Decimal(str(row.total_cost)) == Decimal(goods + absorb)
     assert_books_tie(world, "uneven landed cost")
+
+
+def test_22_parties_with_history_cannot_be_deleted(world):
+    """Supplier delete only looked at purchase orders, so a supplier whose
+    purchases were invoiced directly (no PO) could be deleted, orphaning
+    the invoices, returns and its ledger account."""
+    from inventory_app.models.supplier import InvSupplier
+    from inventory_app.models.customer import InvCustomer
+    c = world["client"]
+    c.post(f"/inventory/suppliers/delete/{world['supplier']}")
+    c.post(f"/inventory/customers/delete/{world['customer']}")
+    with Ctx(world):
+        assert InvSupplier.query.get(world["supplier"]) is not None
+        assert InvCustomer.query.get(world["customer"]) is not None
+        fresh = InvSupplier(name="Never Used Supplier")
+        db.session.add(fresh)
+        db.session.commit()
+        fid = fresh.id
+    c.post(f"/inventory/suppliers/delete/{fid}")
+    with Ctx(world):
+        assert InvSupplier.query.get(fid) is None, "an unused supplier still deletes"
+    assert_books_tie(world, "refused party deletes")

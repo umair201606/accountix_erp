@@ -3,12 +3,29 @@ from flask import Blueprint, render_template, request, jsonify, flash, redirect,
 from flask_login import login_required, current_user
 from sqlalchemy import func
 from ..extensions import db
-from shared.tenancy import scoped_get_404
+from shared.tenancy import scoped_get_404, get_member
+from shared.clock import local_today
 from ..models.pf import ProvidentFundConfig, PFContribution, PFLedger, PFWithdrawalRequest, PFLoanRequest
 from ..models.holiday import PFProfitDistribution, PFSettlement, ButtonPermission
 from ..models.communication import Notification, NotificationRecipient
 
 pf_bp = Blueprint("pf", __name__, url_prefix="/pf")
+
+
+def _balance(user_id):
+    """A member's fund balance: every PF ledger credit less every debit."""
+    return float(db.session.query(
+        func.coalesce(func.sum(PFLedger.credit), 0) - func.coalesce(func.sum(PFLedger.debit), 0))
+        .filter(PFLedger.user_id == user_id).scalar() or 0)
+
+
+def _reply(ok, msg, status=200):
+    """JSON for scripts; flash + back to the PF page for the plain forms
+    (they used to land on a bare JSON page)."""
+    if request.is_json or request.accept_mimetypes.best == "application/json":
+        return jsonify({"success": True, "message": msg} if ok else {"error": msg}), status
+    flash(msg, "success" if ok else "danger")
+    return redirect(url_for("pf.index"))
 
 
 def _has_button_perm(button_code):
@@ -38,8 +55,7 @@ def index():
     my_contribs = PFContribution.query.filter_by(user_id=current_user.id).order_by(
         PFContribution.year.desc(), PFContribution.month.desc()).all()
     ledger = PFLedger.query.filter_by(user_id=current_user.id).order_by(PFLedger.transaction_date.desc()).limit(30).all()
-    balance = db.session.query(func.sum(PFLedger.credit) - func.sum(PFLedger.debit)).filter(
-        PFLedger.user_id == current_user.id).scalar() or 0
+    balance = _balance(current_user.id)
     employee_share = db.session.query(func.sum(PFContribution.employee_amount)).filter(
         PFContribution.user_id == current_user.id).scalar() or 0
     employer_share = db.session.query(func.sum(PFContribution.employer_amount)).filter(
@@ -48,9 +64,10 @@ def index():
         PFWithdrawalRequest.created_at.desc()).all()
     my_loans = PFLoanRequest.query.filter_by(user_id=current_user.id).order_by(
         PFLoanRequest.created_at.desc()).all()
-    profits_share = db.session.query(func.sum(PFProfitDistribution.total_profit)).filter(
-        # approximate - in production use a proper distribution ledger
-    ).scalar() or 0
+    # This member's own profit credits — it used to be the whole fund's
+    # distributed profit.
+    profits_share = float(db.session.query(func.coalesce(func.sum(PFLedger.credit), 0)).filter(
+        PFLedger.user_id == current_user.id, PFLedger.transaction_type == "profit").scalar() or 0)
     return render_template("pf/employee.html", config=config, contributions=my_contribs,
                            ledger=ledger, balance=balance, employee_share=employee_share,
                            employer_share=employer_share, withdrawals=my_withdrawals, loans=my_loans,
@@ -84,8 +101,11 @@ def config():
 def request_withdrawal():
     amount = request.form.get("amount", type=float)
     reason = request.form.get("reason", "").strip()
-    if not amount or not reason:
+    if not amount or amount <= 0 or not reason:
         flash("Amount and reason required.", "danger")
+        return redirect(url_for("pf.index"))
+    if amount > _balance(current_user.id):
+        flash(f"You can withdraw at most Rs.{_balance(current_user.id):,.0f}.", "danger")
         return redirect(url_for("pf.index"))
     wr = PFWithdrawalRequest(user_id=current_user.id, amount=amount, reason=reason)
     db.session.add(wr)
@@ -100,20 +120,23 @@ def request_loan():
     amount = request.form.get("amount", type=float)
     installments = request.form.get("installments", 12, type=int)
     purpose = request.form.get("purpose", "").strip()
-    if not amount or not purpose:
+    if not amount or amount <= 0 or not purpose:
         flash("Amount and purpose required.", "danger")
         return redirect(url_for("pf.index"))
+    if not installments or not (1 <= installments <= 60):
+        flash("Instalments must be between 1 and 60 months.", "danger")
+        return redirect(url_for("pf.index"))
     config = ProvidentFundConfig.query.first()
-    balance = db.session.query(func.sum(PFLedger.credit) - func.sum(PFLedger.debit)).filter(
-        PFLedger.user_id == current_user.id).scalar() or 0
+    balance = _balance(current_user.id)
     max_loan = balance * (config.max_loan_percentage / 100) if config else balance * 0.5
     if amount > max_loan:
         flash(f"Loan amount exceeds maximum permissible limit (Rs.{max_loan:,.0f}).", "danger")
         return redirect(url_for("pf.index"))
     service_months = 0
     if current_user.date_of_joining:
-        service_months = (date.today().year - current_user.date_of_joining.year) * 12 + \
-                         (date.today().month - current_user.date_of_joining.month)
+        today = local_today()
+        service_months = (today.year - current_user.date_of_joining.year) * 12 + \
+                         (today.month - current_user.date_of_joining.month)
     if config and service_months < config.min_service_months_for_loan:
         flash(f"Minimum {config.min_service_months_for_loan} months of service required for loan.", "danger")
         return redirect(url_for("pf.index"))
@@ -134,8 +157,7 @@ def compliance_check(lid):
             and not current_user.is_admin()
             and not current_user.is_manager()):
         return jsonify({"error": "Access denied"}), 403
-    balance = db.session.query(func.sum(PFLedger.credit) - func.sum(PFLedger.debit)).filter(
-        PFLedger.user_id == loan.user_id).scalar() or 0
+    balance = _balance(loan.user_id)
     config = ProvidentFundConfig.query.first()
     max_loan = balance * (config.max_loan_percentage / 100) if config else balance * 0.5
     issues = []
@@ -150,92 +172,128 @@ def compliance_check(lid):
 @login_required
 def approve_withdrawal(wid):
     if not current_user.is_admin():
-        return jsonify({"error": "Access denied"}), 403
+        return _reply(False, "Access denied", 403)
     wr = scoped_get_404(PFWithdrawalRequest, wid)
+    # Approving again debited the fund again.
+    if wr.status != "pending":
+        return _reply(False, "This withdrawal has already been decided.", 400)
+    if request.form.get("action") == "reject":
+        wr.status = "rejected"
+        db.session.commit()
+        return _reply(True, "Withdrawal rejected.")
+    if float(wr.amount or 0) > _balance(wr.user_id) + 0.005:
+        return _reply(False, "The member's PF balance is below this withdrawal.", 400)
     wr.status = "approved"
     wr.approved_by = current_user.id
     wr.approved_at = datetime.utcnow()
-    db.session.add(PFLedger(user_id=wr.user_id, transaction_date=date.today(),
+    db.session.add(PFLedger(user_id=wr.user_id, transaction_date=local_today(),
                              transaction_type="withdrawal", description=f"PF withdrawal approved",
                              credit=0, debit=wr.amount))
     db.session.commit()
-    return jsonify({"success": True})
+    return _reply(True, "Withdrawal approved.")
 
 
 @pf_bp.route("/approve-loan/<int:lid>", methods=["POST"])
 @login_required
 def approve_loan(lid):
     if not current_user.is_admin():
-        return jsonify({"error": "Access denied"}), 403
+        return _reply(False, "Access denied", 403)
     if not _has_button_perm("BUTTON_APPROVE_PF_LOAN"):
-        return jsonify({"error": "No permission to approve loans"}), 403
+        return _reply(False, "No permission to approve loans", 403)
     loan = scoped_get_404(PFLoanRequest, lid)
+    if loan.status != "pending":
+        return _reply(False, "This loan has already been decided.", 400)
+    if request.form.get("action") == "reject":
+        loan.status = "rejected"
+        db.session.commit()
+        return _reply(True, "Loan rejected.")
     loan.status = "approved"
     loan.approved_by = current_user.id
     loan.approved_at = datetime.utcnow()
-    db.session.add(PFLedger(user_id=loan.user_id, transaction_date=date.today(),
+    # The loan is paid out of the member's fund: a DEBIT. It was credited,
+    # so borrowing from the fund increased the member's balance.
+    db.session.add(PFLedger(user_id=loan.user_id, transaction_date=local_today(),
                              transaction_type="loan", description=f"PF loan approved",
-                             credit=loan.amount, debit=0))
+                             credit=0, debit=loan.amount))
     db.session.commit()
-    return jsonify({"success": True})
+    return _reply(True, "Loan approved.")
 
 
 @pf_bp.route("/distribute-profit", methods=["POST"])
 @login_required
 def distribute_profit():
     if not current_user.is_admin():
-        return jsonify({"error": "Access denied"}), 403
+        return _reply(False, "Access denied", 403)
     if not _has_button_perm("BUTTON_DISTRIBUTE_PROFIT"):
-        return jsonify({"error": "No permission"}), 403
+        return _reply(False, "No permission", 403)
     month = request.form.get("month", type=int)
     year = request.form.get("year", type=int)
     total_profit = request.form.get("total_profit", type=float)
-    if not month or not year or not total_profit:
-        return jsonify({"error": "Month, year, and total profit required"}), 400
+    if not month or not year or not total_profit or total_profit <= 0:
+        return _reply(False, "Month, year, and total profit required", 400)
+    users = [(u.user_id, float(u.bal or 0)) for u in db.session.query(
+        PFLedger.user_id,
+        (func.coalesce(func.sum(PFLedger.credit), 0)
+         - func.coalesce(func.sum(PFLedger.debit), 0)).label("bal"))
+        .group_by(PFLedger.user_id).order_by(PFLedger.user_id).all()]
+    users = [(uid, bal) for uid, bal in users if bal > 0]
+    # Shares of the members with a positive balance only — the base used to
+    # include negative balances, so the shares did not add up to the profit.
+    base = sum(bal for _, bal in users)
+    if base <= 0:
+        return _reply(False, "No member has a positive PF balance.", 400)
     dist = PFProfitDistribution(month=month, year=year, total_profit=total_profit,
                                   distributed_by=current_user.id)
     db.session.add(dist)
-    total_balance = db.session.query(func.sum(PFLedger.credit) - func.sum(PFLedger.debit)).scalar() or 1
-    users = db.session.query(PFLedger.user_id,
-                              (func.sum(PFLedger.credit) - func.sum(PFLedger.debit)).label("bal")).group_by(PFLedger.user_id).all()
-    for u in users:
-        if u.bal > 0:
-            share = round(total_profit * (u.bal / total_balance), 2)
-            db.session.add(PFLedger(user_id=u.user_id, transaction_date=date.today(),
-                                     transaction_type="profit", description=f"Profit share {month}/{year}",
-                                     credit=share, debit=0))
+    given = 0.0
+    for i, (uid, bal) in enumerate(users):
+        share = (round(total_profit - given, 2) if i == len(users) - 1
+                 else round(total_profit * bal / base, 2))
+        given += share
+        db.session.add(PFLedger(user_id=uid, transaction_date=local_today(),
+                                 transaction_type="profit", description=f"Profit share {month}/{year}",
+                                 credit=share, debit=0))
     db.session.commit()
-    flash(f"Profit of Rs.{total_profit:,.0f} distributed.", "success")
-    return redirect(url_for("pf.index"))
+    return _reply(True, f"Profit of Rs.{total_profit:,.0f} distributed.")
 
 
 @pf_bp.route("/settle/<int:uid>", methods=["POST"])
 @login_required
 def settle(uid):
     if not current_user.is_admin():
-        return jsonify({"error": "Access denied"}), 403
+        return _reply(False, "Access denied", 403)
     if not _has_button_perm("BUTTON_PROCESS_SETTLEMENT"):
-        return jsonify({"error": "No permission"}), 403
-    employee_contrib = db.session.query(func.sum(PFContribution.employee_amount)).filter(
-        PFContribution.user_id == uid).scalar() or 0
-    employer_contrib = db.session.query(func.sum(PFContribution.employer_amount)).filter(
-        PFContribution.user_id == uid).scalar() or 0
-    profit_share = 0
-    outstanding_loan = db.session.query(func.sum(PFLoanRequest.remaining_amount)).filter(
-        PFLoanRequest.user_id == uid, PFLoanRequest.status == "approved").scalar() or 0
-    net = employee_contrib + employer_contrib + profit_share - outstanding_loan
+        return _reply(False, "No permission", 403)
+    if get_member(uid) is None:
+        return _reply(False, "Not a member of this company.", 404)
+    if PFSettlement.query.filter_by(user_id=uid, status="completed").first():
+        return _reply(False, "This member's PF has already been settled.", 400)
+    employee_contrib = float(db.session.query(func.coalesce(func.sum(PFContribution.employee_amount), 0))
+                             .filter(PFContribution.user_id == uid).scalar() or 0)
+    employer_contrib = float(db.session.query(func.coalesce(func.sum(PFContribution.employer_amount), 0))
+                             .filter(PFContribution.user_id == uid).scalar() or 0)
+    profit_share = float(db.session.query(func.coalesce(func.sum(PFLedger.credit), 0)).filter(
+        PFLedger.user_id == uid, PFLedger.transaction_type == "profit").scalar() or 0)
+    outstanding_loan = float(db.session.query(func.coalesce(func.sum(PFLoanRequest.remaining_amount), 0))
+                             .filter(PFLoanRequest.user_id == uid,
+                                     PFLoanRequest.status == "approved").scalar() or 0)
+    # What is paid out is the ledger balance: contributions and profit in,
+    # withdrawals and loans (debited when paid out) already taken off. It
+    # used to be contributions - loan, ignoring withdrawals and profit, so
+    # the ledger did not close at zero.
+    net = round(_balance(uid), 2)
     settlement = PFSettlement(
         user_id=uid, total_employee_contrib=employee_contrib, total_employer_contrib=employer_contrib,
         total_profit_distributed=profit_share, outstanding_loan=outstanding_loan,
         net_settlement=net, settled_by=current_user.id, settled_at=datetime.utcnow(), status="completed"
     )
     db.session.add(settlement)
-    db.session.add(PFLedger(user_id=uid, transaction_date=date.today(),
-                             transaction_type="settlement", description=f"Final PF settlement",
-                             credit=0, debit=net))
+    if net:
+        db.session.add(PFLedger(user_id=uid, transaction_date=local_today(),
+                                 transaction_type="settlement", description=f"Final PF settlement",
+                                 credit=0 if net > 0 else -net, debit=net if net > 0 else 0))
     db.session.commit()
-    flash(f"Settlement calculated: Rs.{net:,.0f}.", "success")
-    return redirect(url_for("pf.index"))
+    return _reply(True, f"Settlement calculated: Rs.{net:,.0f}.")
 
 
 @pf_bp.route("/button-permissions", methods=["POST"])
@@ -265,9 +323,11 @@ def add_ledger_entry():
     ttype = request.form.get("type")
     description = request.form.get("description", "").strip()
     amount = request.form.get("amount", type=float)
-    if not user_id or not ttype or not amount:
+    if not user_id or ttype not in ("credit", "debit") or not amount or amount <= 0:
         return jsonify({"error": "All fields required"}), 400
-    entry = PFLedger(user_id=user_id, transaction_date=date.today(),
+    if get_member(user_id) is None:
+        return jsonify({"error": "Not a member of this company"}), 404
+    entry = PFLedger(user_id=user_id, transaction_date=local_today(),
                       transaction_type=ttype, description=description,
                       credit=amount if ttype == "credit" else 0,
                       debit=amount if ttype == "debit" else 0)

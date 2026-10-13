@@ -130,9 +130,12 @@ def create_profile():
         profile = PayrollProfile(user_id=uid, basic_salary=basic, effective_from=eff_date)
         db.session.add(profile)
         db.session.flush()
-        for cname in ["Basic Salary", "House Rent", "Medical Allowance", "Conveyance"]:
+        # Basic is the profile's own figure and gross = basic + allowances, so
+        # a "Basic Salary" allowance (it used to be created here at 100% of
+        # basic) paid the basic twice.
+        for cname in ["House Rent", "Medical Allowance", "Conveyance"]:
             comp = PayrollComponent(profile_id=profile.id, name=cname, type="allowance",
-                                    value=basic * 0.25 if cname == "House Rent" else (basic * 0.1 if cname in ("Medical Allowance", "Conveyance") else basic),
+                                    value=basic * 0.25 if cname == "House Rent" else basic * 0.1,
                                     is_taxable=True if cname != "Medical Allowance" else False)
             db.session.add(comp)
         db.session.commit()
@@ -340,6 +343,8 @@ def run_payroll():
         db.session.flush()
         total_gross = 0; total_ded = 0; total_net = 0; emp_count = 0
         total_tax = 0; total_pf_ee = 0; total_pf_er = 0; total_loan = 0; total_custom = 0
+        total_other = 0
+        loan_credits = {}   # loan id -> amount recovered this run
 
         for pp in profiles:
             if not pp.user.is_active:
@@ -388,6 +393,7 @@ def run_payroll():
                             loan.status = "paid"
                         db.session.add(LoanRepayment(loan_id=loan.id, amount=ded, payroll_run_id=pr.id,
                                                       notes=f"Deducted via payroll {month}/{year}"))
+                        loan_credits[loan.id] = (loan, loan_credits.get(loan.id, (None, 0))[1] + ded)
 
             slip = PayrollSlip(
                 payroll_run_id=pr.id, user_id=pp.user_id, basic_salary=basic,
@@ -403,6 +409,11 @@ def run_payroll():
             total_pf_er += pf_employer
             total_loan += loan_deduction
             total_custom += custom_ded
+            # Deduction-type profile components (EOBI, welfare fund, ...):
+            # whatever the slip deducted that is not tax / PF / loan / custom.
+            # Derived from the slip's own total so the journal always balances.
+            total_other += round(deductions - monthly_tax - pf_employee
+                                 - loan_deduction - custom_ded, 2)
 
             if pf_config:
                 contrib = PFContribution(user_id=pp.user_id, month=month, year=year,
@@ -433,6 +444,8 @@ def run_payroll():
         pf_payable = get_or_create_account("2123", "PF Payable", "liability", parent_code="212")
         loan_clearing = get_or_create_account("2124", "Loan Deductions Clearing", "liability", parent_code="212")
         pf_exp = get_or_create_account("5122", "PF Employer Expense", "expense", parent_code="512")
+        other_payable = get_or_create_account("2-01-02-02-0004", "Other Payroll Deductions Payable",
+                                              "liability")
 
         lines = [{"account_id": salary_exp.id, "debit": round(total_gross, 2), "credit": 0,
                    "description": f"Gross salary {month}/{year}"}]
@@ -442,12 +455,33 @@ def run_payroll():
         if round(total_pf_ee, 2) > 0:
             lines.append({"account_id": pf_payable.id, "debit": 0, "credit": round(total_pf_ee, 2),
                            "description": f"PF employee contribution"})
-        if round(total_loan, 2) > 0:
-            lines.append({"account_id": loan_clearing.id, "debit": 0, "credit": round(total_loan, 2),
-                           "description": f"Loan repayment deductions"})
-        if round(total_custom, 2) > 0:
-            lines.append({"account_id": salary_payable.id, "debit": 0, "credit": round(total_custom, 2),
-                           "description": f"Custom deductions"})
+        # Each loan is recovered against its own ledger account (Employee
+        # Loans & Advances, where the disbursement is debited). Repayments
+        # used to go to a clearing LIABILITY, so the receivable never came
+        # down. Clearing keeps only a difference, which should not occur.
+        from shared.ledger_utils import create_entity_account
+        recovered = 0
+        for loan_id, (loan, amt) in sorted(loan_credits.items()):
+            amt = round(amt, 2)
+            if amt <= 0:
+                continue
+            acct = create_entity_account(
+                "loan", loan_id, f"{loan.request_type.title()} #{loan_id} - {loan.user.full_name}")
+            lines.append({"account_id": acct.id, "debit": 0, "credit": amt,
+                          "description": f"Loan #{loan_id} instalment"})
+            recovered += amt
+        if abs(round(total_loan - recovered, 2)) >= 0.01:
+            lines.append({"account_id": loan_clearing.id, "debit": 0,
+                          "credit": round(total_loan - recovered, 2),
+                          "description": "Loan repayment deductions"})
+        # Component and custom deductions are withheld from staff, so they are
+        # not owed to them: Salary Payable carries the net only (what the bank
+        # sheet pays). They used to be missing (unbalanced journal, run 500'd)
+        # or credited to Salary Payable.
+        if round(total_other + total_custom, 2) > 0:
+            lines.append({"account_id": other_payable.id, "debit": 0,
+                           "credit": round(total_other + total_custom, 2),
+                           "description": "Other payroll deductions"})
         lines.append({"account_id": salary_payable.id, "debit": 0, "credit": round(total_net, 2),
                        "description": f"Net salary payable"})
         post_journal_entry(voucher_type="PRL", voucher_id=pr.id,
@@ -506,6 +540,11 @@ def payroll_preview_json():
             continue
         p = _preview_employee(pp, month, year, pf_config, adjustments)
         if p:
+            # Model objects are not JSON: any employee with an active loan
+            # made the whole recalculation 500.
+            p["active_loans"] = [{"id": l.id, "remaining_amount": float(l.remaining_amount or 0),
+                                  "monthly_installment": float(l.monthly_installment or 0)}
+                                 for l in p.get("active_loans") or []]
             results.append(p)
     return jsonify({"employees": results})
 
@@ -627,6 +666,48 @@ def upload_bulk_data():
         }
     flash(f"Bulk data loaded for {len(adjustments)} employees. Adjustments applied.", "success")
     return jsonify({"adjustments": adjustments})
+
+
+# ── Payroll Run Detail ──
+
+@comp_bp.route("/run/<int:rid>")
+@login_required
+def view_run(rid):
+    """One payroll run: every slip, the totals by earning and deduction, and
+    the accounting entry it posted (PRL, via the floating panel)."""
+    if not current_user.is_admin():
+        flash("Access denied.", "danger")
+        return redirect(url_for("dashboard"))
+    run = scoped_get_404(PayrollRun, rid)
+    from shared.models.company import CompanyMembership
+    slips = run.slips.join(User, PayrollSlip.user_id == User.id).order_by(User.full_name).all()
+    codes = {m.user_id: m.employee_code for m in CompanyMembership.query.filter(
+        CompanyMembership.company_id == current_company_id(),
+        CompanyMembership.user_id.in_([s.user_id for s in slips] or [0])).all()}
+    # Totals by component across the run, in first-seen order.
+    earnings = {"Basic Salary": 0.0}
+    deductions = {}
+    for s in slips:
+        earnings["Basic Salary"] += float(s.basic_salary or 0)
+        comps = _normalize_comps(json.loads(s.components_json)) if s.components_json else {}
+        for name, val in (comps.get("allowances") or {}).items():
+            earnings[name] = earnings.get(name, 0.0) + float(val or 0)
+        for name, val in (comps.get("deductions") or {}).items():
+            deductions[name] = deductions.get(name, 0.0) + float(val or 0)
+    # Overtime and bonus are in the slip totals but not its breakdown; show
+    # them as one row so each table adds up to the run's totals.
+    rest = round(sum(float(s.gross_pay or 0) for s in slips) - sum(earnings.values()), 2)
+    if rest:
+        earnings["Overtime & bonus"] = rest
+    rest = round(sum(float(s.total_deductions or 0) for s in slips) - sum(deductions.values()), 2)
+    if rest:
+        deductions["Other"] = rest
+    import calendar
+    return render_template(
+        "compensation/run_detail.html", run=run, slips=slips, codes=codes,
+        earnings={k: v for k, v in earnings.items() if round(v, 2)},
+        deductions={k: v for k, v in deductions.items() if round(v, 2)},
+        period=f"{calendar.month_name[run.month]} {run.year}")
 
 
 # ── View & Download Slip ──

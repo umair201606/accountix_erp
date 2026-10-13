@@ -7,6 +7,7 @@ from shared.tenancy import scoped_get, scoped_get_404
 from ..models.leave import LeaveType, LeaveQuota, LeaveRequest, LeaveApproval
 from ..models.holiday import CompanyHoliday, ApprovalWorkflow
 from ..models.communication import Notification, NotificationRecipient
+from .. import leave_flow
 
 leave_bp = Blueprint("leave", __name__, url_prefix="/leaves")
 
@@ -36,8 +37,11 @@ def _create_notification(user_id, title, message, ntype="info", module="leaves",
 @login_required
 def index():
     requests = LeaveRequest.query.filter_by(user_id=current_user.id).order_by(LeaveRequest.created_at.desc()).all()
-    quotas = LeaveQuota.query.filter_by(user_id=current_user.id).all()
     leave_types = LeaveType.query.all()
+    for lt in leave_types:
+        leave_flow.refresh(leave_flow.quota_for(current_user.id, lt, date.today().year))
+    db.session.commit()
+    quotas = LeaveQuota.query.filter_by(user_id=current_user.id, year=date.today().year).all()
     upcoming_holidays = CompanyHoliday.query.filter(
         CompanyHoliday.holiday_date >= date.today(), CompanyHoliday.is_active == True
     ).order_by(CompanyHoliday.holiday_date).limit(10).all()
@@ -131,30 +135,39 @@ def team_calendar():
 def apply():
     leave_types = LeaveType.query.all()
     if request.method == "POST":
+        def again(msg):
+            flash(msg, "danger")
+            return render_template("leaves/apply.html", leave_types=leave_types)
         leave_type_id = request.form.get("leave_type", type=int)
-        start_date = datetime.strptime(request.form.get("start_date"), "%Y-%m-%d").date()
-        end_date = datetime.strptime(request.form.get("end_date"), "%Y-%m-%d").date()
+        try:
+            start_date = datetime.strptime(request.form.get("start_date") or "", "%Y-%m-%d").date()
+            end_date = datetime.strptime(request.form.get("end_date") or "", "%Y-%m-%d").date()
+        except ValueError:
+            return again("Pick a start and an end date.")
         reason = request.form.get("reason", "").strip()
         is_half_day = request.form.get("is_half_day") == "on"
         if start_date > end_date:
-            flash("Start date must be before end date.", "danger")
-            return render_template("leaves/apply.html", leave_types=leave_types)
+            return again("Start date must be before end date.")
+        if is_half_day and start_date != end_date:
+            return again("A half day starts and ends on the same date.")
         lt = scoped_get(LeaveType, leave_type_id)
         if not lt:
-            flash("Invalid leave type.", "danger")
-            return render_template("leaves/apply.html", leave_types=leave_types)
+            return again("Invalid leave type.")
         if is_half_day:
-            total_days = 0.5
+            total_days = 0.5 if _get_working_days(start_date, end_date) else 0
         else:
             total_days = _get_working_days(start_date, end_date)
         if total_days < 0.5:
-            flash("No working days in selected range (weekends/holidays excluded).", "danger")
-            return render_template("leaves/apply.html", leave_types=leave_types)
-        quota = LeaveQuota.query.filter_by(user_id=current_user.id, leave_type_id=leave_type_id,
-                                           year=start_date.year).first()
-        if quota and (quota.used + quota.pending + total_days) > quota.total:
-            flash("Insufficient leave balance.", "danger")
-            return render_template("leaves/apply.html", leave_types=leave_types)
+            return again("No working days in selected range (weekends/holidays excluded).")
+        clash = leave_flow.overlapping(current_user.id, start_date, end_date)
+        if clash:
+            return again(f"You already have a {clash.status} request for "
+                         f"{clash.start_date:%d %b} – {clash.end_date:%d %b %Y}.")
+        quota = leave_flow.quota_for(current_user.id, lt, start_date.year)
+        leave_flow.refresh(quota)
+        if quota.used + quota.pending + total_days > (quota.total or 0):
+            return again(f"Insufficient leave balance: {quota.remaining:g} day(s) of "
+                         f"{lt.name} left for {start_date.year}.")
         lr = LeaveRequest(
             user_id=current_user.id, leave_type_id=leave_type_id,
             start_date=start_date, end_date=end_date, total_days=total_days,
@@ -162,21 +175,19 @@ def apply():
         )
         db.session.add(lr)
         db.session.flush()
-        if quota:
-            quota.pending += total_days
         workflow = ApprovalWorkflow.query.filter_by(leave_type_id=leave_type_id, is_active=True).first()
-        if workflow and workflow.auto_approve:
+        approver = leave_flow.approver_for(current_user)
+        if (workflow and workflow.auto_approve) or approver is None:
+            # Auto-approved type, or nobody else to decide (the company's
+            # only admin applying).
             lr.status = "approved"
-            if quota:
-                quota.pending = max(0, quota.pending - total_days)
-                quota.used += total_days
-        elif current_user.manager_id:
-            approval = LeaveApproval(leave_request_id=lr.id, approver_id=current_user.manager_id, level=1)
-            db.session.add(approval)
-            _create_notification(current_user.manager_id, "Leave Request",
-                                 f"{current_user.full_name} requests {total_days} day(s) of {lt.name}")
+        else:
+            db.session.add(LeaveApproval(leave_request_id=lr.id, approver_id=approver, level=1))
+            _create_notification(approver, "Leave Request",
+                                 f"{current_user.full_name} requests {total_days:g} day(s) of {lt.name}")
+        leave_flow.refresh(quota)
         db.session.commit()
-        flash("Leave request submitted.", "success")
+        flash("Leave approved." if lr.status == "approved" else "Leave request submitted.", "success")
         return redirect(url_for("leave.index"))
     return render_template("leaves/apply.html", leave_types=leave_types)
 
@@ -195,36 +206,22 @@ def approvals():
 @login_required
 def review(aid):
     approval = scoped_get_404(LeaveApproval, aid)
-    if approval.approver_id != current_user.id:
-        return jsonify({"error": "Not authorized"}), 403
     action = request.form.get("action")
     comment = request.form.get("comment", "")
-    if action not in ("approve", "reject"):
-        return jsonify({"error": "Invalid action"}), 400
-    approval.status = "approved" if action == "approve" else "rejected"
-    approval.comment = comment
+    err = leave_flow.decide(approval, action, comment, current_user.id)
+    if err:
+        db.session.rollback()
+        flash(err, "danger")
+        return redirect(url_for("leave.approvals"))
     lr = approval.leave_request
-    quota = LeaveQuota.query.filter_by(user_id=lr.user_id, leave_type_id=lr.leave_type_id, year=lr.start_date.year).first()
-    if action == "approve":
-        all_approved = all(a.status == "approved" for a in lr.approvals)
-        if all_approved:
-            lr.status = "approved"
-            if quota:
-                quota.pending = max(0, quota.pending - lr.total_days)
-                quota.used += lr.total_days
-            _create_notification(lr.user_id, "Leave Approved",
-                                 f"Your {lr.leave_type.name} request ({lr.total_days} day(s)) has been approved.",
-                                 "success", "leaves", lr.id)
-    else:
-        lr.status = "rejected"
-        if quota:
-            quota.pending = max(0, quota.pending - lr.total_days)
-        if not comment:
-            flash("Please provide a reason for rejection.", "danger")
-            return redirect(url_for("leave.approvals"))
+    if action == "reject":
         _create_notification(lr.user_id, "Leave Rejected",
-                             f"Your {lr.leave_type.name} request has been rejected. Reason: {comment}",
+                             f"Your {lr.leave_type.name} request has been rejected. Reason: {comment.strip()}",
                              "danger", "leaves", lr.id)
+    elif lr.status == "approved":
+        _create_notification(lr.user_id, "Leave Approved",
+                             f"Your {lr.leave_type.name} request ({lr.total_days:g} day(s)) has been approved.",
+                             "success", "leaves", lr.id)
     db.session.commit()
     flash(f"Leave request {action}d.", "success")
     return redirect(url_for("leave.approvals"))

@@ -126,7 +126,8 @@ class TestApprovedDocument:
         admin_page.locator("#unapproveBtn").click()
         admin_page.locator("#confirmOkBtn").click()
         admin_page.wait_for_function(
-            "() => document.getElementById('statusBadge').textContent.trim() === 'Draft'")
+            "() => { const b = document.getElementById('statusBadge');"
+            "        return !!b && b.textContent.trim() === 'Draft'; }")  # page reloads in between
         admin_page.wait_for_load_state("networkidle")
         assert admin_page.locator(".ap-b").count() == 0
         assert admin_page.locator("#customerSearch").is_enabled()

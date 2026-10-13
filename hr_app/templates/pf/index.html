@@ -49,6 +49,10 @@
                         <form method="POST" action="{{ url_for('pf.approve_withdrawal', wid=w.id) }}" style="display:inline;">
                             <button class="btn btn-sm btn-accent">Approve</button>
                         </form>
+                        <form method="POST" action="{{ url_for('pf.approve_withdrawal', wid=w.id) }}" style="display:inline;">
+                            <input type="hidden" name="action" value="reject">
+                            <button class="btn btn-sm btn-outline">Reject</button>
+                        </form>
                     </td>
                 </tr>
                 {% else %}<tr><td colspan="4" class="text-center" style="color:var(--muted);">No pending withdrawals</td></tr>{% endfor %}
@@ -73,6 +77,10 @@
                     <td>
                         <form method="POST" action="{{ url_for('pf.approve_loan', lid=l.id) }}" style="display:inline;">
                             <button class="btn btn-sm btn-accent">Approve</button>
+                        </form>
+                        <form method="POST" action="{{ url_for('pf.approve_loan', lid=l.id) }}" style="display:inline;">
+                            <input type="hidden" name="action" value="reject">
+                            <button class="btn btn-sm btn-outline">Reject</button>
                         </form>
                     </td>
                 </tr>

@@ -64,10 +64,10 @@
                     {% for q in quotas %}
                     <tr>
                         <td>{{ q.leave_type.name }}</td>
-                        <td>{{ q.total }}</td>
-                        <td>{{ q.used }}</td>
-                        <td>{{ q.pending }}</td>
-                        <td><strong>{{ q.remaining }}</strong></td>
+                        <td>{{ '%g'|format(q.total or 0) }}</td>
+                        <td>{{ '%g'|format(q.used or 0) }}</td>
+                        <td>{{ '%g'|format(q.pending or 0) }}</td>
+                        <td><strong>{{ '%g'|format(q.remaining or 0) }}</strong></td>
                     </tr>
                     {% else %}<tr><td colspan="5" class="text-center" style="color:var(--muted);">No quotas</td></tr>{% endfor %}
                 </tbody>

@@ -34,7 +34,8 @@ def parse_doc_date(value, fallback=None):
                 return datetime.combine(fallback.date(), datetime.min.time())
             if isinstance(fallback, date):
                 return datetime.combine(fallback, datetime.min.time())
-        return datetime.combine(date.today(), datetime.min.time())
+        from shared.clock import local_today
+        return datetime.combine(local_today(), datetime.min.time())
     if isinstance(value, datetime):
         return datetime.combine(value.date(), datetime.min.time())
     if isinstance(value, date):
@@ -50,7 +51,8 @@ def as_date(value):
         return value.date()
     if isinstance(value, date):
         return value
-    return date.today()
+    from shared.clock import local_today
+    return local_today()
 
 
 def label_weights(pairs):

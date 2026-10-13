@@ -50,13 +50,14 @@
                 <tbody>
                     {% for r in runs %}
                     <tr>
-                        <td>{{ r.month }}/{{ r.year }}</td>
+                        <td><a href="{{ url_for('compensation.view_run', rid=r.id) }}">{{ r.month }}/{{ r.year }}</a></td>
                         <td>{{ r.run_date.strftime('%d-%b-%Y') }}</td>
                         <td>{{ r.employee_count }}</td>
                         <td>Rs. {{ r.total_gross|amount_format(0) }}</td>
                         <td>Rs. {{ r.total_net|amount_format(0) }}</td>
                         <td><span class="badge badge-{{ 'success' if r.status == 'completed' else 'warning' }}">{{ r.status }}</span></td>
-                        <td><a href="{{ url_for('compensation.export_bank_ledger', rid=r.id) }}" class="btn btn-sm btn-outline">Ledger</a></td>
+                        <td style="white-space:nowrap;"><a href="{{ url_for('compensation.view_run', rid=r.id) }}" class="btn btn-sm btn-outline">View</a>
+                            <a href="{{ url_for('compensation.export_bank_ledger', rid=r.id) }}" class="btn btn-sm btn-outline">Bank sheet</a></td>
                     </tr>
                     {% endfor %}
                 </tbody>

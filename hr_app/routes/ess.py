@@ -22,7 +22,12 @@ ess_bp = Blueprint("ess", __name__, url_prefix="/ess")
 @login_required
 def index():
     user = current_user
-    quotas = LeaveQuota.query.filter_by(user_id=user.id).all()
+    from .. import leave_flow
+    year = date.today().year
+    for lt in LeaveType.query.all():
+        leave_flow.refresh(leave_flow.quota_for(user.id, lt, year))
+    db.session.commit()
+    quotas = LeaveQuota.query.filter_by(user_id=user.id, year=year).all()
     loan_requests = LoanAdvanceRequest.query.filter_by(user_id=user.id).order_by(LoanAdvanceRequest.created_at.desc()).all()
     slips = PayrollSlip.query.filter_by(user_id=user.id).order_by(PayrollSlip.created_at.desc()).limit(12).all()
     reviews = PerformanceReview.query.filter_by(user_id=user.id).order_by(PerformanceReview.created_at.desc()).all()
@@ -117,8 +122,14 @@ def review_change(cid):
     cr = scoped_get_404(ChangeRequest, cid)
     action = request.form.get("action")
     notes = request.form.get("notes", "")
+    if cr.status != "pending":
+        flash("This change request has already been reviewed.", "danger")
+        return redirect(url_for("ess.change_requests"))
     if action == "approve":
         user = get_member(cr.user_id)
+        if user is None:
+            flash("That person is no longer a member of this company.", "danger")
+            return redirect(url_for("ess.change_requests"))
         setattr(user, cr.field_name, cr.new_value)
         cr.status = "approved"
     else:
@@ -135,12 +146,24 @@ def review_change(cid):
 @login_required
 def loans():
     if request.method == "POST":
+        # A zero instalment count divided by zero (500); a negative amount
+        # was accepted as a request.
+        try:
+            amount = round(float(request.form.get("amount") or 0), 2)
+            months = int(request.form.get("installments") or 12)
+        except ValueError:
+            amount, months = 0, 0
+        purpose = (request.form.get("purpose") or "").strip()
+        rtype = request.form.get("type", "loan")
+        if amount <= 0 or not (1 <= months <= 120) or not purpose                 or rtype not in ("loan", "advance"):
+            flash("Enter an amount above zero, 1–120 instalments and a purpose.", "danger")
+            return redirect(url_for("ess.loans"))
         loan = LoanAdvanceRequest(
             user_id=current_user.id,
-            request_type=request.form.get("type", "loan"),
-            amount=float(request.form["amount"]),
-            purpose=request.form["purpose"],
-            installment_months=int(request.form.get("installments", 12)),
+            request_type=rtype,
+            amount=amount,
+            purpose=purpose,
+            installment_months=months,
         )
         loan.monthly_installment = round(loan.amount / loan.installment_months, 2)
         loan.remaining_amount = loan.amount

@@ -50,3 +50,6 @@ class TimesheetApproval(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     approver = db.relationship("User")
+    # Every approve / reject route reads approval.week; the relationship was
+    # missing, so each one failed with AttributeError (500).
+    week = db.relationship("TimesheetWeek", backref=db.backref("approvals", lazy="dynamic"))

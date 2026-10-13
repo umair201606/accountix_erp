@@ -1,0 +1,102 @@
+{% extends "layouts/base.html" %}
+{% from "partials/gl_entry.html" import gl_entry_button %}
+{% block title %}Payroll {{ period }} - Accountix ERP{% endblock %}
+{% block content %}
+<div class="page-header">
+    <div>
+        <a href="{{ url_for('compensation.index') }}" class="prd-back">&larr; Compensation</a>
+        <h1>Payroll &middot; {{ period }}</h1>
+        <p class="prd-sub">
+            Posted {{ run.run_date.strftime('%d-%b-%Y') if run.run_date }}{% if run.processor %} by {{ run.processor.full_name }}{% endif %}
+            &middot; <span class="badge badge-{{ 'success' if run.status == 'completed' else 'warning' }}">{{ run.status }}</span>
+        </p>
+    </div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;">
+        <a href="{{ url_for('compensation.export_bank_ledger', rid=run.id) }}" class="btn btn-outline">Bank sheet</a>
+    </div>
+</div>
+
+<div class="stats-grid">
+    <div class="stat-card"><div class="stat-label">Employees</div><div class="stat-value">{{ run.employee_count }}</div></div>
+    <div class="stat-card"><div class="stat-label">Gross</div><div class="stat-value">{{ run.total_gross|amount_format(0) }}</div></div>
+    <div class="stat-card"><div class="stat-label">Deductions</div><div class="stat-value">{{ run.total_deductions|amount_format(0) }}</div></div>
+    <div class="stat-card"><div class="stat-label">Net payable</div><div class="stat-value">{{ run.total_net|amount_format(0) }}</div></div>
+</div>
+
+<div class="prd-split">
+    <div class="card">
+        <div class="card-header">Earnings</div>
+        <div class="table-wrap">
+            <table class="prd-num">
+                <tbody>
+                    {% for name, val in earnings.items() %}
+                    <tr><td>{{ name }}</td><td class="r">{{ val|amount_format(0) }}</td></tr>
+                    {% endfor %}
+                </tbody>
+                <tfoot><tr><td>Gross</td><td class="r">{{ run.total_gross|amount_format(0) }}</td></tr></tfoot>
+            </table>
+        </div>
+    </div>
+    <div class="card">
+        <div class="card-header">Deductions</div>
+        <div class="table-wrap">
+            <table class="prd-num">
+                <tbody>
+                    {% for name, val in deductions.items() %}
+                    <tr><td>{{ name }}</td><td class="r">{{ val|amount_format(0) }}</td></tr>
+                    {% else %}
+                    <tr><td colspan="2" style="color:var(--muted);">No deductions</td></tr>
+                    {% endfor %}
+                </tbody>
+                <tfoot><tr><td>Total</td><td class="r">{{ run.total_deductions|amount_format(0) }}</td></tr></tfoot>
+            </table>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">Salary slips</div>
+    <div class="table-wrap">
+        <table class="prd-num">
+            <thead><tr><th>Employee</th><th>Code</th><th class="r">Basic</th><th class="r">Gross</th><th class="r">Deductions</th><th class="r">Net</th><th></th></tr></thead>
+            <tbody>
+                {% for s in slips %}
+                <tr>
+                    <td>{{ s.user.full_name }}{% if s.user.designation %}<div class="prd-sub">{{ s.user.designation }}</div>{% endif %}</td>
+                    <td>{{ codes.get(s.user_id) or '—' }}</td>
+                    <td class="r">{{ s.basic_salary|amount_format(0) }}</td>
+                    <td class="r">{{ s.gross_pay|amount_format(0) }}</td>
+                    <td class="r">{{ s.total_deductions|amount_format(0) }}</td>
+                    <td class="r"><strong>{{ s.net_pay|amount_format(0) }}</strong></td>
+                    <td class="r"><a href="{{ url_for('compensation.view_slip', sid=s.id) }}" class="btn btn-sm btn-outline">Slip</a></td>
+                </tr>
+                {% else %}
+                <tr><td colspan="7" class="text-center" style="color:var(--muted);">No slips in this run</td></tr>
+                {% endfor %}
+            </tbody>
+            {% if slips %}
+            <tfoot><tr><td colspan="2">Total</td>
+                <td class="r">{{ slips|sum(attribute='basic_salary')|amount_format(0) }}</td>
+                <td class="r">{{ run.total_gross|amount_format(0) }}</td>
+                <td class="r">{{ run.total_deductions|amount_format(0) }}</td>
+                <td class="r">{{ run.total_net|amount_format(0) }}</td><td></td></tr></tfoot>
+            {% endif %}
+        </table>
+    </div>
+</div>
+
+{# The panel reads /accounting/gl-entry, which the module guard refuses
+   without Accounting — an HR-only admin would get a button that fails. #}
+{% if current_user.module_access('accounting') %}{{ gl_entry_button("PRL", run.id) }}{% endif %}
+
+<style>
+.prd-back { font-size:13px; color:var(--muted); text-decoration:none; }
+.prd-back:hover { color:var(--ink); }
+.prd-sub { font-size:13px; color:var(--muted); margin:2px 0 0; }
+.prd-split { display:grid; grid-template-columns:repeat(auto-fit, minmax(260px, 1fr)); gap:16px; margin-bottom:16px; }
+.prd-split .card { margin-bottom:0; }
+.prd-num { font-variant-numeric:tabular-nums; width:100%; }
+.prd-num .r { text-align:right; white-space:nowrap; }
+.prd-num tfoot td { font-weight:600; border-top:1px solid var(--line, rgba(127,127,127,.3)); }
+</style>
+{% endblock %}

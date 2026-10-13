@@ -8,7 +8,7 @@
     <div class="card mb-20">
         <div class="card-header">Basic Information</div>
         <div class="form-row" style="padding:12px;">
-            <div class="form-group"><label>Basic Salary (Rs.)</label><input type="number" name="basic_salary" class="form-control" required step="1000" value="{{ profile.basic_salary if profile else '' }}"></div>
+            <div class="form-group"><label>Basic Salary (Rs.)</label><input type="number" name="basic_salary" class="form-control" required min="1" step="1" value="{{ profile.basic_salary if profile else '' }}"></div>
             <div class="form-group"><label>Effective From</label><input type="date" name="effective_from" class="form-control" required value="{{ (profile.effective_from if profile else '').isoformat() if profile else '' }}"></div>
         </div>
     </div>

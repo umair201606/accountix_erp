@@ -17,6 +17,37 @@ E2E tests must cover all app modules:
 - **Inventory**: Login, Dashboard, Products, Suppliers, Customers, Purchase Invoice (form, add/clear items, pill toggles, calculations, global inputs), Purchase Return, Logout
 - **HR**: Login, Hub, Dashboard, Attendance, Leave, ESS, Profile, Logout
 
+## Session Summary (12 Oct 2026) — App-wide Walkthrough: HR Logic, Payroll GL, Company Clock
+
+### How the walkthrough was done
+- Crawler (session scratchpad, not the repo): super admin on a copy of `instance/erp_dev.db`, every parameter-free GET plus every link found, ≤3 URLs per endpoint, both companies (Default + Samba) — 283 pages each, **no 5xx / template errors**. Same crawl with a per-page query counter found the N+1 below. The bugs were logic bugs, found by reading the routes module by module
+
+### Fixed
+- **Payroll could not run with a deduction component** (EOBI etc.): the slip counted it, the journal never credited it → "Unbalanced journal … 55000 != 54000", 500. Component + custom deductions now credit **Other Payroll Deductions Payable** (`2-01-02-02-0004`, added to the fixed chart); custom deductions used to be credited to Salary Payable (overstated what staff are owed — the bank sheet pays net). Salary Payable = net exactly
+- **Loan instalments** credit each loan's own account (Employee Loans & Advances, the per-loan entity account) instead of the "Loan Deductions Clearing" liability, so the receivable comes down; clearing keeps only an unexpected difference
+- **New payroll profiles paid basic twice**: create-profile added a "Basic Salary" *allowance* at 100% of basic (gross = basic + allowances). No longer created; Alembic **0007_drop_duplicate_basic** deletes exact duplicates (allowance, that name, value = profile basic); issued slips untouched
+- **Payroll preview JSON** (run screen recalculation) 500'd for anyone with an active loan (returned model objects) → serialised
+- **Payroll run detail page** `GET /compensation/run/<id>` (`hr_app/templates/compensation/run_detail.html`): KPIs, earnings / deductions by component (overtime & bonus row so tables add up), slips with per-company employee codes, bank sheet, **Accounting entry** button (PRL; only shown with Accounting access — the API is behind the module guard). Payroll history links to it. Salary slip printed "Solarkon (Private) Limited" for every tenant → company name
+- **Leave** (`hr_app/leave_flow.py`, used by `leave.review` and `mss.approve_leave`): balances are derived from requests (used = approved, pending = pending, remaining = total − both). Before: approving twice counted twice, rejecting after approval subtracted, `remaining` was never updated, quota columns were INTEGER (half days rounded on Postgres), staff who joined after the seed had no quota so the balance check was skipped, an employee whose manager is not in this company (or none) got no approver — pending forever; now manager-in-company → company admin → auto-approve only for the sole admin. Overlap check, half day = one date, missing dates no longer 500. Alembic **0005_leave_quota_days** (INTEGER → NUMERIC on Postgres, recompute balances)
+- **MSS / attendance / PF plain forms landed on raw JSON**: routes answer JSON only when asked (`Accept: application/json` / JSON body), else flash + redirect
+- **Timesheets**: `TimesheetApproval.week` relationship was missing → every approve/reject 500'd; `merge_report` used an unimported `User` (NameError); entries editable after submit/approval, day outside the week, hours unbounded; double submit queued two approvals; same approver routing as leave
+- **Loans (MSS)**: re-deciding a paid/rejected loan reopened it; ESS loan request with 0 instalments divided by zero, negative amounts accepted, `step=1000` input
+- **PF**: approving a PF loan *credited* the member's fund (borrowing raised the balance) → debit, Alembic **0006_pf_loan_debit** flips existing rows; withdrawals/loans re-approvable and over the balance; settlement ignored withdrawals and profit (ledger never closed) and could run twice; profit shares over a base including negative balances; employee page showed the whole fund's profit; reject buttons added; `add-ledger-entry` / `settle` refuse non-members
+- **Company clock** (`shared/clock.py`: `local_now()` / `local_today()` from `Company.timezone`, default Asia/Karachi, via python-dateutil — no tzdata needed): Vercel runs UTC, so a 09:30 Lahore clock-in was stored as 04:30 and never late, and "today" flipped at 05:00. Used by attendance, timesheets, PF, posting-date fallbacks (`posting_helpers.parse_doc_date` / `as_date`) and the template `now` (both injectors — inventory's overrode app.py's with UTC)
+- **Attendance**: `/correct` assigned form text to DateTime columns (500) and never re-derived late / half-day / overtime; clock-out used fixed 8 h / 4 h instead of the time policy (`_book_hours`, `_late_and_half`)
+- **Party deletes**: supplier delete only checked purchase orders → a supplier with direct purchase invoices / returns / voucher postings could be deleted; customer delete now also checks returns and ledger postings (`ledger_utils.entity_has_postings`)
+- **Chart of accounts page**: `can_delete()` ran a COUNT per row (132 queries → 13)
+- E2E fixes: `test_invoice_form_ux` unapprove predicate null-safe across the reload; Alembic head assertions → 0007
+
+### Verification
+- New E2E: `test_payroll_run.py` 12, `test_leave_flow.py` 16 (leave + timesheets), `test_attendance_flow.py` 6, `test_pf_flow.py` 9; `test_books_integrity.py::test_22` party deletes; `test_responsive_pages.py` + `/compensation/` and the payroll run page at 360px
+- Postgres (pgserver in the session scratchpad): the four new files + books integrity 22 + storage/money 13 all pass; 0005 converts a reverted INTEGER table and rebuilds balances
+- Unit **452 passed**; full E2E **912 passed, 2 skipped** (Postgres-only); baseline before the changes: 863 passed, 2 failed (the two test fixes above)
+
+### Known, not changed
+- `/accounting/gl-entry` is login + module guard only; any member with Accounting access can read any journal of the company by id
+- PF withdrawals / settlements and loan disbursements still post nothing to the GL (accountant books the payment voucher)
+
 ## Session Summary (5 Oct 2026) — Serverless Hardening, Report Exports, Invoice Form UX, App-wide UI
 
 ### Constraint

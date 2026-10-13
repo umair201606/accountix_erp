@@ -66,35 +66,34 @@ def approvals():
                            ts_approvals=ts_approvals, loan_approvals=loan_approvals)
 
 
+def _answer(ok, msg, status=200):
+    """JSON for scripts (fetch with Accept: application/json), flash +
+    redirect for the approval page's plain forms — they used to land on a
+    bare {"success": true} page."""
+    if request.is_json or request.accept_mimetypes.best == "application/json":
+        return jsonify({"success": True} if ok else {"error": msg}), status
+    flash(msg, "success" if ok else "danger")
+    return redirect(url_for("mss.approvals"))
+
+
 @mss_bp.route("/approve-leave/<int:aid>", methods=["POST"])
 @login_required
 def approve_leave(aid):
+    from .. import leave_flow
     approval = scoped_get_404(LeaveApproval, aid)
-    if approval.approver_id != current_user.id:
-        return jsonify({"error": "Not authorized"}), 403
     action = request.form.get("action")
     comment = request.form.get("comment", "")
-    approval.status = "approved" if action == "approve" else "rejected"
-    approval.comment = comment
+    err = leave_flow.decide(approval, action, comment, current_user.id)
+    if err:
+        db.session.rollback()
+        return _answer(False, err, 403 if approval.approver_id != current_user.id else 400)
     lr = approval.leave_request
-    quota = LeaveQuota.query.filter_by(user_id=lr.user_id, leave_type_id=lr.leave_type_id, year=lr.start_date.year).first()
-    if action == "approve":
-        all_approved = all(a.status == "approved" for a in lr.approvals)
-        if all_approved:
-            lr.status = "approved"
-            if quota:
-                quota.pending = max(0, quota.pending - lr.total_days)
-                quota.used += lr.total_days
+    if action == "reject":
+        _notify(lr.user_id, "Leave Rejected", f"Your {lr.leave_type.name} was rejected: {comment.strip()}", "danger")
+    elif lr.status == "approved":
         _notify(lr.user_id, "Leave Approved", f"Your {lr.leave_type.name} has been approved.", "success")
-    else:
-        if not comment:
-            return jsonify({"error": "Reason required for rejection"}), 400
-        lr.status = "rejected"
-        if quota:
-            quota.pending = max(0, quota.pending - lr.total_days)
-        _notify(lr.user_id, "Leave Rejected", f"Your {lr.leave_type.name} was rejected: {comment}", "danger")
     db.session.commit()
-    return jsonify({"success": True})
+    return _answer(True, f"Leave request {action}d.")
 
 
 @mss_bp.route("/approve-timesheet/<int:aid>", methods=["POST"])
@@ -102,9 +101,13 @@ def approve_leave(aid):
 def approve_timesheet(aid):
     approval = scoped_get_404(TimesheetApproval, aid)
     if approval.approver_id != current_user.id:
-        return jsonify({"error": "Not authorized"}), 403
+        return _answer(False, "Not authorized", 403)
     action = request.form.get("action")
     comment = request.form.get("comment", "")
+    if approval.status != "pending":
+        return _answer(False, "This timesheet has already been decided.", 400)
+    if action != "approve" and not comment.strip():
+        return _answer(False, "Reason required for rejection", 400)
     if action == "approve":
         approval.status = "approved"
         approval.week.status = "approved"
@@ -113,11 +116,9 @@ def approve_timesheet(aid):
     else:
         approval.status = "rejected"
         approval.week.status = "unapproved"
-        if not comment:
-            return jsonify({"error": "Reason required for rejection"}), 400
     approval.comment = comment
     db.session.commit()
-    return jsonify({"success": True})
+    return _answer(True, f"Timesheet {'approved' if action == 'approve' else 'rejected'}.")
 
 
 @mss_bp.route("/approve-loan/<int:lid>", methods=["POST"])
@@ -125,8 +126,13 @@ def approve_timesheet(aid):
 def approve_loan(lid):
     loan = scoped_get_404(LoanAdvanceRequest, lid)
     if loan.user.manager_id != current_user.id and not current_user.is_admin():
-        return jsonify({"error": "Not authorized"}), 403
+        return _answer(False, "Not authorized", 403)
     action = request.form.get("action")
+    if action not in ("approve", "reject"):
+        return _answer(False, "Unknown action.", 400)
+    # Re-deciding re-opened paid or rejected loans for payroll deductions.
+    if loan.status != "pending":
+        return _answer(False, "This loan request has already been decided.", 400)
     if action == "approve":
         loan.status = "approved"
         loan.approved_by = current_user.id
@@ -141,13 +147,14 @@ def approve_loan(lid):
         loan.status = "rejected"
         _notify(loan.user_id, "Loan Rejected", f"Your loan request was rejected.", "danger")
     db.session.commit()
-    return jsonify({"success": True})
+    return _answer(True, f"Loan request {action}d.")
 
 
 @mss_bp.route("/bulk-approve-timesheets", methods=["POST"])
 @login_required
 def bulk_approve_timesheets():
-    ids = request.get_json().get("ids", [])
+    ids = (request.get_json(silent=True) or {}).get("ids", [])
+    done = 0
     for tid in ids:
         approval = scoped_get(TimesheetApproval, tid)
         if approval and approval.approver_id == current_user.id and approval.status == "pending":
@@ -155,8 +162,9 @@ def bulk_approve_timesheets():
             approval.week.status = "approved"
             approval.week.approved_at = datetime.utcnow()
             approval.week.approved_by = current_user.id
+            done += 1
     db.session.commit()
-    return jsonify({"success": True, "count": len(ids)})
+    return jsonify({"success": True, "count": done})
 
 
 @mss_bp.route("/team")

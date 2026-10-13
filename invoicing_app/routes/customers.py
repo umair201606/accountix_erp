@@ -86,8 +86,12 @@ def delete_customer(id):
     if deny_page("customers", "delete"):
         return redirect(url_for("inv_customers.list_customers"))
     c = scoped_get_404(InvCustomer, id)
-    if c.sales_orders.count() > 0 or c.invoices.count() > 0:
-        flash("Cannot delete customer with sales history", "error")
+    from inventory_app.models.sales_return import InvSalesReturn
+    from shared.ledger_utils import entity_has_postings
+    if (c.sales_orders.count() > 0 or c.invoices.count() > 0
+            or InvSalesReturn.query.filter_by(customer_id=c.id).first()
+            or entity_has_postings("customer", c.id)):
+        flash("Cannot delete a customer with sales history or ledger entries", "error")
     else:
         db.session.delete(c)
         db.session.commit()

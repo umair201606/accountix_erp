@@ -228,6 +228,17 @@ def create_fixed_asset_accounts(asset, asset_name):
     return fa_acct, accum_acct
 
 
+def entity_has_postings(kind, entity_id):
+    """Whether the entity's own subledger account carries any journal line
+    (posted or not) — receipts and payments booked straight to a customer or
+    supplier through a voucher leave no invoice behind."""
+    from shared.coa import ENTITY_PARENT_CODES, ENTITY_ID_OFFSET
+    code = f"{ENTITY_PARENT_CODES[kind]}-{int(entity_id) + ENTITY_ID_OFFSET:04d}"
+    acct = ChartOfAccount.query.filter_by(code=code).first()
+    return acct is not None and db.session.query(JournalLine.id).filter_by(
+        account_id=acct.id).first() is not None
+
+
 def party_account(kind, entity_id, name, override_account_id=None):
     """The ledger account an invoice's AR/AP side posts to.
 

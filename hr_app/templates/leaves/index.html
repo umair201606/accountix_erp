@@ -13,8 +13,8 @@
     {% for q in quotas %}
     <div class="stat-card">
         <div class="stat-label">{{ q.leave_type.name }} ({{ q.leave_type.code }})</div>
-        <div class="stat-value" style="font-size:22px;">{{ q.remaining }}</div>
-        <div class="stat-sub">Used {{ q.used }} / Total {{ q.total }}</div>
+        <div class="stat-value" style="font-size:22px;">{{ '%g'|format(q.remaining or 0) }}</div>
+        <div class="stat-sub">Used {{ '%g'|format(q.used or 0) }} / Total {{ '%g'|format(q.total or 0) }}</div>
     </div>
     {% else %}
     <div class="stat-card"><div class="stat-label">No quotas configured</div></div>

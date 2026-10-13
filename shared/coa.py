@@ -78,6 +78,7 @@ FIXED_ACCOUNTS = [
     ("2-01-02-02-0001", "Salary Payable",                "liability", None,        None),
     ("2-01-02-02-0002", "PF Payable",                    "liability", None,        None),
     ("2-01-02-02-0003", "Loan Deductions Clearing",      "liability", None,        None),
+    ("2-01-02-02-0004", "Other Payroll Deductions Payable", "liability", None,      None),
     ("2-01-02-03",      "Accrued Expenses",              "liability", None,        None),
     ("2-01-02-03-0001", "Accrued Expenses — General",    "liability", None,        None),
     ("2-01-03",         "Tax Liabilities",               "liability", None,        None),

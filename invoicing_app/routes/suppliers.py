@@ -84,8 +84,17 @@ def delete_supplier(id):
     if deny_page("suppliers", "delete"):
         return redirect(url_for("inv_suppliers.list_suppliers"))
     s = scoped_get_404(InvSupplier, id)
-    if s.purchase_orders.count() > 0:
-        flash("Cannot delete supplier with purchase orders", "error")
+    # Only purchase orders were checked: a supplier with posted purchase
+    # invoices, returns or payments could be deleted, orphaning its
+    # documents and its ledger.
+    from inventory_app.models.purchase_invoice import InvPurchaseInvoice
+    from inventory_app.models.purchase_return import InvPurchaseReturn
+    from shared.ledger_utils import entity_has_postings
+    if (s.purchase_orders.count() > 0
+            or InvPurchaseInvoice.query.filter_by(supplier_id=s.id).first()
+            or InvPurchaseReturn.query.filter_by(supplier_id=s.id).first()
+            or entity_has_postings("supplier", s.id)):
+        flash("Cannot delete a supplier with purchase history or ledger entries", "error")
     else:
         db.session.delete(s)
         db.session.commit()

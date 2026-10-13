@@ -6,7 +6,8 @@ from shared.extensions import db
 def register_inventory_blueprints(app):
     @app.context_processor
     def inject_inv_now():
-        return {"now": __import__("datetime").datetime.utcnow()}
+        from shared.clock import local_now
+        return {"now": local_now()}
 
     @app.context_processor
     def inject_inv_settings():

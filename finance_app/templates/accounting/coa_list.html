@@ -103,7 +103,7 @@
           <a href="{{ url_for('coa.add_account', parent_id=a.id) }}" class="bdg-bsm">+ Child</a>
         {% endif %}
         <a href="{{ url_for('coa.edit_account', id=a.id) }}" class="bdg-bsm">Edit</a>
-        {% if a.can_delete() %}
+        {# same rule as can_delete(), without a COUNT per row (119 queries) #}{% if not a.is_fixed and not row.has_children %}
         <form method="POST" action="{{ url_for('coa.delete_account', id=a.id) }}" style="display:inline" onsubmit="return confirm('Delete ' + {{ (a.name)|tojson|forceescape }} + '?');">
           <button type="submit" class="bdg-bsm bsm-del">Delete</button>
         </form>

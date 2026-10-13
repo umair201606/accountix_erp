@@ -30,10 +30,12 @@ class LeaveQuota(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
     leave_type_id = db.Column(db.Integer, db.ForeignKey("leave_types.id"), nullable=False)
     year = db.Column(db.Integer, nullable=False)
-    total = db.Column(db.Integer, default=0)
-    used = db.Column(db.Integer, default=0)
-    pending = db.Column(db.Integer, default=0)
-    remaining = db.Column(db.Integer, default=0)
+    # Days, not money — Money is the app's exact decimal type: half days
+    # (0.5) were rounded away by INTEGER columns on Postgres.
+    total = db.Column(Money, default=0)
+    used = db.Column(Money, default=0)
+    pending = db.Column(Money, default=0)
+    remaining = db.Column(Money, default=0)
 
     user = db.relationship("User", backref="leave_quotas")
     leave_type = db.relationship("LeaveType")
