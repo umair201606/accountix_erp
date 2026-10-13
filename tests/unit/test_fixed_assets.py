@@ -27,6 +27,7 @@ def app():
     application.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
     db.init_app(application)
 
+    import shared.models.project_label  # noqa: F401  (journal_lines.label_id FK)
     import shared.models.ledger  # noqa: F401
     import shared.models.company  # noqa: F401  (companies + memberships: FK targets)
     import shared.models.stock_ledger  # noqa: F401
@@ -341,7 +342,7 @@ def test_undoing_a_disposal_restores_cost_and_depreciation(app, category):
 
 # ── Transfer to inventory ───────────────────────────────────────────────────
 
-def _transfer(asset, product):
+def _transfer(asset, product, when=None):
     from shared.ledger_utils import create_entity_account
     from shared.models.asset_transfer import AssetTransfer
     from shared.models.stock_ledger import VoucherNumber
@@ -350,6 +351,7 @@ def _transfer(asset, product):
     transfer = AssetTransfer(voucher_number=VoucherNumber.next("FA-TRF"),
                              direction="to_inventory", asset_id=asset.id,
                              product_id=product.id, transfer_amount=0,
+                             transfer_date=when,
                              status="unapproved", created_by=1)
     db.session.add(transfer)
     db.session.flush()
@@ -494,3 +496,126 @@ def test_unapproving_a_transfer_withdraws_stock_and_journal(app, category, produ
     assert product.current_stock == 0
     assert account_balance(asset.fixed_asset_account_id) == 1_000_000
     costing.assert_invariant(product.id)
+
+
+# ── Depreciation engine: end of life, estimates, schedule ──────────────────
+
+def _run_monthly(asset, start, months):
+    from fixed_assets_app.routes.depreciation import (post_asset_depreciation,
+                                                      _add_months)
+    for i in range(1, months + 1):
+        post_asset_depreciation(asset, _add_months(start, i), created_by=1)
+        db.session.commit()
+
+
+def test_reducing_balance_reaches_salvage_exactly_at_end_of_life(app, category):
+    """Double-declining never reached salvage: at the end of the life it
+    stopped with a residual no run would ever charge. It now switches to
+    straight line and lands on salvage in the life's last month."""
+    from fixed_assets_app.routes.depreciation import due_depreciation
+    asset = make_asset(category, code="FA-DDB", method="declining_balance",
+                       cost=1_000_000.0, salvage=100_000.0, life=5)
+    _run_monthly(asset, date(2024, 1, 1), 60)
+    assert float(asset.net_book_value) == pytest.approx(100_000, abs=0.005)
+    assert due_depreciation(asset, date(2031, 1, 1)) == 0
+    assert asset.posted_depreciation == -account_balance(asset.accum_dep_account_id)
+
+
+def test_reducing_balance_front_loads_the_charge(app, category):
+    from fixed_assets_app.routes.depreciation import due_depreciation
+    ddb = make_asset(category, code="FA-D1", method="declining_balance")
+    sl = make_asset(category, code="FA-S1")
+    first_ddb = due_depreciation(ddb, date(2025, 1, 1))
+    assert first_ddb > due_depreciation(sl, date(2025, 1, 1)) == 180_000
+    # 40% a year on cost, charged monthly on the falling book value
+    assert 330_000 < first_ddb < 400_000
+
+
+def test_straight_line_monthly_lands_on_salvage_to_the_paisa(app, category):
+    """1,000,000 / 36 months does not divide: monthly rounding used to leave
+    a remainder that nothing charged once the life was over."""
+    asset = make_asset(category, code="FA-ODD", cost=1_000_000.0, salvage=0.0, life=3)
+    _run_monthly(asset, date(2024, 1, 1), 36)
+    assert float(asset.net_book_value) == pytest.approx(0, abs=0.005)
+    assert float(asset.posted_depreciation) == pytest.approx(1_000_000, abs=0.005)
+
+
+def test_changing_the_life_replans_the_rest_prospectively(app, category):
+    """IAS 8: a change in estimate spreads what is left over the life left.
+    Carrying on at depreciable / new life under- or over-shot salvage."""
+    from fixed_assets_app.routes.depreciation import (post_asset_depreciation,
+                                                      due_depreciation)
+    asset = make_asset(category, code="FA-EST")      # 900k over 5y, 15k/month
+    post_asset_depreciation(asset, date(2026, 1, 1), created_by=1)   # 2 years
+    db.session.commit()
+    assert asset.posted_depreciation == 360_000
+    asset.useful_life = 8                           # 6 years (72 months) left
+    db.session.commit()
+    assert due_depreciation(asset, date(2027, 1, 1)) == pytest.approx(540_000 / 72 * 12, abs=0.01)
+    _run_monthly(asset, date(2026, 1, 1), 72)
+    assert float(asset.net_book_value) == pytest.approx(100_000, abs=0.005)
+
+
+def test_overdue_residual_is_charged_by_the_next_run(app, category):
+    """An asset past its life with value still above salvage (older data, or
+    a salvage cut) is cleared by the next run instead of sitting forever."""
+    from fixed_assets_app.routes.depreciation import due_depreciation
+    asset = make_asset(category, code="FA-OLD", purchase=date(2015, 1, 1))
+    assert due_depreciation(asset, date(2026, 1, 1)) == 900_000
+
+
+def test_schedule_projects_to_salvage(app, category):
+    from fixed_assets_app.routes.depreciation import (depreciation_schedule,
+                                                      post_asset_depreciation)
+    for method in ("straight_line", "declining_balance"):
+        asset = make_asset(category, code=f"FA-SCH-{method}", method=method)
+        post_asset_depreciation(asset, date(2025, 1, 1), created_by=1)
+        db.session.commit()
+        rows = depreciation_schedule(asset)
+        assert sum(r["months"] for r in rows) == 48
+        assert rows[0]["opening"] == pytest.approx(float(asset.net_book_value))
+        assert rows[-1]["closing"] == pytest.approx(100_000, abs=0.01)
+
+
+def test_next_code_survives_gaps_and_deletes(app, category):
+    from fixed_assets_app.models.asset import FixedAsset
+    make_asset(category, code="FA-0007")
+    make_asset(category, code="FA-0002")
+    assert FixedAsset.next_code() == "FA-0008"
+
+
+def test_inactive_assets_take_no_charge(app, category):
+    from fixed_assets_app.routes.depreciation import post_asset_depreciation
+    asset = make_asset(category, code="FA-GONE")
+    asset.status = "disposed"
+    db.session.commit()
+    assert post_asset_depreciation(asset, date(2025, 1, 1), created_by=1, amount=1000) == 0
+
+
+def test_movement_schedule_rolls_forward(app, category, product):
+    """Cost b/f + additions - disposals = c/f, same for depreciation, and the
+    closing columns equal the register."""
+    from fixed_assets_app.movement import movement
+    from fixed_assets_app.routes.depreciation import post_asset_depreciation
+    held = make_asset(category, code="FA-M1", purchase=date(2023, 1, 1))
+    post_asset_depreciation(held, date(2024, 1, 1), created_by=1)
+    post_asset_depreciation(held, date(2025, 1, 1), created_by=1)
+    db.session.commit()
+    added = make_asset(category, code="FA-M2", purchase=date(2024, 3, 1), salvage=0.0)
+    post_asset_depreciation(added, date(2024, 9, 1), created_by=1)
+    db.session.commit()
+    sold = make_asset(category, code="FA-M3", purchase=date(2022, 1, 1), salvage=0.0)
+    post_asset_depreciation(sold, date(2024, 6, 1), created_by=1)
+    db.session.commit()
+    _transfer(sold, product, when=date(2024, 6, 1))
+
+    m = movement(date(2024, 1, 1), date(2024, 12, 31))
+    t = m["total"]
+    assert t["cost_open"] == 2_000_000          # held + sold
+    assert t["additions"] == 1_000_000
+    assert t["cost_disposals"] == 1_000_000
+    assert t["cost_close"] == t["cost_open"] + t["additions"] - t["cost_disposals"]
+    assert t["dep_close"] == pytest.approx(t["dep_open"] + t["charge"] - t["dep_disposals"])
+    assert t["cost_close"] == float(held.purchase_cost + added.purchase_cost)
+    assert t["dep_close"] == pytest.approx(float(held.posted_depreciation) - 180_000
+                                           + float(added.posted_depreciation))

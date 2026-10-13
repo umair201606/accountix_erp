@@ -23,6 +23,8 @@ PAGES = [
     "/inventory/purchase-return/list", "/invoicing/sales-return/list",
     "/inventory/vouchers/product-ledger/list",
     "/fixed-assets/assets/", "/fixed-assets/categories/", "/fixed-assets/reports/",
+    "/fixed-assets/reports/movement", "/fixed-assets/transfers/", "/fixed-assets/depreciation/",
+    "/inventory/transfer-to-fa/", "/compensation/run-payroll", "/compensation/tax-settings",
     "/compensation/",
 ]
 

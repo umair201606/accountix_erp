@@ -1,0 +1,58 @@
+{% extends "fixed_assets/layouts/base.html" %}
+{% block title %}Asset Movement{% endblock %}
+{% block page_title %}Fixed Asset Movement Schedule{% endblock %}
+{% block actions %}
+{% from "partials/export.html" import export_buttons %}
+{{ export_buttons(("excel", "pdf", "csv")) }}
+{% endblock %}
+{% block content %}
+{% set f = "{:,.0f}" %}
+<form method="GET" class="card" style="margin-bottom:12px;">
+  <div class="card-body" style="display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end;">
+    <div class="form-group" style="margin:0;"><label for="mv-from">From</label>
+      <input type="date" id="mv-from" name="from" value="{{ date_from }}" class="form-control"></div>
+    <div class="form-group" style="margin:0;"><label for="mv-to">To</label>
+      <input type="date" id="mv-to" name="to" value="{{ date_to }}" class="form-control"></div>
+    <button type="submit" class="btn btn-outline">View</button>
+    <a href="{{ url_for('fa_reports.index') }}" class="btn btn-outline">Asset register</a>
+  </div>
+</form>
+
+<div class="card">
+  <div class="card-body">
+    <p class="text-muted" style="font-size:.85rem;">Property, plant &amp; equipment roll-forward for {{ date_from.strftime('%d %b %Y') }} to {{ date_to.strftime('%d %b %Y') }}: what the books carried at the start, what came in and went out, and the depreciation charged. Disposals include sales, write-offs and assets moved back to stock.</p>
+    {% if data.rows %}
+    <div class="table-responsive">
+    <table class="table mv-table">
+      <thead>
+        <tr><th rowspan="2">Category</th><th colspan="4" class="mv-grp">Cost</th><th colspan="4" class="mv-grp">Accumulated depreciation</th><th colspan="2" class="mv-grp">Net book value</th></tr>
+        <tr><th>b/f</th><th>Additions</th><th>Disposals</th><th>c/f</th><th>b/f</th><th>Charge</th><th>Disposals</th><th>c/f</th><th>b/f</th><th>c/f</th></tr>
+      </thead>
+      <tbody>
+        {% for r in data.rows %}
+        <tr><td>{{ r.category }}</td>
+          <td>{{ f.format(r.cost_open) }}</td><td>{{ f.format(r.additions) }}</td><td>{{ f.format(r.cost_disposals) }}</td><td><strong>{{ f.format(r.cost_close) }}</strong></td>
+          <td>{{ f.format(r.dep_open) }}</td><td>{{ f.format(r.charge) }}</td><td>{{ f.format(r.dep_disposals) }}</td><td><strong>{{ f.format(r.dep_close) }}</strong></td>
+          <td>{{ f.format(r.nbv_open) }}</td><td><strong>{{ f.format(r.nbv_close) }}</strong></td></tr>
+        {% endfor %}
+      </tbody>
+      <tfoot>
+        {% set t = data.total %}
+        <tr><th>Total</th>
+          <th>{{ f.format(t.cost_open) }}</th><th>{{ f.format(t.additions) }}</th><th>{{ f.format(t.cost_disposals) }}</th><th>{{ f.format(t.cost_close) }}</th>
+          <th>{{ f.format(t.dep_open) }}</th><th>{{ f.format(t.charge) }}</th><th>{{ f.format(t.dep_disposals) }}</th><th>{{ f.format(t.dep_close) }}</th>
+          <th>{{ f.format(t.nbv_open) }}</th><th>{{ f.format(t.nbv_close) }}</th></tr>
+      </tfoot>
+    </table>
+    </div>
+    {% else %}
+    <p class="text-muted">No assets were held in this period.</p>
+    {% endif %}
+  </div>
+</div>
+<style>
+  .mv-table th, .mv-table td { text-align: right; white-space: nowrap; }
+  .mv-table th:first-child, .mv-table td:first-child { text-align: left; }
+  .mv-table .mv-grp { text-align: center; border-bottom: 1px solid var(--border, #e5e7eb); }
+</style>
+{% endblock %}

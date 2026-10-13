@@ -120,10 +120,8 @@
       {% if asset %}
       <div class="form-group">
         <label class="form-label">Status</label>
-        <select name="status" class="form-control">
-          <option value="active" {{ 'selected' if asset.status == 'active' }}>Active</option>
-          <option value="disposed" {{ 'selected' if asset.status == 'disposed' }}>Disposed</option>
-        </select>
+        <div class="form-control" style="background:transparent;">{{ asset.status|title }}</div>
+        <small class="text-muted">Changes only through Dispose / Undo disposal or a transfer, so the ledger moves with it. Changing life, salvage or method re-plans the remaining depreciation from today.</small>
       </div>
       {% endif %}
       <div class="form-group">

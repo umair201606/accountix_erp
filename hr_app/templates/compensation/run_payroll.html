@@ -9,6 +9,10 @@
         <input type="file" id="bulk-upload-input" accept=".xlsx,.csv" style="display:none">
     </div>
 </div>
+{% if no_slabs %}
+<div class="alert alert-warning">No income tax slabs are set up, so no tax will be withheld. <a href="{{ url_for('compensation.tax_settings') }}">Set up tax slabs</a>.</div>
+{% endif %}
+<p class="text-muted" style="font-size:.85rem;">Pay is prorated by calendar days for joiners and approved unpaid leave. Income tax is withheld on taxable pay by the cumulative method over the tax year (July–June); a bonus is taxed in the month it is paid. Loan instalments are capped at what is left after other deductions.</p>
 <form method="POST" id="payroll-form">
     <div class="card mb-20">
         <div class="card-header flex-between">

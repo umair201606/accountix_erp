@@ -79,6 +79,14 @@ def flask_server():
             proc.terminate()
             raise RuntimeError("Flask server died during startup\n"
                                + _server_log())
+        # The first request seeds the fresh database, which takes 15-35 s on
+        # a busy machine — longer than Playwright's 30 s navigation timeout,
+        # so whichever browser test came first failed at random. Warm it here.
+        import urllib.request
+        try:
+            urllib.request.urlopen(f"{BASE_URL}/auth/login", timeout=180).read()
+        except OSError:
+            pass
         yield
     finally:
         proc.terminate()

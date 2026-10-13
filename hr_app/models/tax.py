@@ -15,11 +15,14 @@ class IncomeTaxSlab(db.Model):
 
     @staticmethod
     def calculate_tax(annual_gross):
+        """Annual tax on annual taxable income from the company's slabs.
+
+        No slabs means no tax is computed (the run screen says so). It used
+        to fall back to a flat 5% that is in no tax law."""
         slabs = IncomeTaxSlab.query.filter_by(is_active=True).order_by(IncomeTaxSlab.min_income).all()
-        if not slabs:
-            return round(annual_gross * 0.05, 2)
+        income = float(annual_gross or 0)
         for slab in reversed(slabs):
-            if annual_gross > slab.min_income:
-                tax = slab.fixed_amount + (annual_gross - slab.min_income) * slab.rate_pct / 100
+            if income > float(slab.min_income or 0):
+                tax = float(slab.fixed_amount or 0) + (income - float(slab.min_income or 0))                     * float(slab.rate_pct or 0) / 100
                 return round(tax, 2)
-        return 0
+        return 0.0

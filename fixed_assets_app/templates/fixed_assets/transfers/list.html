@@ -8,6 +8,7 @@
       <a href="{{ url_for('fa_transfers.capitalise_from_stock') }}" class="btn btn-primary">Capitalise Stock as Fixed Asset</a>
     </div>
     {% if transfers %}
+    <div class="table-responsive">
     <table class="table">
       <thead><tr><th>Voucher #</th><th>Direction</th><th>Asset</th><th>Amount</th><th>Description</th><th>Status</th><th>Created</th><th></th></tr></thead>
       <tbody>
@@ -21,21 +22,31 @@
           <td>{{ t.description }}</td>
           <td><span class="badge {{ 'badge-success' if t.status == 'approved' else 'badge-warning' }}">{{ t.status }}</span></td>
           <td>{{ t.created_at.strftime('%Y-%m-%d') if t.created_at else '' }}</td>
-          <td>
-            {% if not to_fa %}
+          <td style="white-space:nowrap;">
+            {% if t.status == 'approved' %}
+            <form method="POST" style="display:inline;" onsubmit="return confirm('Unapprove and reverse this transfer?')"
+                  action="{{ url_for('fa_transfers.unapprove_capitalisation', id=t.id) if to_fa else url_for('fa_transfers.unapprove_transfer', id=t.id) }}">
+              <button type="submit" class="btn btn-sm btn-warning">Unapprove</button>
+            </form>
+            {% else %}
+            {% if to_fa %}
+            <form method="POST" style="display:inline;" action="{{ url_for('fa_transfers.approve_capitalisation_route', id=t.id) }}">
+              <button type="submit" class="btn btn-sm btn-success">Approve</button>
+            </form>
+            {% else %}
             <a href="{{ url_for('fa_transfers.edit_transfer', id=t.id) }}" class="btn btn-sm btn-outline">Edit</a>
             {% endif %}
-            {% if t.status == 'approved' %}
-            <a href="{{ url_for('fa_transfers.unapprove_capitalisation', id=t.id) if to_fa else url_for('fa_transfers.unapprove_transfer', id=t.id) }}"
-               class="btn btn-sm btn-warning" onclick="return confirm('Unapprove and reverse this transfer?')">Unapprove</a>
-            {% else %}
-            <a href="{{ url_for('fa_transfers.delete_transfer', id=t.id) }}" class="btn btn-sm btn-danger" onclick="return confirm('Delete this transfer?')">Delete</a>
+            <form method="POST" style="display:inline;" onsubmit="return confirm('Delete this transfer?')"
+                  action="{{ url_for('fa_transfers.delete_transfer', id=t.id) }}">
+              <button type="submit" class="btn btn-sm btn-danger">Delete</button>
+            </form>
             {% endif %}
           </td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
+    </div>
     {% else %}
     <p class="text-muted">No transfers yet. <a href="{{ url_for('fa_assets.list_assets') }}">Go to Assets</a> to transfer one to stock, or capitalise stock above.</p>
     {% endif %}

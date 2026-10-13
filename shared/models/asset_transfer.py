@@ -18,6 +18,9 @@ class AssetTransfer(db.Model):
     new_product_name = db.Column(db.String(200), default="")
     source_product_id = db.Column(db.Integer, nullable=True)
     transfer_amount = db.Column(Money, default=0)
+    # Units taken out of stock by a capitalisation (stored so a draft can be
+    # approved later with the quantity it was raised for).
+    quantity = db.Column(Money, default=1)
     description = db.Column(db.Text, default="")
     # Date the transfer happens: its journal and stock movement post here.
     transfer_date = db.Column(db.Date)
@@ -26,3 +29,7 @@ class AssetTransfer(db.Model):
     approved_by = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     approved_at = db.Column(db.DateTime, nullable=True)
+
+    # Both transfer lists print t.asset.name; with no relationship it was
+    # always undefined and every row read "N/A".
+    asset = db.relationship("FixedAsset", foreign_keys=[asset_id], lazy="joined")

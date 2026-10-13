@@ -17,6 +17,33 @@ E2E tests must cover all app modules:
 - **Inventory**: Login, Dashboard, Products, Suppliers, Customers, Purchase Invoice (form, add/clear items, pill toggles, calculations, global inputs), Purchase Return, Logout
 - **HR**: Login, Hub, Dashboard, Attendance, Leave, ESS, Profile, Logout
 
+## Session Summary (13 Oct 2026) — Fixed Assets & Payroll to Corporate Standard
+
+### Fixed assets
+- **Depreciation engine** (`FixedAsset.monthly_charges`, used by `due_depreciation`, the run, disposal/transfer catch-up and the schedule): straight line spreads what is left over the life left (changes of life / salvage / cost are **prospective**, IAS 8); reducing balance is double-declining **switching to straight line**; the life's last month takes the remainder. Before: SL stopped a few rupees short, DDB never reached salvage (stuck forever), an edited life kept the old rate, and an asset past its life with value left was never charged again
+- **Planned depreciation** table on the asset page (`depreciation_schedule`); run page has an "as of" date, method, charged-to and total; bulk post uses a savepoint per asset (a refused one used to leave its half-built row to be committed with the others)
+- **Asset rules**: cost > 0, 1–100 years, 0 ≤ salvage < cost, method checked; edit refuses cost below posted depreciation, purchase date after the first charge, moving accumulated depreciation to another account, and cost/date edits on capitalised assets; out-of-service assets edit descriptive fields only (restating a disposed asset's cost re-posted FA-ACQ while FA-DISP credited the old figure). "Disposed" removed from the edit form (it skipped the disposal journal); blank account selects keep the current account. Fixed-asset account / label changes now restate the acquisition too
+- **Disposal / transfer** refused when depreciation is posted after their date; manual charges only for assets in service and not before the last charge; inactive assets take no charge
+- **Capitalisation drafts**: an unapproved capitalisation created an *active* asset (from Inventory even at a typed cost with no journal) that the run depreciated with nothing in the GL. Drafts are now `status="draft"`, quantity stored (`asset_transfers.quantity`), approvable later (`POST /fixed-assets/transfers/<id>/approve-capitalisation`), deleting a draft deletes its asset, unapprove returns it to draft. Both modules use `new_capitalisation` / `approve_capitalisation` / `discard_draft_asset`. Asset → stock now requires a stock item (it debited Inventory with no layer). Unapprove/delete are POST-only. Inventory's list filtered on a direction it never wrote (always empty); neither list ever showed the asset name (no relationship). Asset codes: `FixedAsset.next_code()` (count()+1 collided after deletes). Alembic **0008_capitalisation_drafts**
+- **Movement schedule** (`fixed_assets_app/movement.py`, `GET /fixed-assets/reports/movement`, Excel/PDF/CSV): cost and accumulated depreciation b/f + additions/charge − disposals = c/f by category (the IAS 16 note); nav "Asset Register" + "Movement Schedule"
+
+### Payroll (`hr_app/payroll_engine.py`, used by preview, AJAX recalculation and the run)
+- Components fixed or **% of basic** (the stored method was ignored); edit validates name/type/basis/amount
+- **Proration by calendar days** for joiners and approved **unpaid leave** (`LeaveType.is_paid=False`) — was a 30-day month, unpaid leave ignored
+- **Taxable pay** = basic + components marked taxable + overtime + bonus (the taxable flag was never read); stored on the slip (`taxable_pay`, Alembic **0009_payslip_taxable_pay**)
+- **Withholding = cumulative method** over the tax year (July–June): tax on YTD + this month + full months left, less tax already withheld, over the months left; a bonus/overtime is taxed once in its month. Was gross × 12, so a bonus month was taxed as if the bonus came every month. No slabs → no tax (was an invented flat 5%), with a warning on the run page. "Load tax year 2026 slabs" (Finance Act 2025: 0 / 1% / 11% / 23% / 30% / 35%, fixed 6,000 / 116,000 / 346,000 / 616,000) replaces the active set; the old seed was TY2025 and merged brackets. Slab entry validated
+- **Loans** recovered only from what is left after other deductions (net could go negative); the run reuses the preview's loans instead of recomputing; a run where deductions still exceed pay is refused
+- Company clock for the run page defaults
+
+### Tests
+- New: `tests/e2e/test_fixed_asset_rules.py` 9, `tests/e2e/test_payroll_engine.py` 8; `tests/unit/test_fixed_assets.py` +9 (DDB to salvage, SL to the paisa, prospective life, overdue residual, schedule, codes, movement roll-forward) — the file only ran inside the full suite (missing `project_label` import), fixed
+- `test_responsive_pages.py` + movement, transfers, depreciation, inventory transfers, run payroll, tax settings; Alembic heads → 0009
+- Full run: unit **461 passed**, E2E **931 passed, 2 skipped** (Postgres-only); not re-run on Postgres this session
+- `tests/e2e/conftest.py` warms the server (first request seeds the fresh DB: 15–35 s, longer than Playwright's 30 s, so whichever browser test ran first failed at random — HEAD too)
+
+### Known, not changed
+- PF is a % of gross (common practice is basic); overtime is 1.5 × basic/160 h (Factories Act s.47 says double for factories); no leaving date, so a leaver is excluded only once deactivated; no EOBI/super-tax (income > 10m) logic
+
 ## Session Summary (12 Oct 2026) — App-wide Walkthrough: HR Logic, Payroll GL, Company Clock
 
 ### How the walkthrough was done

@@ -168,7 +168,7 @@ def stock_quantity():
 def fixed_assets_vs_gl():
     from fixed_assets_app.models.asset import FixedAsset
     live = [a for a in FixedAsset.query.all()
-            if a.status not in ("disposed", "transferred", "inactive")]
+            if a.status not in ("disposed", "transferred", "inactive", "draft", "cancelled")]
     cost = sum((_d(a.purchase_cost) for a in live), ZERO)
     dep = sum((_d(a.posted_depreciation) for a in live), ZERO)
     gl_cost = _gl_balance(("1-02-01",))

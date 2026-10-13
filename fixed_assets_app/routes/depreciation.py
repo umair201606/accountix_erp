@@ -5,6 +5,8 @@ from shared.extensions import db
 from shared.tenancy import scoped_get, scoped_get_404
 from shared.ledger_utils import (post_journal_entry, reverse_journal_entry,
                                  posting_account, create_fixed_asset_accounts)
+from shared.clock import local_today
+from shared.posting_helpers import parse_doc_date
 from ..models.asset import FixedAsset, AssetDepreciation
 
 fa_dep_bp = Blueprint("fa_dep", __name__, url_prefix="/fixed-assets/depreciation")
@@ -46,6 +48,15 @@ def _months_between(start, end):
     return max(0, months)
 
 
+def charged_months(asset):
+    """Months of the asset's life already covered by live charges."""
+    return _months_between(asset.purchase_date, last_depreciation_date(asset))
+
+
+def due_months(asset, as_of=None):
+    return _months_between(last_depreciation_date(asset), as_of or local_today())
+
+
 def due_depreciation(asset, as_of=None):
     """Depreciation chargeable from the last live posting up to as_of.
 
@@ -53,21 +64,45 @@ def due_depreciation(asset, as_of=None):
     charge and the amount it covered simply becomes due again.
     """
     if as_of is None:
-        as_of = date.today()
+        as_of = local_today()
     if asset.status != "active" or asset.useful_life <= 0 or asset.purchase_cost <= 0:
         return 0
-    last_d = last_depreciation_date(asset)
-    months = _months_between(last_d, as_of)
+    months = due_months(asset, as_of)
     if months <= 0:
         return 0
-    # Never charge past the asset's life...
-    charged_months = _months_between(asset.purchase_date, last_d)
-    months = min(months, max(0, asset.useful_life * 12 - charged_months))
-    if months <= 0:
-        return 0
-    amount = round((asset.annual_depreciation / 12) * months, 2)
-    # ...nor past the salvage floor, whatever the method or the month count.
+    amount = round(sum(asset.monthly_charges(months, charged_months(asset))), 2)
+    # Never past the salvage floor, whatever the method or the month count.
     return round(min(amount, asset.remaining_depreciable), 2)
+
+
+def depreciation_schedule(asset):
+    """Planned charges from the next month to the end of the life, by year.
+
+    Rows: (year ending, months, opening NBV, charge, closing NBV). A projection
+    off the live postings, so it re-plans itself after a reversal or an edit.
+    """
+    if asset.status != "active" or not asset.purchase_cost or not asset.useful_life:
+        return []
+    start = last_depreciation_date(asset)
+    done = charged_months(asset)
+    charges = asset.monthly_charges(asset.useful_life * 12 - done + 1, done)
+    nbv = float(asset.net_book_value)
+    rows = []
+    for i in range(0, len(charges), 12):
+        chunk = charges[i:i + 12]
+        end = _add_months(start, i + len(chunk))
+        charge = round(sum(chunk), 2)
+        rows.append({"period_end": end, "months": len(chunk), "opening": round(nbv, 2),
+                     "charge": charge, "closing": round(nbv - charge, 2)})
+        nbv -= charge
+    return rows
+
+
+def _add_months(d, n):
+    import calendar
+    m = d.month - 1 + n
+    y, m = d.year + m // 12, m % 12 + 1
+    return d.replace(year=y, month=m, day=min(d.day, calendar.monthrange(y, m)[1]))
 
 
 def post_asset_depreciation(asset, entry_date, created_by, amount=None):
@@ -81,6 +116,8 @@ def post_asset_depreciation(asset, entry_date, created_by, amount=None):
     ``reverse_journal_entry("FA-DEP", asset.id)`` un-posted an asset's entire
     depreciation history in one go.
     """
+    if asset.status != "active" or not asset.is_active:
+        return 0      # disposed / transferred / draft assets take no charge
     computed = due_depreciation(asset, entry_date)
     amount = computed if amount is None else round(
         min(float(amount), asset.remaining_depreciable), 2)
@@ -137,16 +174,16 @@ def reverse_asset_depreciation(dep_entry, created_by=1):
 def index():
     if not current_user.module_access("fixed_assets"):
         return render_template("access_denied.html")
-    as_of = date.today()
+    as_of = parse_doc_date(request.args.get("as_of")).date()
     assets = FixedAsset.query.filter_by(status="active", is_active=True).all()
     due = []
     for a in assets:
         amount = due_depreciation(a, as_of)
         if amount > 0:
-            last_d = last_depreciation_date(a)
-            months = int((as_of - last_d).days / 30)
-            due.append({"asset": a, "amount": amount, "months": months})
-    return render_template("fixed_assets/depreciation/index.html", due=due, as_of=as_of)
+            due.append({"asset": a, "amount": amount, "months": due_months(a, as_of),
+                        "last": last_depreciation_date(a)})
+    return render_template("fixed_assets/depreciation/index.html", due=due, as_of=as_of,
+                           total=round(sum(d["amount"] for d in due), 2))
 
 
 @fa_dep_bp.route("/post", methods=["POST"])
@@ -155,22 +192,30 @@ def post_depreciation():
     if not current_user.module_access("fixed_assets"):
         return render_template("access_denied.html")
     asset_ids = request.form.getlist("asset_ids[]")
-    entry_date_str = request.form.get("entry_date", "")
-    entry_date = datetime.strptime(entry_date_str, "%Y-%m-%d").date() if entry_date_str else date.today()
+    entry_date = parse_doc_date(request.form.get("entry_date")).date()
     posted = 0
     errors = []
     for aid in asset_ids:
-        asset = scoped_get(FixedAsset, int(aid))
+        try:
+            asset = scoped_get(FixedAsset, int(aid))
+        except (TypeError, ValueError):
+            continue
         if not asset or asset.status != "active":
             continue
+        # One savepoint per asset: a refused charge (closed period, missing
+        # account) used to leave its half-built depreciation row in the session,
+        # and the commit for the others then saved it with no journal behind it.
+        sp = db.session.begin_nested()
         try:
             amt = post_asset_depreciation(asset, entry_date, current_user.id)
+            sp.commit()
             if amt:
                 posted += 1
         except Exception as e:
+            sp.rollback()
             errors.append(f"{asset.name}: {e}")
+    db.session.commit()
     if posted:
-        db.session.commit()
         flash(f"Depreciation posted for {posted} asset(s).", "success")
     elif not errors:
         flash("Nothing posted. Select at least one active asset.", "warning")

@@ -134,29 +134,65 @@ class FixedAsset(db.Model):
         """What may still be charged before the salvage floor is reached."""
         return max(0.0, float(self.depreciable_amount) - float(self.posted_depreciation))
 
+    METHODS = ("straight_line", "declining_balance")
+
+    def monthly_charges(self, months, charged_months, accumulated=None):
+        """The next ``months`` monthly charges, after ``charged_months`` of the
+        life have already been charged and ``accumulated`` has been posted.
+
+        Changes in estimate are prospective (IAS 16 / IAS 8): whatever is still
+        depreciable is spread over whatever life is left, so editing the life,
+        salvage or cost re-plans the remaining charges instead of carrying on
+        at the original rate. The month the life ends takes the remainder, so
+        book value lands exactly on salvage — straight-line used to stop a few
+        rupees short from rounding, and reducing balance never reached salvage
+        at all (it stopped at the end of the life with a residual nothing would
+        ever charge).
+
+        Reducing balance is double-declining (2 / life on net book value) with
+        the standard switch to straight-line once that gives the larger charge.
+        """
+        cost = float(self.purchase_cost or 0)
+        salvage = float(self.salvage_value or 0)
+        life_m = int(self.useful_life or 0) * 12
+        acc = float(self.posted_depreciation if accumulated is None else accumulated)
+        rate = (2.0 / self.useful_life / 12) if self.useful_life else 0
+        out = []
+        for i in range(max(0, int(months))):
+            remaining = cost - salvage - acc
+            if remaining <= 0.005 or life_m <= 0:
+                break
+            left = life_m - charged_months - i
+            if left <= 1:
+                charge = remaining        # last month of the life, or overdue
+            else:
+                charge = remaining / left
+                if self.depreciation_method == "declining_balance":
+                    charge = max(charge, (cost - acc) * rate)
+                charge = min(charge, remaining)
+            acc += charge
+            out.append(charge)
+        return out
+
     @property
     def annual_depreciation(self):
-        if self.useful_life <= 0:
-            return 0
-        if self.depreciation_method == "straight_line":
-            return self.depreciable_amount / self.useful_life
-        elif self.depreciation_method == "declining_balance":
-            # Reducing balance on the *depreciable* base: charging on
-            # cost - accumulated ignores salvage and drives book value below it.
-            rate = 2.0 / self.useful_life
-            return min(self.remaining_depreciable,
-                       (self.purchase_cost - self.posted_depreciation) * rate)
-        return 0
+        """The charge planned for the next twelve months."""
+        from fixed_assets_app.routes.depreciation import charged_months
+        return round(sum(self.monthly_charges(12, charged_months(self))), 2)
 
-    def calculate_depreciation(self, for_date=None):
-        if for_date is None:
-            for_date = date.today()
-        years_elapsed = (for_date - self.purchase_date).days / 365.0
-        if years_elapsed <= 0:
-            return 0
-        total_months = int(years_elapsed * 12)
-        months_to_depreciate = min(total_months, self.useful_life * 12)
-        return (self.annual_depreciation / 12) * months_to_depreciate
+    @staticmethod
+    def next_code():
+        """FA-0001, FA-0002, … per company. Three creation paths used to
+        number from the last id or from count()+1 — the latter collided with
+        the unique code after any delete and the create failed."""
+        import re
+        top = 0
+        for (code,) in db.session.query(FixedAsset.asset_code).filter(
+                FixedAsset.asset_code.like("FA-%")):
+            m = re.fullmatch(r"FA-(\d+)", code or "")
+            if m:
+                top = max(top, int(m.group(1)))
+        return f"FA-{top + 1:04d}"
 
     def __repr__(self):
         return f"<FixedAsset {self.asset_code}: {self.name}>"

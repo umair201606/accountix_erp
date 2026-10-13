@@ -71,6 +71,9 @@ class PayrollSlip(db.Model):
     gross_pay = db.Column(Money, default=0.0)
     total_deductions = db.Column(Money, default=0.0)
     net_pay = db.Column(Money, default=0.0)
+    # Pay that counts for income tax (basic + taxable components + overtime
+    # and bonus): the year-to-date base for cumulative withholding.
+    taxable_pay = db.Column(Money)
     components_json = db.Column(db.Text)
     pdf_filename = db.Column(db.String(255))
     created_at = db.Column(db.DateTime, default=datetime.utcnow)

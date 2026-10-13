@@ -10,7 +10,7 @@ from shared.ledger_utils import (post_journal_entry, reverse_journal_entry,
                                  posting_account, create_fixed_asset_accounts,
                                  create_entity_account)
 from shared import costing
-from ..models.asset import FixedAsset, AssetCategory
+from ..models.asset import FixedAsset, AssetCategory, AssetDepreciation
 from .depreciation import post_asset_depreciation, due_depreciation
 from shared.forms import form_float
 from shared.posting_helpers import parse_doc_date
@@ -74,6 +74,79 @@ def _capitalise_from_stock(transfer, product, qty, created_by):
     return asset
 
 
+def new_capitalisation(product, qty, name, category, tdate, created_by,
+                       voucher_prefix="FA-CAP", **asset_fields):
+    """A capitalisation voucher and its asset, both as drafts.
+
+    The asset is "draft" until approval: not in service, not in the register,
+    never picked up by the depreciation run. It used to be created "active"
+    at once — from Inventory even at a typed-in cost with no journal — so the
+    run charged depreciation on an asset the ledger did not hold.
+    """
+    life = asset_fields.pop("useful_life", None) or category.default_useful_life or 5
+    method = (asset_fields.pop("depreciation_method", None)
+              or category.default_depreciation_method or "straight_line")
+    if method not in FixedAsset.METHODS:
+        method = "straight_line"
+    asset = FixedAsset(
+        asset_code=FixedAsset.next_code(), name=name, category_id=category.id,
+        purchase_date=tdate, purchase_cost=0, current_book_value=0,
+        useful_life=int(life), depreciation_method=method,
+        status="draft", is_active=False, **asset_fields)
+    db.session.add(asset)
+    db.session.flush()
+    transfer = AssetTransfer(
+        voucher_number=VoucherNumber.next(voucher_prefix),
+        direction="to_fixed_asset", asset_id=asset.id,
+        source_product_id=product.id, product_id=product.id, quantity=qty,
+        transfer_date=tdate, transfer_amount=0,
+        description=f"Capitalise {product.name} as {name}",
+        status="unapproved", created_by=created_by)
+    db.session.add(transfer)
+    db.session.flush()
+    return transfer
+
+
+def approve_capitalisation(transfer, created_by, qty=None):
+    """Approve a draft capitalisation (raised in either module)."""
+    from inventory_app.models.product import InvProduct
+    product = scoped_get(InvProduct, transfer.source_product_id or transfer.product_id)
+    asset = scoped_get(FixedAsset, transfer.asset_id)
+    if product is None or asset is None:
+        raise ValueError("The stock item or the asset of this voucher no longer exists.")
+    if asset.status not in ("draft", "inactive"):
+        raise ValueError("This asset is already in service.")
+    qty = float(qty or transfer.quantity or 1)
+    if qty <= 0:
+        raise ValueError("Quantity must be positive.")
+    transfer.quantity = qty
+    if not transfer.transfer_date:
+        transfer.transfer_date = asset.purchase_date or date.today()
+    _capitalise_from_stock(transfer, product, qty, created_by)
+    if float(asset.salvage_value or 0) >= float(asset.purchase_cost or 0):
+        raise ValueError("Salvage value must be less than what the stock cost "
+                         f"({float(asset.purchase_cost or 0):,.2f}).")
+    return asset
+
+
+def discard_draft_asset(transfer):
+    """Deleting a draft capitalisation takes its never-booked asset with it
+    (it used to be left behind as an orphan). An asset that once carried
+    charges keeps its rows for the audit trail and is marked cancelled."""
+    if transfer.direction not in ("to_fixed_asset", "from_inventory"):
+        return
+    asset = scoped_get(FixedAsset, transfer.asset_id)
+    if asset is None or asset.status not in ("draft", "inactive"):
+        return
+    if AssetDepreciation.query.filter_by(asset_id=asset.id).count():
+        asset.status = "cancelled"
+        asset.is_active = False
+        return
+    db.session.delete(transfer)
+    db.session.flush()
+    db.session.delete(asset)
+
+
 def _approve_transfer(transfer, asset, stock_account_id, stock_description,
                       created_by):
     """Post an approved asset->inventory transfer: journal AND stock.
@@ -84,6 +157,13 @@ def _approve_transfer(transfer, asset, stock_account_id, stock_description,
     no quantity, and the inventory control account permanently adrift from the
     stock valuation.
     """
+    if asset is None or asset.status != "active":
+        raise ValueError("Only an asset in service can be transferred to stock.")
+    later = (asset.live_depreciation_query()
+             .filter(AssetDepreciation.entry_date > _tdate(transfer)).count())
+    if later:
+        raise ValueError("Depreciation is posted after the transfer date; reverse it "
+                         "or date the transfer on or after the last charge.")
     post_asset_depreciation(asset, _tdate(transfer), created_by)
     db.session.flush()
     purchase_cost = asset.purchase_cost
@@ -170,35 +250,23 @@ def capitalise_from_stock():
             flash("Quantity must be positive.", "error")
             return render_template("fixed_assets/transfers/capitalise.html",
                                    products=products, categories=categories)
-        last = FixedAsset.query.order_by(FixedAsset.id.desc()).first()
-        asset = FixedAsset(
-            asset_code=f"FA-{(last.id + 1) if last else 1:04d}",
-            name=name, category_id=category.id, purchase_date=_form_tdate(),
-            purchase_cost=0, useful_life=int(request.form.get(
-                "useful_life", type=int) or category.default_useful_life),
-            depreciation_method=request.form.get(
-                "depreciation_method", category.default_depreciation_method),
-            salvage_value=form_float("salvage_value", 0),
-            current_book_value=0, status="active",
+        salvage = form_float("salvage_value", 0)
+        if salvage < 0:
+            flash("Salvage value cannot be negative.", "error")
+            return render_template("fixed_assets/transfers/capitalise.html",
+                                   products=products, categories=categories)
+        transfer = new_capitalisation(
+            product, qty, name, category, _form_tdate(), current_user.id,
+            useful_life=request.form.get("useful_life", type=int),
+            depreciation_method=request.form.get("depreciation_method"),
+            salvage_value=salvage,
             location=request.form.get("location", ""),
-            notes=request.form.get("description", ""),
-        )
-        db.session.add(asset)
-        db.session.flush()
-        transfer = AssetTransfer(
-            voucher_number=VoucherNumber.next("FA-CAP"),
-            direction="to_fixed_asset", asset_id=asset.id,
-            source_product_id=product.id, product_id=product.id,
-            transfer_date=_form_tdate(),
-            description=request.form.get(
-                "description", f"Capitalise {product.name} as {name}"),
-            status="unapproved", created_by=current_user.id,
-        )
-        db.session.add(transfer)
-        db.session.flush()
+            notes=request.form.get("description", ""))
+        if request.form.get("description"):
+            transfer.description = request.form.get("description")
         if request.form.get("status", "unapproved") == "approved":
             try:
-                _capitalise_from_stock(transfer, product, qty, current_user.id)
+                approve_capitalisation(transfer, current_user.id, qty)
             except Exception as e:
                 db.session.rollback()
                 flash(f"Capitalisation failed: {e}", "error")
@@ -211,7 +279,27 @@ def capitalise_from_stock():
                            products=products, categories=categories)
 
 
-@fa_transfers_bp.route("/<int:id>/unapprove-capitalisation")
+@fa_transfers_bp.route("/<int:id>/approve-capitalisation", methods=["POST"])
+@login_required
+def approve_capitalisation_route(id):
+    if not current_user.module_access("fixed_assets"):
+        return render_template("access_denied.html")
+    transfer = scoped_get_404(AssetTransfer, id)
+    if transfer.status == "approved" or transfer.direction != "to_fixed_asset":
+        flash("Not a draft capitalisation.", "error")
+        return redirect(url_for("fa_transfers.list_transfers"))
+    try:
+        approve_capitalisation(transfer, current_user.id)
+    except Exception as e:
+        db.session.rollback()
+        flash(f"Capitalisation failed: {e}", "error")
+        return redirect(url_for("fa_transfers.list_transfers"))
+    db.session.commit()
+    flash(f"{transfer.voucher_number} approved; the asset is in service.", "success")
+    return redirect(url_for("fa_transfers.list_transfers"))
+
+
+@fa_transfers_bp.route("/<int:id>/unapprove-capitalisation", methods=["POST"])
 @login_required
 def unapprove_capitalisation(id):
     if not current_user.module_access("fixed_assets"):
@@ -224,6 +312,10 @@ def unapprove_capitalisation(id):
     if asset and asset.live_depreciation_query().count():
         flash("Reverse this asset's depreciation charges first.", "error")
         return redirect(url_for("fa_transfers.list_transfers"))
+    if asset and asset.status != "active":
+        flash("The asset is no longer in service (disposed or transferred); "
+              "reverse that first.", "error")
+        return redirect(url_for("fa_transfers.list_transfers"))
     try:
         costing.reverse_voucher_stock("FA-CAP", transfer.id,
                                       created_by=current_user.id)
@@ -233,7 +325,7 @@ def unapprove_capitalisation(id):
         flash(f"Reversal failed: {e}", "error")
         return redirect(url_for("fa_transfers.list_transfers"))
     if asset:
-        asset.status = "inactive"
+        asset.status = "draft"
         asset.is_active = False
         asset.purchase_cost = 0
         asset.recalculate()
@@ -290,11 +382,14 @@ def create_transfer():
             except Exception as e:
                 flash(f"Could not create product: {e}", "error")
                 return render_template("fixed_assets/transfers/form.html", asset=asset, products=products)
-        else:
-            stock_acct = posting_account("inventory")
-            stock_account_id = stock_acct.id
+        if not stock_account_id:
+            # Debiting the general Inventory account with no stock item put
+            # value in the GL that no stock layer carried, and the inventory
+            # account stopped agreeing with the stock valuation.
+            flash("Pick the stock item the asset becomes, or name a new one.", "error")
+            return render_template("fixed_assets/transfers/form.html", asset=asset, products=products)
         purchase_cost = asset.purchase_cost
-        accum_dep = asset.accumulated_depreciation
+        accum_dep = asset.posted_depreciation
         net_book = purchase_cost - accum_dep
         voucher_number = VoucherNumber.next("FA-TRF")
         transfer = AssetTransfer(
@@ -334,6 +429,11 @@ def edit_transfer(id):
     transfer = scoped_get_404(AssetTransfer, id)
     if transfer.status == "approved":
         flash("Cannot edit an approved transfer.", "error")
+        return redirect(url_for("fa_transfers.list_transfers"))
+    if transfer.direction != "to_inventory":
+        # This form posts asset -> stock; a draft capitalisation sent through
+        # it was "approved" as a transfer out of a zero-cost asset.
+        flash("Approve a capitalisation from the transfer list.", "error")
         return redirect(url_for("fa_transfers.list_transfers"))
     asset = scoped_get(FixedAsset, transfer.asset_id)
     products = []
@@ -376,9 +476,10 @@ def edit_transfer(id):
                 except Exception as e:
                     flash(f"Could not create product: {e}", "error")
                     return render_template("fixed_assets/transfers/form.html", asset=asset, products=products)
-            else:
-                stock_acct = posting_account("inventory")
-                stock_account_id = stock_acct.id
+            if not stock_account_id:
+                flash("Pick the stock item the asset becomes, or name a new one.", "error")
+                return render_template("fixed_assets/transfers/form.html", asset=asset,
+                                       products=products, transfer=transfer)
             try:
                 _approve_transfer(transfer, asset, stock_account_id,
                                   stock_description, current_user.id)
@@ -392,7 +493,7 @@ def edit_transfer(id):
     return render_template("fixed_assets/transfers/form.html", asset=asset, products=products, transfer=transfer)
 
 
-@fa_transfers_bp.route("/<int:id>/unapprove")
+@fa_transfers_bp.route("/<int:id>/unapprove", methods=["POST"])
 @login_required
 def unapprove_transfer(id):
     if not current_user.module_access("fixed_assets"):
@@ -425,7 +526,7 @@ def unapprove_transfer(id):
     return redirect(url_for("fa_transfers.list_transfers"))
 
 
-@fa_transfers_bp.route("/<int:id>/delete")
+@fa_transfers_bp.route("/<int:id>/delete", methods=["POST"])
 @login_required
 def delete_transfer(id):
     if not current_user.module_access("fixed_assets"):
@@ -434,7 +535,9 @@ def delete_transfer(id):
     if transfer.status == "approved":
         flash("Cannot delete an approved transfer. Unapprove it first.", "error")
         return redirect(url_for("fa_transfers.list_transfers"))
-    db.session.delete(transfer)
+    discard_draft_asset(transfer)
+    if transfer in db.session:
+        db.session.delete(transfer)
     db.session.commit()
     flash(f"Transfer {transfer.voucher_number} deleted.", "success")
     return redirect(url_for("fa_transfers.list_transfers"))

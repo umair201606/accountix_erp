@@ -2,29 +2,44 @@
 {% block title %}Post Depreciation{% endblock %}
 {% block page_title %}Post Monthly Depreciation{% endblock %}
 {% block content %}
+<form method="GET" class="card" style="margin-bottom:12px;">
+  <div class="card-body" style="display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end;">
+    <div class="form-group" style="margin:0;">
+      <label for="as_of">Charge up to</label>
+      <input type="date" id="as_of" name="as_of" value="{{ as_of }}" class="form-control">
+    </div>
+    <button type="submit" class="btn btn-outline">Show due</button>
+    <span class="text-muted" style="font-size:.85rem;">Usually the last day of the month being closed. Each charge is posted on this date.</span>
+  </div>
+</form>
 {% if due %}
 <form method="POST" action="{{ url_for('fa_dep.post_depreciation') }}">
   <input type="hidden" name="entry_date" value="{{ as_of }}">
   <div class="card">
     <div class="card-body">
       <p>Depreciation due as of <strong>{{ as_of }}</strong>. Select assets to post.</p>
+      <div class="table-responsive">
       <table class="table">
-        <thead><tr><th><input type="checkbox" id="select-all" checked></th><th>Asset</th><th>Code</th><th>Purchase Cost</th><th>Accum. Dep</th><th>Book Value</th><th>Months Due</th><th>Amount</th></tr></thead>
+        <thead><tr><th><input type="checkbox" id="select-all" checked aria-label="Select all"></th><th>Asset</th><th>Code</th><th>Method</th><th>Cost</th><th>Accum. dep</th><th>Book value</th><th>Charged to</th><th>Months</th><th>Amount</th></tr></thead>
         <tbody>
           {% for d in due %}
           <tr>
             <td><input type="checkbox" name="asset_ids[]" value="{{ d.asset.id }}" checked></td>
             <td><a href="{{ url_for('fa_assets.view_asset', asset_id=d.asset.id) }}">{{ d.asset.name }}</a></td>
             <td>{{ d.asset.asset_code }}</td>
+            <td>{{ 'Reducing balance' if d.asset.depreciation_method == 'declining_balance' else 'Straight line' }}</td>
             <td>{{ "{:,.0f}".format(d.asset.purchase_cost) }}</td>
             <td>{{ "{:,.0f}".format(d.asset.posted_depreciation) }}</td>
             <td>{{ "{:,.0f}".format(d.asset.net_book_value) }}</td>
+            <td>{{ d.last.strftime('%d %b %Y') }}</td>
             <td>{{ d.months }}</td>
             <td><strong>{{ "{:,.0f}".format(d.amount) }}</strong></td>
           </tr>
           {% endfor %}
         </tbody>
+        <tfoot><tr><th colspan="9">Total ({{ due|length }} assets)</th><th>{{ "{:,.0f}".format(total) }}</th></tr></tfoot>
       </table>
+      </div>
     </div>
     <div class="card-footer">
       <button type="submit" class="btn btn-success">Post Selected Depreciation</button>

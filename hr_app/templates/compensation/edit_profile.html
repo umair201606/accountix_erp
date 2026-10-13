@@ -19,7 +19,7 @@
         </div>
         <div class="table-wrap">
             <table id="components-table">
-                <thead><tr><th>Name</th><th>Type</th><th>Value (Rs.)</th><th>Taxable</th><th></th></tr></thead>
+                <thead><tr><th>Name</th><th>Type</th><th>Basis</th><th>Amount</th><th>Taxable</th><th></th></tr></thead>
                 <tbody id="components-body">
                     {% if profile %}
                     {% for c in profile.components %}
@@ -31,7 +31,13 @@
                                 <option value="deduction" {{ 'selected' if c.type == 'deduction' }}>Deduction</option>
                             </select>
                         </td>
-                        <td><input name="comp_value" type="number" step="0.01" class="form-control" value="{{ c.value }}" style="width:120px;"></td>
+                        <td>
+                            <select name="comp_method" class="form-control" style="width:130px;">
+                                <option value="fixed" {{ 'selected' if (c.calculation_method or 'fixed') == 'fixed' }}>Fixed (Rs.)</option>
+                                <option value="percent_of_basic" {{ 'selected' if c.calculation_method in ('percent_of_basic', 'percentage') }}>% of basic</option>
+                            </select>
+                        </td>
+                        <td><input name="comp_value" type="number" step="0.01" min="0" class="form-control" value="{{ c.value }}" style="width:120px;"></td>
                         <td><input name="comp_taxable" type="checkbox" value="1" {{ 'checked' if c.is_taxable else '' }}></td>
                         <td><button type="button" class="btn btn-sm btn-danger" onclick="this.closest('tr').remove()">X</button></td>
                     </tr>
@@ -41,6 +47,7 @@
             </table>
         </div>
     </div>
+    <p class="text-muted" style="font-size:.85rem;">Gross pay is basic + allowances. Untick "Taxable" for an exempt allowance (e.g. medical within the exemption). A percentage follows basic when it is revised. Deductions are fixed monthly amounts (EOBI, welfare fund); income tax, PF and loan instalments are added by the run.</p>
     <input type="hidden" name="components_json" id="components-json">
     <button type="submit" class="btn btn-primary">Save Package</button>
     <a href="{{ url_for('compensation.index') }}" class="btn btn-secondary">Cancel</a>
@@ -54,7 +61,8 @@ document.getElementById('add-component')?.addEventListener('click', () => {
     tr.innerHTML = `
         <td><input name="comp_name" class="form-control" style="width:150px;"></td>
         <td><select name="comp_type" class="form-control" style="width:120px;"><option value="allowance">Allowance</option><option value="deduction">Deduction</option></select></td>
-        <td><input name="comp_value" type="number" step="0.01" class="form-control" style="width:120px;"></td>
+        <td><select name="comp_method" class="form-control" style="width:130px;"><option value="fixed">Fixed (Rs.)</option><option value="percent_of_basic">% of basic</option></select></td>
+        <td><input name="comp_value" type="number" step="0.01" min="0" class="form-control" style="width:120px;"></td>
         <td><input name="comp_taxable" type="checkbox" value="1" checked></td>
         <td><button type="button" class="btn btn-sm btn-danger" onclick="this.closest('tr').remove()">X</button></td>`;
     tbody.appendChild(tr);
@@ -64,6 +72,7 @@ document.getElementById('salary-form')?.addEventListener('submit', () => {
     const comps = rows.map(r => ({
         name: r.querySelector('[name="comp_name"]').value,
         type: r.querySelector('[name="comp_type"]').value,
+        method: r.querySelector('[name="comp_method"]').value,
         value: parseFloat(r.querySelector('[name="comp_value"]').value) || 0,
         is_taxable: r.querySelector('[name="comp_taxable"]').checked,
     })).filter(c => c.name);

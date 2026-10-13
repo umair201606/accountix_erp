@@ -8,7 +8,28 @@ from shared.ledger_utils import (post_journal_entry, reverse_journal_entry,
                                  posting_account, create_fixed_asset_accounts)
 from ..models.asset import FixedAsset, AssetCategory, AssetDepreciation
 from .depreciation import post_asset_depreciation
-from shared.forms import form_date, form_float, form_int
+from shared.forms import form_date, form_float, form_int, FormInputError, REQUIRED
+
+
+def _read_terms(category):
+    """Cost, life, salvage and method off the form, checked the way an
+    auditor would: a zero-cost or zero-life asset, or salvage at or above
+    cost, produced nonsense charges (or none) for years."""
+    if category is None:
+        raise FormInputError("Choose a category.")
+    cost = form_float("purchase_cost", 0)
+    life = form_int("useful_life", category.default_useful_life or 5)
+    salvage = form_float("salvage_value", 0)
+    method = request.form.get("depreciation_method") or category.default_depreciation_method
+    if cost <= 0:
+        raise FormInputError("Purchase cost must be more than zero.")
+    if not 1 <= life <= 100:
+        raise FormInputError("Useful life must be between 1 and 100 years.")
+    if salvage < 0 or salvage >= cost:
+        raise FormInputError("Salvage value must be zero or more and less than the cost.")
+    if method not in FixedAsset.METHODS:
+        raise FormInputError("Choose straight line or reducing balance.")
+    return round(cost, 2), life, round(salvage, 2), method
 
 
 def post_acquisition(asset, created_by, credit_account_id=None):
@@ -48,6 +69,14 @@ def post_acquisition(asset, created_by, credit_account_id=None):
              "description": f"Acquisition of {asset.name}"},
         ],
     )
+
+def _capitalised_from_stock(asset):
+    """True when the asset entered the books through a stock capitalisation
+    (FA-CAP), not an acquisition (FA-ACQ)."""
+    from shared.models.asset_transfer import AssetTransfer
+    return AssetTransfer.query.filter_by(asset_id=asset.id, direction="to_fixed_asset",
+                                         status="approved").first() is not None
+
 
 fa_assets_bp = Blueprint("fa_assets", __name__, url_prefix="/fixed-assets/assets")
 
@@ -91,21 +120,18 @@ def create_asset():
             return render_template("fixed_assets/assets/form.html", asset=None, categories=categories, accounts=accounts)
         category_id = form_int("category_id", 0)
         category = scoped_get(AssetCategory, category_id)
-        purchase_cost = form_float("purchase_cost", 0)
-        useful_life = form_int("useful_life", category.default_useful_life if category else 5)
-        salvage_value = form_float("salvage_value", 0)
-        last_asset = FixedAsset.query.order_by(FixedAsset.id.desc()).first()
-        next_id = (last_asset.id + 1) if last_asset else 1
+        purchase_date = form_date("purchase_date", REQUIRED, label="Purchase date")
+        purchase_cost, useful_life, salvage_value, method = _read_terms(category)
         fa_acct_id = request.form.get("fixed_asset_account_id", type=int) or posting_account("fixed_assets").id
         asset = FixedAsset(
-            asset_code=f"FA-{next_id:04d}",
+            asset_code=FixedAsset.next_code(),
             name=name,
             description=request.form.get("description", ""),
             category_id=category_id,
-            purchase_date=form_date("purchase_date"),
+            purchase_date=purchase_date,
             purchase_cost=purchase_cost,
             useful_life=useful_life,
-            depreciation_method=request.form.get("depreciation_method", "straight_line"),
+            depreciation_method=method,
             salvage_value=salvage_value,
             current_book_value=purchase_cost,
             status="active",
@@ -153,9 +179,10 @@ def view_asset(asset_id):
         ChartOfAccount.level >= ChartOfAccount.POSTING_LEVEL,
         ChartOfAccount.is_active == True,
     ).order_by(ChartOfAccount.code).all()
+    from .depreciation import depreciation_schedule
     return render_template("fixed_assets/assets/view.html", asset=asset,
                            depreciation_entries=depreciation_entries,
-                           accounts=accounts)
+                           accounts=accounts, schedule=depreciation_schedule(asset))
 
 
 @fa_assets_bp.route("/<int:asset_id>/edit", methods=["GET", "POST"])
@@ -170,41 +197,86 @@ def edit_asset(asset_id):
         ChartOfAccount.is_active == True,
     ).order_by(ChartOfAccount.code).all()
     if request.method == "POST":
-        prior_cost = asset.purchase_cost
-        prior_date = asset.purchase_date
-        prior_credit = asset.acquisition_credit_account_id
-        asset.name = request.form.get("name", "").strip()
+        # Descriptive fields are always editable.
+        name = request.form.get("name", "").strip()
+        if not name:
+            raise FormInputError("Asset name is required.")
+        asset.name = name
         asset.description = request.form.get("description", "")
-        asset.category_id = form_int("category_id", 0)
-        asset.purchase_date = form_date("purchase_date")
-        asset.purchase_cost = form_float("purchase_cost", 0)
-        asset.useful_life = form_int("useful_life", 5)
-        asset.depreciation_method = request.form.get("depreciation_method", "straight_line")
-        asset.salvage_value = form_float("salvage_value", 0)
-        asset.status = request.form.get("status", "active")
-        asset.fixed_asset_account_id = request.form.get("fixed_asset_account_id", type=int) or None
-        asset.accum_dep_account_id = request.form.get("accum_dep_account_id", type=int) or None
-        asset.dep_expense_account_id = request.form.get("dep_expense_account_id", type=int) or None
         asset.location = request.form.get("location", "")
         asset.assigned_to = request.form.get("assigned_to", "")
         asset.vendor = request.form.get("vendor", "")
         asset.serial_number = request.form.get("serial_number", "")
-        asset.label_id = request.form.get("label_id", type=int)
         asset.notes = request.form.get("notes", "")
+        if asset.status != "active":
+            # A disposed / transferred asset is out of the books: restating
+            # its cost re-posted the acquisition while the disposal journal
+            # still credited the old figure, leaving the asset account adrift.
+            # The status itself only changes through Dispose / Undo disposal
+            # (the form used to offer "Disposed", which skipped the journal).
+            db.session.commit()
+            flash("Details updated. Cost, life and accounts are locked once an "
+                  "asset is out of service.", "success")
+            return redirect(url_for("fa_assets.view_asset", asset_id=asset.id))
+
+        category = scoped_get(AssetCategory, form_int("category_id", 0))
+        purchase_date = form_date("purchase_date", REQUIRED, label="Purchase date")
+        cost, life, salvage, method = _read_terms(category)
+        posted = float(asset.posted_depreciation)
+        first_charge = (asset.live_depreciation_query()
+                        .order_by(AssetDepreciation.entry_date).first())
+        capitalised = _capitalised_from_stock(asset)
+        if capitalised and (round(cost, 2) != round(float(asset.purchase_cost), 2)
+                            or purchase_date != asset.purchase_date):
+            raise FormInputError("This asset was capitalised from stock: its cost "
+                                 "and date come from that transfer. Unapprove the "
+                                 "transfer to change them.")
+        if first_charge and purchase_date > first_charge.entry_date:
+            raise FormInputError(f"Depreciation is already posted from "
+                                 f"{first_charge.entry_date:%d %b %Y}; the purchase "
+                                 f"date cannot be later than that.")
+        if posted and cost - salvage < posted - 0.005:
+            raise FormInputError(f"{posted:,.2f} of depreciation is already posted; "
+                                 f"cost less salvage cannot be below that.")
+        # Blank = automatic: keep the account the asset already uses.
+        new_accum = (request.form.get("accum_dep_account_id", type=int)
+                     or asset.accum_dep_account_id)
+        if posted and new_accum != asset.accum_dep_account_id:
+            raise FormInputError("Accumulated depreciation is already posted to this "
+                                 "asset's account; it cannot be moved to another.")
+
+        prior = (asset.purchase_cost, asset.purchase_date,
+                 asset.acquisition_credit_account_id, asset.fixed_asset_account_id,
+                 asset.label_id)
+        asset.category_id = category.id
+        asset.purchase_date = purchase_date
+        asset.purchase_cost = cost
+        asset.useful_life = life
+        asset.depreciation_method = method
+        asset.salvage_value = salvage
+        asset.fixed_asset_account_id = (request.form.get("fixed_asset_account_id", type=int)
+                                        or asset.fixed_asset_account_id)
+        asset.accum_dep_account_id = new_accum
+        asset.dep_expense_account_id = request.form.get("dep_expense_account_id", type=int) or None
+        asset.label_id = request.form.get("label_id", type=int)
         asset.acquisition_credit_account_id = request.form.get(
-            "acquisition_credit_account_id", type=int) or None
-        # Editing what the acquisition journal was built from must move the
-        # journal too, or the GL keeps carrying the old cost forever.
-        if (asset.purchase_cost != prior_cost or asset.purchase_date != prior_date
-                or asset.acquisition_credit_account_id != prior_credit):
+            "acquisition_credit_account_id", type=int) or asset.acquisition_credit_account_id
+        # Changes in life / salvage / method are prospective: the engine spreads
+        # what is left over the life that is left. Anything the acquisition
+        # journal was built from (cost, date, accounts, label) re-posts it, or
+        # the GL keeps carrying the old figures — the asset account included,
+        # which disposal would later credit.
+        after = (asset.purchase_cost, asset.purchase_date,
+                 asset.acquisition_credit_account_id, asset.fixed_asset_account_id,
+                 asset.label_id)
+        if not capitalised and after != prior:
             try:
                 reverse_journal_entry("FA-ACQ", asset.id, created_by=current_user.id)
                 post_acquisition(asset, current_user.id)
             except Exception as e:
                 db.session.rollback()
                 flash(f"Could not restate the acquisition entry: {e}", "error")
-                return render_template("fixed_assets/assets/form.html", asset=asset,
-                                       categories=categories, accounts=accounts)
+                return redirect(url_for("fa_assets.edit_asset", asset_id=asset.id))
         asset.recalculate()
         db.session.commit()
         flash("Asset updated successfully.", "success")
@@ -218,8 +290,17 @@ def record_depreciation(asset_id):
     if not current_user.module_access("fixed_assets"):
         return jsonify({"ok": False, "error": "Access denied"}), 403
     asset = scoped_get_404(FixedAsset, asset_id)
+    if asset.status != "active":
+        flash("Only an asset in service can be depreciated.", "error")
+        return redirect(url_for("fa_assets.view_asset", asset_id=asset.id))
     entry_date = form_date("entry_date")
     amount = form_float("amount", 0)
+    last = asset.live_depreciation_query().order_by(
+        AssetDepreciation.entry_date.desc()).first()
+    if entry_date < asset.purchase_date or (last and entry_date < last.entry_date):
+        flash("A manual charge must be dated on or after the purchase date and the "
+              "last posted charge.", "error")
+        return redirect(url_for("fa_assets.view_asset", asset_id=asset.id))
     if amount <= 0:
         flash("Depreciation amount must be positive.", "error")
         return redirect(url_for("fa_assets.view_asset", asset_id=asset.id))
@@ -266,10 +347,24 @@ def dispose_asset(asset_id):
     if asset.purchase_date and disposal_date < asset.purchase_date:
         flash("Disposal date cannot be before the purchase date.", "error")
         return redirect(url_for("fa_assets.view_asset", asset_id=asset.id))
+    if asset.status != "active":
+        flash("Only an asset in service can be disposed.", "error")
+        return redirect(url_for("fa_assets.view_asset", asset_id=asset.id))
+    later = (asset.live_depreciation_query()
+             .filter(AssetDepreciation.entry_date > disposal_date).count())
+    if later:
+        # Charges dated after the disposal would be written off with it and
+        # leave depreciation in P&L for months the asset was no longer owned.
+        flash("Depreciation is posted after that date. Reverse those charges, or "
+              "dispose on or after the last one.", "error")
+        return redirect(url_for("fa_assets.view_asset", asset_id=asset.id))
     # Depreciate up to the disposal date first: the asset was in use until
     # then, so that charge belongs in P&L as depreciation — not hidden inside
     # the gain/loss, which is what disposing at a stale book value did.
-    from .depreciation import post_asset_depreciation
+    proceeds = form_float("proceeds", 0)
+    if proceeds < 0:
+        flash("Proceeds cannot be negative.", "error")
+        return redirect(url_for("fa_assets.view_asset", asset_id=asset.id))
     post_asset_depreciation(asset, disposal_date, current_user.id)
     db.session.flush()
     fa_acct_id = asset.fixed_asset_account_id
@@ -280,10 +375,6 @@ def dispose_asset(asset_id):
     accum_dep = asset.posted_depreciation
     net_book = purchase_cost - accum_dep
 
-    proceeds = form_float("proceeds", 0)
-    if proceeds < 0:
-        flash("Proceeds cannot be negative.", "error")
-        return redirect(url_for("fa_assets.view_asset", asset_id=asset.id))
     proceeds_acct_id = (request.form.get("proceeds_account_id", type=int)
                         or posting_account("cash").id)
 

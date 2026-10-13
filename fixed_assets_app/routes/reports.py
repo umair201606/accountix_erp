@@ -44,6 +44,44 @@ def index():
                            status_summary=status_summary)
 
 
+@fa_reports_bp.route("/movement")
+@login_required
+def movement_schedule():
+    """Cost and depreciation roll-forward by category for a period."""
+    if not current_user.module_access("fixed_assets"):
+        return render_template("access_denied.html")
+    from shared.clock import local_today
+    from shared.periods import period_for
+    from ..movement import movement
+    today = local_today()
+    period = period_for(today)
+    default_from = period.start_date if period else today.replace(month=1, day=1)
+    try:
+        date_from = date.fromisoformat(request.args.get("from") or str(default_from))
+        date_to = date.fromisoformat(request.args.get("to") or str(today))
+    except ValueError:
+        date_from, date_to = default_from, today
+    if date_to < date_from:
+        date_from, date_to = date_to, date_from
+    data = movement(date_from, date_to)
+    fmt = request.args.get("format")
+    if fmt:
+        from shared import report_export as rx
+        headers = ["Category", "Cost b/f", "Additions", "Disposals", "Cost c/f",
+                   "Dep. b/f", "Charge for period", "On disposals", "Dep. c/f",
+                   "NBV b/f", "NBV c/f"]
+        keys = ("cost_open", "additions", "cost_disposals", "cost_close", "dep_open",
+                "charge", "dep_disposals", "dep_close", "nbv_open", "nbv_close")
+        rows = [[r["category"]] + [r[k] for k in keys] for r in data["rows"]]
+        rows.append(["Total"] + [data["total"][k] for k in keys])
+        return rx.export_table(fmt, "Fixed Asset Movement Schedule", headers, rows,
+                               period=f"{date_from:%d %b %Y} to {date_to:%d %b %Y}",
+                               row_kinds=["plain"] * (len(rows) - 1) + ["grand"],
+                               file_period=date_to, landscape_mode=True)
+    return render_template("fixed_assets/reports/movement.html", data=data,
+                           date_from=date_from, date_to=date_to)
+
+
 def _export_register(fmt, assets, category_summary):
     """Fixed asset register: every active asset with cost, depreciation
     posted to date and net book value; Excel adds the category summary."""

@@ -360,7 +360,7 @@ NAV = {
             ("Assets", "&#128230;", [
                 {"endpoint": "fa_assets.list_assets", "icon": "&#9632;", "label": "All Assets",
                  "active": {"prefix": "fa_assets."}},
-                {"endpoint": "fa_transfers.list_transfers", "icon": "&#9632;", "label": "Transfer to Stock",
+                {"endpoint": "fa_transfers.list_transfers", "icon": "&#9632;", "label": "Transfers",
                  "active": {"prefix": "fa_transfers."}},
                 {"endpoint": "fa_dep.index", "icon": "&#9632;", "label": "Depreciation",
                  "active": {"prefix": "fa_dep."}},
@@ -368,8 +368,10 @@ NAV = {
                  "active": {"prefix": "fa_categories."}},
             ]),
             ("Reports", "&#128202;", [
-                {"endpoint": "fa_reports.index", "icon": "&#9632;", "label": "Asset Reports",
-                 "active": {"prefix": "fa_reports."}},
+                {"endpoint": "fa_reports.index", "icon": "&#9632;", "label": "Asset Register",
+                 "active": {"exact": ["fa_reports.index"]}},
+                {"endpoint": "fa_reports.movement_schedule", "icon": "&#9632;", "label": "Movement Schedule",
+                 "active": {"exact": ["fa_reports.movement_schedule"]}},
             ]),
         ],
     },
