@@ -31,10 +31,12 @@
           <td class="actions" style="display:flex;gap:4px;">
             <a href="{{ url_for('inv_purchases.purchase_form', id=o.id) }}" class="btn btn-sm btn-outline">View / Edit</a>
             {% if o.status == 'approved' %}
-            <a href="{{ url_for('inv_purchases.receive_purchase', id=o.id) }}" class="btn btn-sm btn-success" onclick="return confirm('Receive this order?')">Receive</a>
+            <a href="{{ url_for('inv_purchase_invoice.invoice_form') }}" class="btn btn-sm btn-success" title="New purchase invoice — use Import from order; stock comes in at landed cost on approval">Bill</a>
             {% endif %}
             {% if o.status in ('unapproved', 'approved') %}
-            <a href="{{ url_for('inv_purchases.cancel_purchase', id=o.id) }}" class="btn btn-sm btn-warning" onclick="return confirm('Cancel?')">Cancel</a>
+            <form method="POST" action="{{ url_for('inv_purchases.cancel_purchase', id=o.id) }}" style="display:inline;" onsubmit="return confirm('Cancel this order? What is still unbilled can no longer be invoiced.')">
+              <button type="submit" class="btn btn-sm btn-warning">Cancel</button>
+            </form>
             {% endif %}
             {% if o.status != 'received' %}
             <form method="POST" action="{{ url_for('inv_purchases.delete_purchase', id=o.id) }}" style="display:inline;" onsubmit="return confirm('Delete?')">

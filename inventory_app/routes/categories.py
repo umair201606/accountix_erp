@@ -47,7 +47,7 @@ def edit_category(id):
     return render_template("categories/form_inv.html", category=cat, parents=parents)
 
 
-@inv_cat_bp.route("/delete/<int:id>")
+@inv_cat_bp.route("/delete/<int:id>", methods=["POST"])
 @login_required
 def delete_category(id):
     cat = scoped_get_404(InvCategory, id)

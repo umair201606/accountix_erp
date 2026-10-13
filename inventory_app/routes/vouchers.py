@@ -199,7 +199,7 @@ def consumption_list():
     return render_template("vouchers/consumption_list.html", vouchers=vouchers)
 
 
-@inv_vouchers_bp.route("/consumption/<int:id>/delete", methods=["GET", "POST"])
+@inv_vouchers_bp.route("/consumption/<int:id>/delete", methods=["POST"])
 @login_required
 def consumption_delete(id):
     if deny_page("consumption_vouchers", "delete"):
@@ -214,7 +214,7 @@ def consumption_delete(id):
     return redirect(url_for("inv_vouchers.consumption_list"))
 
 
-@inv_vouchers_bp.route("/consumption/<int:id>/unapprove", methods=["GET", "POST"])
+@inv_vouchers_bp.route("/consumption/<int:id>/unapprove", methods=["POST"])
 @login_required
 def consumption_unapprove(id):
     if deny_page("consumption_vouchers", "approve"):
@@ -352,7 +352,7 @@ def scrap_list():
     return render_template("vouchers/scrap_list.html", vouchers=vouchers)
 
 
-@inv_vouchers_bp.route("/scrap/<int:id>/delete", methods=["GET", "POST"])
+@inv_vouchers_bp.route("/scrap/<int:id>/delete", methods=["POST"])
 @login_required
 def scrap_delete(id):
     if deny_page("scrap_vouchers", "delete"):
@@ -367,7 +367,7 @@ def scrap_delete(id):
     return redirect(url_for("inv_vouchers.scrap_list"))
 
 
-@inv_vouchers_bp.route("/scrap/<int:id>/unapprove", methods=["GET", "POST"])
+@inv_vouchers_bp.route("/scrap/<int:id>/unapprove", methods=["POST"])
 @login_required
 def scrap_unapprove(id):
     if deny_page("scrap_vouchers", "approve"):
@@ -523,7 +523,7 @@ def adjustment_list():
     return render_template("vouchers/adjustment_list.html", vouchers=vouchers)
 
 
-@inv_vouchers_bp.route("/adjustment/<int:id>/delete", methods=["GET", "POST"])
+@inv_vouchers_bp.route("/adjustment/<int:id>/delete", methods=["POST"])
 @login_required
 def adjustment_delete(id):
     if deny_page("adjustment_vouchers", "delete"):
@@ -538,7 +538,7 @@ def adjustment_delete(id):
     return redirect(url_for("inv_vouchers.adjustment_list"))
 
 
-@inv_vouchers_bp.route("/adjustment/<int:id>/unapprove", methods=["GET", "POST"])
+@inv_vouchers_bp.route("/adjustment/<int:id>/unapprove", methods=["POST"])
 @login_required
 def adjustment_unapprove(id):
     if deny_page("adjustment_vouchers", "approve"):
@@ -716,7 +716,7 @@ def stock_take_list():
     return render_template("vouchers/stock_take_list.html", takes=takes)
 
 
-@inv_vouchers_bp.route("/stock-take/<int:id>/delete", methods=["GET", "POST"])
+@inv_vouchers_bp.route("/stock-take/<int:id>/delete", methods=["POST"])
 @login_required
 def stock_take_delete(id):
     if deny_page("stock_take_vouchers", "delete"):

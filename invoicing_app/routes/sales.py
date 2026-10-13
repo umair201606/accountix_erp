@@ -192,66 +192,34 @@ def list_sales():
 @inv_sale_bp.route("/deliver/<int:id>")
 @login_required
 def deliver_sale(id):
-    if deny_page("sales_orders", "approve"):
-        return redirect(url_for("inv_sales.list_sales"))
+    """Retired: an order is fulfilled by billing it.
+
+    "Deliver" (a GET link) took the quantity off the product's on-hand figure
+    with no stock-ledger row, no cost of sales and no journal, then created an
+    empty, unapproved invoice shell. Billing the order afterwards took the
+    stock out a second time, and the on-hand figure stopped agreeing with the
+    stock ledger. Stock, COGS and revenue now move together on the sales
+    invoice, which imports the order's lines (Import from order).
+    """
     so = scoped_get_404(InvSalesOrder, id)
-    if so.status in ("delivered", "cancelled"):
-        flash("Order already delivered or cancelled", "error")
-        return redirect(url_for("inv_sales.list_sales"))
-
-    insufficient = []
-    for item in so.items.all():
-        prod = scoped_get(InvProduct, item.product_id)
-        if prod and prod.current_stock < item.quantity:
-            insufficient.append(f"{prod.name} (have {prod.current_stock}, need {item.quantity})")
-
-    if insufficient:
-        flash(f"Insufficient stock: {', '.join(insufficient)}", "error")
-        return redirect(url_for("inv_sales.list_sales"))
-
-    for item in so.items.all():
-        prod = scoped_get(InvProduct, item.product_id)
-        if prod:
-            prod.current_stock -= item.quantity
-            db.session.add(InvStockMovement(
-                product_id=prod.id, type="sale_out",
-                quantity=item.quantity,
-                reference_type="sales_order",
-                reference_id=so.id,
-                notes=f"Delivered via SO {so.so_number}",
-                created_by=current_user.id,
-            ))
-
-    so.status = "delivered"
-    db.session.commit()
-
-    inv_num = f"INV-{so.so_number}"
-    if not InvInvoice.query.filter_by(invoice_number=inv_num).first():
-        inv = InvInvoice(
-            invoice_number=inv_num,
-            sales_order_id=so.id,
-            customer_id=so.customer_id,
-            invoice_date=date.today(),
-            due_date=date.today(),
-            status="unpaid",
-            total_amount=so.total_amount,
-        )
-        db.session.add(inv)
-        db.session.commit()
-
-    flash(f"SO {so.so_number} delivered", "success")
-    return redirect(url_for("inv_sales.list_sales"))
+    flash(f"Bill {so.so_number} with a sales invoice (Import from order): stock, cost of "
+          "sales and revenue are posted when the invoice is approved.", "info")
+    return redirect(url_for("inv_invoices.invoice_form"))
 
 
-@inv_sale_bp.route("/cancel/<int:id>")
+@inv_sale_bp.route("/cancel/<int:id>", methods=["POST"])
 @login_required
 def cancel_sale(id):
     if deny_page("sales_orders", "edit"):
         return redirect(url_for("inv_sales.list_sales"))
     order = scoped_get_404(InvSalesOrder, id)
+    if order.status not in ("unapproved", "approved", "new"):
+        flash(f"SO {order.so_number} is {order.status}; it cannot be cancelled.", "error")
+        return redirect(url_for("inv_sales.list_sales"))
     order.status = "cancelled"
     db.session.commit()
-    flash(f"SO {order.so_number} cancelled", "warning")
+    flash(f"SO {order.so_number} cancelled; what is still unbilled can no longer be invoiced.",
+          "warning")
     return redirect(url_for("inv_sales.list_sales"))
 
 

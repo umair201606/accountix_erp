@@ -470,7 +470,7 @@ def test_17_opening_stock_and_quick_adjustment_post_to_the_ledger(world):
 
 def test_18_product_with_stock_history_cannot_be_deleted(world):
     from inventory_app.models.product import InvProduct
-    world["client"].get(f"/inventory/products/delete/{world['product2']}")
+    world["client"].post(f"/inventory/products/delete/{world['product2']}")
     with Ctx(world):
         assert InvProduct.query.get(world["product2"]) is not None
     assert_books_tie(world, "refused product delete")

@@ -18,7 +18,7 @@
       <td>{% if st.adjustment_voucher_id %}<a href="{{ url_for('inv_vouchers.adjustment_form', id=st.adjustment_voucher_id) }}">View</a>{% else %}-{% endif %}</td>
       <td>
         <a href="{{ url_for('inv_vouchers.stock_take_form', id=st.id) }}" class="btn btn-sm btn-outline">Edit</a>
-        <a href="{{ url_for('inv_vouchers.stock_take_delete', id=st.id) }}" class="btn btn-sm btn-danger" onclick="return confirm('Delete?')">Delete</a>
+        <form method="POST" action="{{ url_for('inv_vouchers.stock_take_delete', id=st.id) }}" style="display:inline" onsubmit="return confirm('Delete this stock take?')"><button class="btn btn-sm btn-danger">Delete</button></form>
       </td>
     </tr>
     {% endfor %}

@@ -783,7 +783,7 @@ def edit_template(id):
     return render_template("settings/template_form.html", **_template_ctx(t, t.type))
 
 
-@settings_bp.route("/templates/delete/<int:id>")
+@settings_bp.route("/templates/delete/<int:id>", methods=["POST"])
 @login_required
 def delete_template(id):
     denied = _require("templates")

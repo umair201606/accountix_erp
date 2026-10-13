@@ -46,7 +46,7 @@
             <a href="{{ url_for('inv_products.edit_product', id=p.id) }}" class="btn btn-sm btn-outline">Edit</a>
             <a href="{{ url_for('inv_products.adjust_stock', id=p.id) }}" class="btn btn-sm btn-outline">Stock</a>
             <a href="{{ url_for('inv_vouchers.product_ledger', product_id=p.id) }}" class="btn btn-sm btn-link" style="color:var(--accent);">Ledger</a>
-            <a href="{{ url_for('inv_products.delete_product', id=p.id) }}" class="btn btn-sm btn-danger" onclick="return confirm('Delete?')">Delete</a>
+            <form method="POST" action="{{ url_for('inv_products.delete_product', id=p.id) }}" style="display:inline;" onsubmit="return confirm('Delete this product?')"><button type="submit" class="btn btn-sm btn-danger">Delete</button></form>
           </td>
         </tr>
         {% else %}

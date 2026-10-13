@@ -196,39 +196,32 @@ def list_purchases():
 @inv_pur_bp.route("/receive/<int:id>")
 @login_required
 def receive_purchase(id):
-    if deny_page("purchase_orders", "approve"):
-        return redirect(url_for("inv_purchases.list_purchases"))
+    """Retired: goods come into stock on the purchase invoice.
+
+    "Receive" (a GET link) added the quantity to the product's on-hand figure
+    with no cost layer and no journal; billing the order then added it again.
+    The purchase invoice (Import from order) brings the stock in at its
+    landed cost and posts Inventory against the supplier in one step.
+    """
     po = scoped_get_404(InvPurchaseOrder, id)
-    if po.status in ("received", "cancelled"):
-        flash("Order already received or cancelled", "error")
-    else:
-        for item in po.items.all():
-            prod = scoped_get(InvProduct, item.product_id)
-            if prod:
-                prod.current_stock += item.quantity
-                db.session.add(InvStockMovement(
-                    product_id=prod.id, type="purchase_in",
-                    quantity=item.quantity,
-                    reference_type="purchase_order",
-                    reference_id=po.id,
-                    notes=f"Received from PO {po.po_number}",
-                    created_by=current_user.id,
-                ))
-        po.status = "received"
-        db.session.commit()
-        flash(f"PO {po.po_number} received", "success")
-    return redirect(url_for("inv_purchases.list_purchases"))
+    flash(f"Bill {po.po_number} with a purchase invoice (Import from order): stock comes in "
+          "at landed cost and the supplier is credited when it is approved.", "info")
+    return redirect(url_for("inv_purchase_invoice.invoice_form"))
 
 
-@inv_pur_bp.route("/cancel/<int:id>")
+@inv_pur_bp.route("/cancel/<int:id>", methods=["POST"])
 @login_required
 def cancel_purchase(id):
     if deny_page("purchase_orders", "edit"):
         return redirect(url_for("inv_purchases.list_purchases"))
     order = scoped_get_404(InvPurchaseOrder, id)
+    if order.status not in ("unapproved", "approved", "new"):
+        flash(f"PO {order.po_number} is {order.status}; it cannot be cancelled.", "error")
+        return redirect(url_for("inv_purchases.list_purchases"))
     order.status = "cancelled"
     db.session.commit()
-    flash(f"PO {order.po_number} cancelled", "warning")
+    flash(f"PO {order.po_number} cancelled; what is still unbilled can no longer be invoiced.",
+          "warning")
     return redirect(url_for("inv_purchases.list_purchases"))
 
 

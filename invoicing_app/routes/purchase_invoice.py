@@ -205,9 +205,14 @@ def validate_approve(data):
         for i, row in enumerate(items):
             if not row.get("product_id"):
                 errors.append(f"Row {i+1}: Product is required")
-            qty = float(row.get("quantity", 0))
+            try:
+                qty = float(row.get("quantity", 0) or 0)
+            except (TypeError, ValueError):
+                qty = 0
             if qty <= 0:
                 errors.append(f"Row {i+1}: Quantity must be greater than 0")
+    from shared.doc_checks import amount_errors
+    errors.extend(amount_errors(data))
     return errors
 
 

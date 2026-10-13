@@ -101,7 +101,7 @@ def edit_product(id):
     return render_template("products/form_inv.html", product=prod, categories=categories, units=units)
 
 
-@inv_prod_bp.route("/delete/<int:id>")
+@inv_prod_bp.route("/delete/<int:id>", methods=["POST"])
 @login_required
 def delete_product(id):
     if deny_page("products", "delete"):
