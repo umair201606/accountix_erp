@@ -39,8 +39,14 @@ def send_notification():
     if target == "all":
         users = User.employees().filter(User.is_active.is_(True)).all()
     elif target == "role":
-        role = request.form.get("role")
-        users = User.employees().join(User.role_obj).filter(User.is_active == True, db.text("roles.name = :r")).params(r=role).all()
+        # Roles belong to the company membership (the user row's role is a
+        # global default): filter on the role held in THIS company.
+        from shared.models.base import Role
+        from shared.models.company import CompanyMembership
+        role = Role.query.filter_by(name=request.form.get("role")).first()
+        users = (User.employees().filter(User.is_active.is_(True),
+                                         CompanyMembership.role_id == role.id).all()
+                 if role else [])
     else:
         users = []
     for u in users:
@@ -61,7 +67,10 @@ def send_email():
     if not recipient or not subject:
         flash("Recipient and subject required.", "danger")
         return redirect(url_for("communications.index"))
-    log = EmailLog(recipient=recipient, subject=subject, body=body, module="manual", status="sent")
+    # No mail server is configured, so nothing is sent: the log says so
+    # instead of recording the message as "sent".
+    log = EmailLog(recipient=recipient, subject=subject, body=body, module="manual",
+                   status="not_sent")
     db.session.add(log)
     db.session.commit()
     flash("Email logged (SMTP not configured for live send).", "info")

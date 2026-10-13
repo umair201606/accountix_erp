@@ -251,3 +251,34 @@ def test_discard_only_removes_a_removed_membership(world):
     with Ctx(world):
         assert db.session.get(CompanyMembership, mid) is not None
 
+
+def test_notification_by_role_uses_the_company_role(world):
+    """Roles live on the company membership; targeting "role" filtered on the
+    user row's global role, reaching people by a role they do not hold here."""
+    import uuid
+    from hr_app.models.user import User
+    from hr_app.models.communication import Notification, NotificationRecipient
+    from shared.models.base import Role
+    from shared.models.company import CompanyMembership
+    with Ctx(world):
+        tag = uuid.uuid4().hex[:8]
+        u = User(employee_code=f"N{tag}".upper(), email=f"{tag}@n.test", login_id=f"{tag}@n.test",
+                 full_name="Role Probe", is_active=True,
+                 role_id=Role.query.filter_by(name=Role.MANAGER).first().id)
+        u.set_password("pw12345")
+        db.session.add(u)
+        db.session.flush()
+        db.session.add(CompanyMembership(company_id=world["company"], user_id=u.id,
+                                         role_id=Role.query.filter_by(name=Role.EMPLOYEE).first().id,
+                                         status=CompanyMembership.ACTIVE))
+        db.session.commit()
+        uid = u.id
+
+    def recipients(role):
+        world["client"].post("/communications/send-notification", data={
+            "title": f"to {role}", "message": "x", "target": "role", "role": role})
+        with Ctx(world):
+            n = Notification.query.filter_by(title=f"to {role}").order_by(Notification.id.desc()).first()
+            return {r.user_id for r in NotificationRecipient.query.filter_by(notification_id=n.id)}
+    assert uid not in recipients(Role.MANAGER)
+    assert uid in recipients(Role.EMPLOYEE)
