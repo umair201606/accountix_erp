@@ -36,6 +36,21 @@
 <div class="set-card" style="margin-top:16px;">
   <h3>Generated Periods</h3>
   <p class="hint">Closing a period prevents new postings in that date range. Periods are auto-generated from the fiscal year rule above.</p>
+  {% set review = session.get('period_close_review') %}
+  {% if review %}{% set rp = (periods|selectattr('id', 'equalto', review.id)|list or [None])[0] %}{% endif %}
+  {% if review and rp and not rp.is_closed %}
+  <div class="set-card" style="margin:10px 0;border-color:var(--warning, #b45309);">
+    <strong>Still open in {{ rp.period_name }}</strong>
+    <ul style="margin:6px 0 10px 18px;">
+      {% for line in review.issues %}<li>{{ line }}</li>{% endfor %}
+    </ul>
+    <p class="hint" style="margin:0 0 8px;">Once closed, none of this can be posted into the period: drafts would have to be re-dated into an open period.</p>
+    <form method="POST" action="{{ url_for('settings.close_period', id=rp.id) }}">
+      <input type="hidden" name="force" value="1">
+      <button type="submit" class="btn btn-sm btn-danger">Close anyway</button>
+    </form>
+  </div>
+  {% endif %}
   <div class="tbl-scroll">
     <table class="stbl">
       <thead>

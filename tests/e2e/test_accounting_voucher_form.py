@@ -170,3 +170,48 @@ def test_refused_approval_keeps_the_draft(client):
     with _company_ctx():
         assert AccountingVoucherLine.query.filter_by(
             voucher_id=voucher.id).count() == 2
+
+
+def test_negative_or_two_sided_lines_are_refused(client):
+    """A negative amount printed as a negative debit in every ledger and, on
+    a cash/bank voucher, shrank the money line; a JV line could carry both
+    a debit and a credit."""
+    debtor, cash = _line_accounts()
+    before = _latest_voucher()
+    for debits, credits, message in ((["-5000", "0"], ["0", "-5000"], "cannot be negative"),
+                                     (["5000", "100"], ["100", "5000"], "not both")):
+        resp = client.post("/accounting/vouchers", data={
+            "voucher_type": "JV",
+            "voucher_date": datetime.utcnow().strftime("%Y-%m-%dT%H:%M"),
+            "account_id[]": [str(debtor.id), str(cash.id)],
+            "description[]": ["a", "b"], "debit[]": debits, "credit[]": credits,
+            "action": "approve"}, follow_redirects=True)
+        assert message in resp.get_data(as_text=True)
+    after = _latest_voucher()
+    assert (after.id if after else None) == (before.id if before else None)
+
+
+def test_closing_a_period_lists_what_is_still_open(client):
+    """A period closed over a draft voucher left it impossible to post; the
+    close now lists open items and asks again."""
+    from datetime import date
+    from shared.models.company_settings import AccountingPeriod
+    debtor, cash = _line_accounts()
+    with _company_ctx():
+        p = AccountingPeriod(fiscal_year="2003", period_name="FY 2003",
+                             start_date=date(2003, 1, 1), end_date=date(2003, 12, 31),
+                             is_open=True, is_closed=False)
+        db.session.add(p)
+        db.session.commit()
+        pid = p.id
+    client.post("/accounting/vouchers", data={
+        "voucher_type": "JV", "voucher_date": "2003-05-01T10:00", "notes": "draft in 2003",
+        "account_id[]": [str(debtor.id), str(cash.id)], "description[]": ["a", "b"],
+        "debit[]": ["300", "0"], "credit[]": ["0", "300"], "action": "save"})
+    page = client.post(f"/settings/periods/{pid}/close", follow_redirects=True).get_data(as_text=True)
+    assert "Still open in FY 2003" in page and "unapproved accounting voucher" in page
+    with _company_ctx():
+        assert not db.session.get(AccountingPeriod, pid).is_closed
+    client.post(f"/settings/periods/{pid}/close", data={"force": "1"})
+    with _company_ctx():
+        assert db.session.get(AccountingPeriod, pid).is_closed

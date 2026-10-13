@@ -45,8 +45,8 @@ def dashboard():
         # The ledger's carried value — the same figure the inventory account
         # holds — not qty x a rounded average.
         total_stock_value += float(bal[1])
-        if p.current_stock != int(qty):
-            p.current_stock = int(qty)
+        if abs(float(p.current_stock or 0) - qty) > 0.00005:
+            p.current_stock = qty
     db.session.commit()
 
     # Voucher counts

@@ -73,7 +73,7 @@ def world():
         db.session.add(InvPurchaseOrderItem(po_id=po.id, product_id=p.id, quantity=5,
                                             unit_price=50_000))
         db.session.commit()
-        ids = {"company": cid, "product": p.id, "so": so.id, "po": po.id}
+        ids = {"company": cid, "product": p.id, "so": so.id, "po": po.id, "customer": cust.id}
     with c.session_transaction() as sess:
         sess["_user_id"] = str(uid)
         sess["_fresh"] = True
@@ -154,3 +154,85 @@ def test_state_changes_refuse_get(world, url):
     or un-post a voucher's journals."""
     assert world["client"].get(url).status_code == 405
 
+
+def test_fractional_stock_is_kept_on_the_product(world):
+    """current_stock was INTEGER: 2.5 kg on hand showed as 2 while the stock
+    ledger held 2.5 (and Books Integrity compared the truncated figures)."""
+    from inventory_app.models.product import InvProduct
+    from shared.stock_entry import post_opening_stock
+    with Ctx(world):
+        cable = InvProduct(name="Copper cable (m)", sku="CBL", unit="m", current_stock=0,
+                           cost_price=0, unit_price=0, is_active=True)
+        db.session.add(cable)
+        db.session.flush()
+        post_opening_stock(cable, 12.75, 400, when=date(2025, 1, 1), created_by=1)
+        db.session.commit()
+        cid = cable.id
+    with Ctx(world):
+        assert db.session.get(InvProduct, cid).current_stock == 12.75
+        whole = db.session.get(InvProduct, world["product"]).current_stock
+        assert whole == 10 and isinstance(whole, int)        # lists still read "10"
+    page = world["client"].get("/inventory/products/").get_data(as_text=True)
+    assert "12.75" in page
+    books_tie(world)
+
+
+def _sale(w, action, price=80_000, qty=1, **row):
+    item = {"product_id": w["product"], "quantity": qty, "unit_price": price,
+            "description": "Order actions test", "unit": "pcs", "discount_pct": 0,
+            "delivery": 0, "installation": 0, "sales_tax_pct": 0,
+            "total_before_discount": qty * price, "total_after_discount": qty * price}
+    item.update(row)
+    return w["client"].post("/inventory/invoices/save", json={
+        "customer_id": w["customer"], "invoice_date": "2025-03-01",
+        "discount_mode": "general", "charges_mode": "general", "tax_mode": "general",
+        "global_discount_pct": 0, "global_discount_value": 0, "global_delivery": 0,
+        "global_installation": 0, "global_sales_tax_pct": 0, "further_tax_pct": 0,
+        "apply_further_tax": False, "withholding_tax_pct": 0, "subtotal": qty * price,
+        "total_discount": 0, "total_charges": 0, "total_tax": 0, "total_amount": qty * price,
+        "items": [item], "action": action}).get_json()
+
+
+def test_invoice_with_impossible_figures_is_not_approved(world):
+    body = _sale(world, "approve", price=-500)
+    assert not body["ok"] and "unit price" in body["error"]
+    body = _sale(world, "approve", discount_pct=120)
+    assert not body["ok"] and "discount" in body["error"]
+
+
+def test_invoice_reported_to_fbr_cannot_be_unapproved(world):
+    """The correction for a reported invoice is a credit note, not an edit."""
+    from shared.models.fbr import FBRInvoiceRecord
+    body = _sale(world, "approve")
+    assert body["ok"], body
+    with Ctx(world):
+        db.session.add(FBRInvoiceRecord(inv_invoice_id=body["id"], status="success",
+                                        fbr_invoice_number="FBR-0001"))
+        db.session.commit()
+    r = world["client"].post(f"/inventory/invoices/unapprove/{body['id']}").get_json()
+    assert not r["ok"] and "reported to FBR as FBR-0001" in r["error"]
+    books_tie(world)
+
+
+def test_opening_stock_without_a_journal_is_found_and_repaired(world):
+    """The boot routine for pre-costing-engine stock wrote OPENING layers with
+    no journal; Books Integrity names them and the repair posts them."""
+    from inventory_app.models.product import InvProduct
+    from shared import costing, integrity
+    from shared.stock_entry import unjournaled_openings, journal_opening_row
+    with Ctx(world):
+        legacy = InvProduct(name="Legacy panel", sku="LEG", current_stock=0, cost_price=0,
+                            unit_price=0, is_active=True)
+        db.session.add(legacy)
+        db.session.flush()
+        costing.record_in(legacy.id, "OPENING", legacy.id, f"OPEN-{legacy.id:05d}",
+                          qty=4, unit_cost=25_000, notes="legacy", created_by=1)
+        db.session.commit()
+        rows = unjournaled_openings()
+        assert [r.product_id for r in rows] == [legacy.id]
+        check = integrity.inventory_vs_gl()
+        assert not check["ok"] and "repair_opening_stock" in check["detail"]
+        journal_opening_row(rows[0])
+        db.session.commit()
+        assert unjournaled_openings() == []
+    books_tie(world)

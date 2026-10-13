@@ -27,3 +27,24 @@ class Money(TypeDecorator):
     def process_result_value(self, value, dialect):
         # SQLite's NUMERIC affinity hands back an int for whole numbers.
         return None if value is None else float(value)
+
+
+class Quantity(TypeDecorator):
+    """Stock quantities: NUMERIC(16, 4) like the stock ledger.
+
+    The product's on-hand figure was an INTEGER, so 2.5 kg on hand showed as
+    2 (and Postgres rounds a fractional value written to an integer column)
+    while invoices, vouchers and the ledger kept the exact quantity. Whole
+    numbers come back as int so lists still read "10", not "10.0".
+    """
+    impl = Numeric(16, 4, asdecimal=False)
+    cache_ok = True
+
+    def process_bind_param(self, value, dialect):
+        return None if value is None else round(float(value), 4)
+
+    def process_result_value(self, value, dialect):
+        if value is None:
+            return None
+        v = round(float(value), 4)
+        return int(v) if v.is_integer() else v

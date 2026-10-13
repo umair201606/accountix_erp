@@ -349,6 +349,16 @@ def close_period(id):
     if denied:
         return denied
     p = scoped_get_404(AccountingPeriod, id)
+    # Anything still open in the period can never be posted there once it is
+    # closed: list it and ask again rather than closing over it silently.
+    from shared.periods import close_checklist
+    issues = close_checklist(p)
+    if issues and request.form.get("force") != "1":
+        session["period_close_review"] = {"id": p.id, "issues": issues}
+        flash(f"{p.period_name} still has open items — review them below, then close anyway "
+              "or finish them first.", "warning")
+        return redirect(url_for("settings.index", tab="periods"))
+    session.pop("period_close_review", None)
     p.is_open, p.is_closed, p.closed_at = False, True, datetime.utcnow()
     db.session.commit()
     flash(f"Period {p.period_name} closed.", "success")

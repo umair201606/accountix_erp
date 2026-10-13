@@ -73,3 +73,74 @@ def require_open_period(when, action="post to"):
         f"adjusting entry in the current open period instead, or reopen "
         f"'{p.period_name}' in Settings → Periods if closing it was a mistake."
     )
+
+
+def close_checklist(period):
+    """What is still open inside ``period`` — once it is closed none of it can
+    be posted there any more. Returns readable lines (empty = nothing open).
+
+    Drafts dated in the period, depreciation still due up to its end, and
+    payroll months in it that were never run.
+    """
+    from datetime import datetime, time
+    start = datetime.combine(period.start_date, time.min)
+    end = datetime.combine(period.end_date, time.max)
+    out = []
+
+    def count(model, date_col, open_states):
+        try:
+            return model.query.filter(date_col >= start, date_col <= end,
+                                      model.status.in_(open_states)).count()
+        except Exception:  # module not installed for this company
+            return 0
+
+    from inventory_app.models.invoice import InvInvoice
+    from inventory_app.models.purchase_invoice import InvPurchaseInvoice
+    from inventory_app.models.sales_return import InvSalesReturn
+    from inventory_app.models.purchase_return import InvPurchaseReturn
+    from shared.models.accounting_voucher import AccountingVoucher
+    from shared.models.vouchers import ConsumptionVoucher, ScrapVoucher, StockAdjustmentVoucher
+    si = InvInvoice.query.filter(InvInvoice.invoice_date >= start, InvInvoice.invoice_date <= end,
+                                 InvInvoice.voucher_status != "approved").count()
+    for n, label in (
+            (si, "unapproved sales invoice(s)"),
+            (count(InvPurchaseInvoice, InvPurchaseInvoice.invoice_date, ("new", "unapproved")),
+             "unapproved purchase invoice(s)"),
+            (count(InvSalesReturn, InvSalesReturn.return_date, ("new", "unapproved")),
+             "unapproved sales return(s)"),
+            (count(InvPurchaseReturn, InvPurchaseReturn.return_date, ("new", "unapproved")),
+             "unapproved purchase return(s)"),
+            (count(AccountingVoucher, AccountingVoucher.voucher_date, ("unapproved", "draft")),
+             "unapproved accounting voucher(s)"),
+            (sum(count(m, m.date, ("unapproved",))
+                 for m in (ConsumptionVoucher, ScrapVoucher, StockAdjustmentVoucher)),
+             "unapproved stock voucher(s)")):
+        if n:
+            out.append(f"{n} {label}")
+    try:
+        from fixed_assets_app.models.asset import FixedAsset
+        from fixed_assets_app.routes.depreciation import due_depreciation
+        due = [a for a in FixedAsset.query.filter_by(status="active").all()
+               if due_depreciation(a, period.end_date) > 0]
+        if due:
+            out.append(f"depreciation not yet posted to {period.end_date:%d %b %Y} on "
+                       f"{len(due)} asset(s)")
+    except Exception:
+        pass
+    try:
+        from hr_app.models.compensation import PayrollProfile, PayrollRun
+        if PayrollProfile.query.first() is not None:
+            missing = []
+            y, m = period.start_date.year, period.start_date.month
+            while (y, m) <= (period.end_date.year, period.end_date.month):
+                if PayrollRun.query.filter_by(month=m, year=y).first() is None:
+                    missing.append(f"{m}/{y}")
+                m += 1
+                if m == 13:
+                    y, m = y + 1, 1
+            if missing:
+                out.append("no payroll run for " + ", ".join(missing[:6])
+                           + (" …" if len(missing) > 6 else ""))
+    except Exception:
+        pass
+    return out

@@ -212,6 +212,18 @@ def voucher_form(id=None):
                 c = Decimal("0")
             if d == 0 and c == 0:
                 continue
+            # A negative amount is the other side written with a minus: it
+            # printed as a negative debit in every ledger and, on a cash/bank
+            # voucher, reduced the money line's total.
+            if d < 0 or c < 0:
+                db.session.rollback()
+                flash(f"Line {i + 1}: amounts cannot be negative — put the amount in the "
+                      "other column instead.", "error")
+                return redirect(request.url)
+            if voucher.voucher_type == "JV" and d > 0 and c > 0:
+                db.session.rollback()
+                flash(f"Line {i + 1}: a line is either a debit or a credit, not both.", "error")
+                return redirect(request.url)
             # For cash/bank vouchers the counter accounts must sit on the side
             # OPPOSITE the cash/bank line (receipt -> cash Dr, counters Cr;
             # payment -> cash Cr, counters Dr). Take the amount the user entered

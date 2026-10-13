@@ -107,9 +107,18 @@ def inventory_vs_gl():
         extra = []
     gl = _gl_balance(("1-01-04",), extra)
     stock = stock_valuation()
+    detail = "General-ledger inventory balance vs the stock ledger's value"
+    if abs(stock - gl) > TOL:
+        from shared.stock_entry import unjournaled_openings
+        rows = unjournaled_openings()
+        if rows:
+            missing = sum((_d(r.total_cost) for r in rows), ZERO)
+            detail += (f" — {len(rows)} opening-stock rows worth {missing:,.2f} have no journal"
+                       " (stock brought in before opening stock posted to the ledger);"
+                       " python tools/repair_opening_stock.py posts them against"
+                       " Opening Balance Equity")
     return _check("inventory_vs_gl", "Inventory account = stock valuation",
-                  stock, gl,
-                  "General-ledger inventory balance vs the stock ledger's value")
+                  stock, gl, detail)
 
 
 def _ledger_net_by_product():
@@ -163,7 +172,7 @@ def stock_quantity():
         if p.id not in ledger:
             continue
         q = ledger[p.id][0]
-        if int(q) != int(p.current_stock or 0):
+        if abs(_d(q) - _d(p.current_stock)) > Decimal("0.0001"):
             bad.append(f"{p.name}: shows {p.current_stock}, ledger {q.normalize()}")
     return {"key": "stock_quantity", "label": "On-hand quantity = stock ledger",
             "ok": not bad, "expected": 0, "actual": len(bad),

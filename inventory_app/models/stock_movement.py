@@ -1,5 +1,6 @@
 from datetime import datetime
 from ..extensions import db
+from shared.models.money import Quantity
 
 
 class InvStockMovement(db.Model):
@@ -8,7 +9,7 @@ class InvStockMovement(db.Model):
     company_id = db.Column(db.Integer, index=True)
     product_id = db.Column(db.Integer, db.ForeignKey("inv_products.id"), nullable=False)
     type = db.Column(db.String(20), nullable=False)
-    quantity = db.Column(db.Integer, nullable=False)
+    quantity = db.Column(Quantity, nullable=False)
     reference_type = db.Column(db.String(50))
     reference_id = db.Column(db.Integer)
     notes = db.Column(db.Text)

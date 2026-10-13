@@ -381,12 +381,11 @@ def _sync_product_stock(product_id):
     from inventory_app.models.product import InvProduct
     p = scoped_get(InvProduct, product_id)
     if p is not None:
-        # current_stock is a legacy denormalised Integer column kept for
-        # display; the StockLedger (Numeric 16,4) is authoritative and is what
-        # every costing decision reads. Fractional stock therefore shows
-        # truncated here — fixing that means widening the column, not lying
-        # about the type by writing a float into an Integer on Postgres.
-        p.current_stock = int(on_hand(product_id))
+        # current_stock is a denormalised copy kept for display; the
+        # StockLedger (Numeric 16,4) is authoritative and is what every costing
+        # decision reads. Both are NUMERIC(16,4) now (Quantity), so fractional
+        # stock shows exactly instead of truncated.
+        p.current_stock = on_hand(product_id)
         # Keep the legacy static field in step with the engine so any old
         # display code shows the current valuation cost.
         unit = current_unit_cost(product_id)
@@ -1119,19 +1118,26 @@ def ensure_opening_balances(created_by=1):
     """Give products that pre-date the costing engine an opening cost layer.
 
     Any product holding stock with no ledger history gets one IN row at its
-    static cost_price, so all future issues have a historic cost to draw on.
-    No journal entry is posted — the general ledger already carried these
-    balances under the old flows.
+    static cost_price, so all future issues have a historic cost to draw on,
+    and the matching journal (Dr stock / Cr Opening Balance Equity). It used
+    to post no journal on the assumption that the ledger already carried the
+    stock; the old product form, import and quick-adjust only changed the
+    display figure, so the inventory account fell short of the valuation.
+    Rows written that way before are listed by Books Integrity and repaired
+    with tools/repair_opening_stock.py.
     """
     from inventory_app.models.product import InvProduct
+    from shared.stock_entry import journal_opening_row
     for p in InvProduct.query.filter(InvProduct.current_stock > 0).all():
         exists = StockLedger.query.filter_by(product_id=p.id).first()
         if exists:
             continue
-        record_in(p.id, "OPENING", p.id, f"OPEN-{p.id:05d}",
-                  qty=p.current_stock, unit_cost=p.cost_price or 0,
-                  notes="Opening balance (pre-costing-engine stock)",
-                  created_by=created_by)
+        row = record_in(p.id, "OPENING", p.id, f"OPEN-{p.id:05d}",
+                        qty=p.current_stock, unit_cost=p.cost_price or 0,
+                        notes="Opening balance (pre-costing-engine stock)",
+                        created_by=created_by)
+        if row is not None and float(row.total_cost or 0):
+            journal_opening_row(row, created_by=created_by)
 
 
 def backfill_layers(created_by=1):

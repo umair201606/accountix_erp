@@ -479,7 +479,8 @@ def test_jv_tags_both_sides(client, company_ctx, accounts, labels):
         jls = (JournalLine.query
                .join(JournalEntry,
                      JournalLine.journal_entry_id == JournalEntry.id)
-               .filter(JournalEntry.voucher_id == v.id).all())
+               .filter(JournalEntry.voucher_type == "JV",
+                       JournalEntry.voucher_id == v.id).all())
         assert len(jls) == 2
 
 

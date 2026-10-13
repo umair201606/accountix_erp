@@ -1,6 +1,6 @@
 from datetime import datetime
 from ..extensions import db
-from shared.models.money import Money
+from shared.models.money import Money, Quantity
 
 
 class InvProduct(db.Model):
@@ -18,7 +18,8 @@ class InvProduct(db.Model):
     unit_price = db.Column(Money, default=0)
     cost_price = db.Column(Money, default=0)
     reorder_level = db.Column(db.Integer, default=0)
-    current_stock = db.Column(db.Integer, default=0)
+    # Exact on-hand quantity (fractional units such as kg / metres).
+    current_stock = db.Column(Quantity, default=0)
     unit = db.Column(db.String(20), default="pcs")
     hs_code = db.Column(db.String(50), default="")
     # Unit weight, for the "By weight" charge distribution (§6.2). The basis is

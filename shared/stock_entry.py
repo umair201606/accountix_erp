@@ -108,3 +108,42 @@ def quick_adjustment(product, qty, reason, when=None, created_by=1):
                    {"account_id": cr, "debit": 0, "credit": value,
                     "description": v.reason}])
     return v
+
+
+def unjournaled_openings():
+    """OPENING stock-ledger rows whose product has no posted OPENING journal.
+
+    The boot routine that gave pre-costing-engine stock a cost layer posted
+    no journal, assuming the ledger already held that stock — but the old
+    product form / import / quick-adjust only changed the display figure, so
+    the inventory account fell short of the stock valuation by exactly these.
+    """
+    from shared.models.ledger import JournalEntry
+    from shared.models.stock_ledger import StockLedger
+    journaled = {vid for (vid,) in db.session.query(JournalEntry.voucher_id).filter(
+        JournalEntry.voucher_type == "OPENING", JournalEntry.is_posted == True)}  # noqa: E712
+    return [r for r in StockLedger.query.filter_by(voucher_type="OPENING",
+                                                   transaction_type="IN").all()
+            if r.product_id not in journaled and float(r.total_cost or 0)]
+
+
+def journal_opening_row(row, created_by=1):
+    """Post Dr the product's stock account / Cr Opening Balance Equity for an
+    existing OPENING stock-ledger row, on that row's own date."""
+    from inventory_app.models.product import InvProduct
+    from shared.ledger_utils import post_journal_entry, posting_account, create_entity_account
+    from shared.tenancy import scoped_get
+    product = scoped_get(InvProduct, row.product_id)
+    if product is None:
+        return None
+    value = round(float(row.total_cost or 0), 2)
+    stock_acct = create_entity_account("product", product.id, f"{product.name} ({product.sku})")
+    return post_journal_entry(
+        voucher_type="OPENING", voucher_id=product.id,
+        voucher_number=(row.voucher_number or f"OPEN-{product.id:05d}")[:50],
+        description=f"Opening stock — {product.name}",
+        entry_date=row.txn_date or row.created_at, created_by=created_by,
+        lines=[{"account_id": stock_acct.id, "debit": value, "credit": 0,
+                "description": f"Opening stock {product.name}"},
+               {"account_id": posting_account("suspense_equity").id, "debit": 0,
+                "credit": value, "description": f"Opening balance — {product.name}"}])

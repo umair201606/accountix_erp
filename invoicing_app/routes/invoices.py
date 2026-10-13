@@ -536,6 +536,16 @@ def unapprove_invoice(id):
             "Cannot unapprove: approved sales return(s) "
             + ", ".join(r.return_number for r in returns)
             + " credit this invoice. Unapprove them first.")}), 400
+    # Reported to FBR: the tax authority holds this invoice as issued. Editing
+    # it here would leave the books and FBR's record disagreeing; the
+    # correction is a sales return (credit note), which is reported too.
+    from shared.models.fbr import FBRInvoiceRecord
+    reported = FBRInvoiceRecord.query.filter_by(inv_invoice_id=inv.id, status="success").first()
+    if reported:
+        return jsonify({"ok": False, "error": (
+            f"Cannot unapprove: this invoice was reported to FBR"
+            f"{' as ' + reported.fbr_invoice_number if reported.fbr_invoice_number else ''}. "
+            "Correct it with a sales return (credit note).")}), 400
 
     try:
         reverse_journal_entry("SI", inv.id, current_user.id)
