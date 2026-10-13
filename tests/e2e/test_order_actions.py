@@ -236,3 +236,18 @@ def test_opening_stock_without_a_journal_is_found_and_repaired(world):
         db.session.commit()
         assert unjournaled_openings() == []
     books_tie(world)
+
+
+def test_discard_only_removes_a_removed_membership(world):
+    """"Discard" deleted whatever membership id it was posted — an active
+    admin's own included — past every guard Remove applies."""
+    from shared.models.company import CompanyMembership
+    with Ctx(world):
+        m = CompanyMembership.query.filter_by(company_id=world["company"],
+                                              status=CompanyMembership.ACTIVE).first()
+        mid = m.id
+    r = world["client"].post(f"/settings/members/{mid}/restore", follow_redirects=True)
+    assert "Only a removed membership can be discarded" in r.get_data(as_text=True)
+    with Ctx(world):
+        assert db.session.get(CompanyMembership, mid) is not None
+

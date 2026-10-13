@@ -1,4 +1,5 @@
 from datetime import datetime, date, timedelta
+from shared.clock import local_today
 from decimal import Decimal, InvalidOperation
 from flask import Blueprint, render_template, request, jsonify, Response, send_file, redirect, url_for, flash
 from flask_login import login_required
@@ -61,7 +62,7 @@ def _default_period():
     """The period to default reports to: the one containing today (preferring an
     active one), else the most recent active period. Robust even when several
     periods are erroneously marked active at once."""
-    today = date.today()
+    today = local_today()
     p = (AccountingPeriod.query
          .filter(AccountingPeriod.start_date <= today,
                  AccountingPeriod.end_date >= today)
@@ -415,7 +416,7 @@ def _export_dates(from_date, to_date):
     p = _default_period()
     if p:
         return p.start_date, p.end_date
-    today = date.today()
+    today = local_today()
     return date(today.year, 1, 1), today
 
 
@@ -792,14 +793,14 @@ def trial_balance():
                                total_dr_opening=0, total_cr_opening=0,
                                total_dr_movement=0, total_cr_movement=0,
                                total_dr_closing=0, total_cr_closing=0,
-                               as_of=date.today(), from_date=None,
+                               as_of=local_today(), from_date=None,
                                periods=periods, selected_period_id=selected_period_id,
                                filter_mode="", from_str="", to_str="",
                                comp_mode="", comp_periods=[], comp_period_ids_str="",
                                labels=labels, label_ids_str=label_ids_str,
                                now=datetime.utcnow())
 
-    as_of = to_date or date.today()
+    as_of = to_date or local_today()
 
     opening_as_of = None
     if from_date:
@@ -1195,7 +1196,7 @@ def label_pl():
     """
     from datetime import date as _date
     labels_all = ProjectLabel.query.order_by(ProjectLabel.name).all()
-    today = _date.today()
+    today = local_today()
     # Nothing is calculated until the report is asked for (View / export).
     if not any(k in request.args for k in ("from", "to", "label_id", "format", "run")):
         return render_template("finance/label_pl.html", loaded=False, rows=[], net_profit=0,
@@ -1267,7 +1268,7 @@ def balance_sheet():
     if from_date is None and request.args.get("format") not in ("excel", "pdf"):
         return render_template("finance/balance_sheet.html", assets=[], liabilities=[], equity=[],
                                total_assets=0, total_liabilities=0, total_equity=0,
-                               as_of=date.today(),
+                               as_of=local_today(),
                                periods=periods, selected_period_id=selected_period_id,
                                filter_mode="", from_str="", to_str="", comp_mode="",
                                comp_periods=[], comp_period_ids_str="", all_periods=[],
@@ -1275,7 +1276,7 @@ def balance_sheet():
                                labels=labels, label_ids_str=label_ids_str,
                                now=datetime.utcnow())
 
-    as_of = to_date or date.today()
+    as_of = to_date or local_today()
     assets, liabilities, equity, total_assets, total_liabilities, total_equity, ni = _bs_data(as_of, label_ids=label_ids)
 
     # Comparative data
@@ -2125,7 +2126,7 @@ def cash_flow():
 
 def _twcf_default_start():
     """The standard rolling start of a 13-week window: this week's Monday."""
-    today = date.today()
+    today = local_today()
     return today - timedelta(days=today.weekday())
 
 

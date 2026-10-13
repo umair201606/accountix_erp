@@ -103,7 +103,8 @@ def _user_name():
 
 
 def generated_line(when=None):
-    when = when or datetime.now()
+    from shared.clock import local_now
+    when = when or local_now()     # the company's clock, not the server's
     who = _user_name()
     text = f"Generated {when:%d %b %Y, %H:%M}"
     return f"{text} by {who}" if who else text

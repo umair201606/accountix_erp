@@ -6,6 +6,7 @@ figure here is ever stored.
 """
 
 from datetime import datetime
+from shared.clock import local_now
 
 from flask import (Blueprint, render_template, request, redirect, url_for,
                    flash)
@@ -86,7 +87,7 @@ def _register(side):
 
 
 def _as_of_text(as_of):
-    return f"Balances as at {as_of:%d %b %Y}" if as_of else         f"Balances as at {datetime.now():%d %b %Y} (all postings)"
+    return f"Balances as at {as_of:%d %b %Y}" if as_of else         f"Balances as at {local_now():%d %b %Y} (all postings)"
 
 
 def _export_register(fmt, side, rows, as_of, search, group_id):
@@ -122,7 +123,7 @@ def _export_register(fmt, side, rows, as_of, search, group_id):
                            filters=filters,
                            row_kinds=["plain"] * len(rows) + ["grand"],
                            col_formats={11: "0", 12: "0"},
-                           file_period=(as_of.date() if as_of else datetime.now().date()))
+                           file_period=(as_of.date() if as_of else local_now().date()))
 
 
 @exec_bp.route("/integrity")
@@ -159,12 +160,13 @@ def integrity():
                    for a in adjustments])]
         title = "Books Integrity"
         headers = ["Check", "Status", "Expected", "Actual", "Detail"]
-        period = f"{verdict} · run {datetime.now():%d %b %Y %H:%M}"
+        now = local_now()     # the company's clock, not the server's UTC
+        period = f"{verdict} · run {now:%d %b %Y %H:%M}"
         if fmt in ("excel", "xlsx"):
             buf = rx.build_excel(title, headers, rows, period=period, extra_sheets=extra)
-            return rx.send_export(buf, "excel", title, datetime.now().date())
+            return rx.send_export(buf, "excel", title, now.date())
         return rx.export_table(fmt, title, headers, rows, period=period,
-                               file_period=datetime.now().date())
+                               file_period=now.date())
     return render_template("executive/integrity.html", loaded=True, checks=checks,
                            all_ok=all(c["ok"] for c in checks),
                            adjustments=adjustments)

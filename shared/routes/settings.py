@@ -1144,6 +1144,13 @@ def member_restore(membership_id):
     m = CompanyMembership.query.get_or_404(membership_id)
     if m.company_id != current_company_id():
         abort(404)
+    # Only a REMOVED membership is discarded. The page offers the button for
+    # those alone, but the route deleted whatever id it was sent — an active
+    # member, the company owner or the last admin — past every guard that
+    # Remove applies.
+    if m.status != CompanyMembership.REMOVED:
+        flash("Only a removed membership can be discarded. Remove the member first.", "error")
+        return back
     u = User.query.get(m.user_id)
     db.session.delete(m)
     db.session.commit()
