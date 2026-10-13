@@ -44,6 +44,7 @@ def _create_app():
     import shared.models.project_label  # noqa: F401  (project labels: register before create_all)
     import shared.models.audit_log  # noqa: F401  (audit trail table)
     import shared.models.stored_file  # noqa: F401  (uploaded files live in the DB)
+    import shared.models.bank_rec  # noqa: F401  (bank reconciliations)
     import shared.audit  # noqa: F401  (registers the audit session hooks)
 
     app = Flask(

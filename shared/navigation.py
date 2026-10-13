@@ -302,6 +302,8 @@ NAV = {
             {"endpoint": "accounting.voucher_list", "icon": "&#128196;", "label": "View Vouchers"},
             {"endpoint": "accounting.voucher_register", "icon": "&#128212;", "label": "Voucher Register",
              "active": {"prefix": "accounting.voucher_register"}},
+            {"endpoint": "accounting.bank_rec_list", "icon": "&#127974;", "label": "Bank Reconciliation",
+             "active": {"prefix": "accounting.bank_rec"}},
             {"endpoint": "coa.list_accounts", "icon": "&#128202;", "label": "Chart of Accounts (COA)",
              "active": {"prefix": "coa."}},
         ],

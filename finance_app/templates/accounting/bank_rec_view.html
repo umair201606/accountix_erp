@@ -1,0 +1,115 @@
+{% extends "accounting/base_acct.html" %}
+{% block title %}Reconcile {{ rec.account.name }} - Accounting{% endblock %}
+{% block content %}
+{% from "partials/export.html" import export_buttons %}
+{% set editable = rec.status == 'draft' %}
+<div class="page-header">
+  <div>
+    <a href="{{ url_for('accounting.bank_rec_list') }}" class="br-back">&larr; Bank reconciliation</a>
+    <h1>{{ rec.account.code }} {{ rec.account.name }} &middot; {{ rec.statement_date.strftime('%d %b %Y') }}</h1>
+    <span class="badge badge-{{ 'success' if rec.status == 'completed' else 'warning' }}">{{ rec.status }}</span>
+  </div>
+  <div style="display:flex;gap:6px;flex-wrap:wrap;">{{ export_buttons(("excel", "pdf")) }}</div>
+</div>
+
+<div class="stats-grid br-stats">
+  <div class="stat-card"><div class="stat-label">Balance per books</div><div class="stat-value">{{ d.book|amount_format }}</div></div>
+  <div class="stat-card"><div class="stat-label">Cleared balance</div><div class="stat-value" id="br-cleared">{{ d.cleared|amount_format }}</div></div>
+  <div class="stat-card"><div class="stat-label">Statement balance</div><div class="stat-value">{{ d.statement|amount_format }}</div></div>
+  <div class="stat-card"><div class="stat-label">Difference</div><div class="stat-value {{ 'br-ok' if d.difference|abs < 0.005 else 'br-bad' }}" id="br-diff">{{ d.difference|amount_format }}</div></div>
+</div>
+
+<form method="POST" action="{{ url_for('accounting.bank_rec_save', id=rec.id) }}">
+<div class="card">
+  <div class="card-header">Transactions to {{ rec.statement_date.strftime('%d %b %Y') }} not cleared before</div>
+  {% if editable %}
+  <div class="br-bar">
+    <label>Statement closing balance
+      <input type="number" step="0.01" name="statement_balance" id="br-statement" class="form-control" value="{{ '%.2f'|format(d.statement) }}">
+    </label>
+    <span class="br-hint">Tick each line that appears on the statement.</span>
+  </div>
+  {% endif %}
+  <div class="table-responsive">
+    <table class="table br-table">
+      <thead><tr><th></th><th>Date</th><th>Voucher</th><th>Details</th><th class="r">Receipt</th><th class="r">Payment</th></tr></thead>
+      <tbody>
+      {% for ln, je in d.rows %}
+        <tr>
+          <td><input type="checkbox" name="line_ids[]" value="{{ ln.id }}" class="br-tick"
+                     data-net="{{ '%.2f'|format((ln.debit or 0)|float - (ln.credit or 0)|float) }}"
+                     {{ 'checked' if ln.id in d.mine }} {{ '' if editable else 'disabled' }} aria-label="Cleared"></td>
+          <td>{{ je.entry_date.strftime('%d %b %Y') }}</td>
+          <td>{{ je.voucher_number }}</td>
+          <td>{{ ln.description or je.description }}</td>
+          <td class="r">{{ ln.debit|amount_format if ln.debit and ln.debit|float > 0 else '' }}</td>
+          <td class="r">{{ ln.credit|amount_format if ln.credit and ln.credit|float > 0 else '' }}</td>
+        </tr>
+      {% else %}
+        <tr><td colspan="6" class="text-center" style="color:var(--muted);">Nothing to reconcile up to this date.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% if editable %}
+<div class="br-actions">
+  <button type="submit" name="action" value="save" class="btn btn-outline">Save</button>
+  <button type="submit" name="action" value="complete" class="btn btn-primary">Complete</button>
+</div>
+{% endif %}
+</form>
+
+<div class="card" style="margin-top:16px;">
+  <div class="card-header">Bank reconciliation statement</div>
+  <div class="table-responsive">
+    <table class="table br-stmt">
+      <tbody>
+        <tr><td>Balance as per books</td><td class="r">{{ d.book|amount_format }}</td></tr>
+        <tr><td>Add: payments not yet presented</td><td class="r">{{ d.unpresented|amount_format }}</td></tr>
+        <tr><td>Less: deposits in transit</td><td class="r">({{ d.in_transit|amount_format }})</td></tr>
+        <tr class="br-total"><td>Balance as per bank (books)</td><td class="r">{{ d.bank_per_books|amount_format }}</td></tr>
+        <tr><td>Balance as per bank statement</td><td class="r">{{ d.statement|amount_format }}</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap;">
+  {% if rec.status == 'completed' %}
+  <form method="POST" action="{{ url_for('accounting.bank_rec_reopen', id=rec.id) }}"><button class="btn btn-sm btn-outline">Reopen</button></form>
+  {% else %}
+  <form method="POST" action="{{ url_for('accounting.bank_rec_delete', id=rec.id) }}" onsubmit="return confirm('Delete this reconciliation?');"><button class="btn btn-sm btn-danger">Delete</button></form>
+  {% endif %}
+</div>
+
+<script>
+(function () {
+  var before = {{ '%.2f'|format(d.cleared_before) }}, st = document.getElementById('br-statement');
+  function money(v) { return v.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2}); }
+  function update() {
+    var c = before;
+    document.querySelectorAll('.br-tick:checked').forEach(function (b) { c += parseFloat(b.dataset.net); });
+    var s = st ? parseFloat(st.value || '0') : {{ '%.2f'|format(d.statement) }}, diff = s - c;
+    document.getElementById('br-cleared').textContent = money(c);
+    var el = document.getElementById('br-diff');
+    el.textContent = money(diff);
+    el.className = 'stat-value ' + (Math.abs(diff) < 0.005 ? 'br-ok' : 'br-bad');
+  }
+  document.querySelectorAll('.br-tick').forEach(function (b) { b.addEventListener('change', update); });
+  if (st) st.addEventListener('input', update);
+})();
+</script>
+<style>
+  .br-back { font-size: 13px; color: var(--muted); text-decoration: none; }
+  .br-bar { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; padding: 10px 12px; }
+  .br-bar label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
+  .br-hint { font-size: 12px; color: var(--muted); }
+  .br-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 10px; flex-wrap: wrap; }
+  .br-ok { color: var(--success, #15803d); }
+  .br-bad { color: var(--danger, #b91c1c); }
+  .br-table td, .br-table th { white-space: nowrap; }
+  .br-stmt .br-total td { font-weight: 600; border-top: 1px solid var(--line, rgba(127,127,127,.3)); }
+  .r { text-align: right; white-space: nowrap; }
+</style>
+{% endblock %}

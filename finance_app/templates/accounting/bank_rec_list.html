@@ -1,0 +1,58 @@
+{% extends "accounting/base_acct.html" %}
+{% block title %}Bank Reconciliation - Accounting{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1>Bank reconciliation</h1>
+    <p class="br-sub">Match the cash book to the bank statement: tick what appears on the statement until the cleared balance equals the statement's closing balance. What is left is the reconciliation statement.</p>
+  </div>
+</div>
+
+<div class="card" style="margin-bottom:16px;">
+  <div class="card-header">New reconciliation</div>
+  <form method="POST" action="{{ url_for('accounting.bank_rec_new') }}" class="br-form">
+    <label>Account
+      <select name="account_id" class="form-control" required>
+        <option value="">Choose…</option>
+        {% for a in accounts %}<option value="{{ a.id }}">{{ a.code }} {{ a.name }}</option>{% endfor %}
+      </select>
+    </label>
+    <label>Statement date
+      <input type="date" name="statement_date" class="form-control" value="{{ today }}" required>
+    </label>
+    <label>Statement closing balance
+      <input type="number" name="statement_balance" class="form-control" step="0.01" required>
+    </label>
+    <button type="submit" class="btn btn-primary">Start</button>
+  </form>
+</div>
+
+<div class="card">
+  <div class="card-header">Reconciliations</div>
+  <div class="table-responsive">
+    <table class="table">
+      <thead><tr><th>Account</th><th>Statement date</th><th class="r">Statement balance</th><th>Status</th><th></th></tr></thead>
+      <tbody>
+      {% for r in recs %}
+        <tr>
+          <td>{{ r.account.code }} {{ r.account.name }}</td>
+          <td>{{ r.statement_date.strftime('%d %b %Y') }}</td>
+          <td class="r">{{ r.statement_balance|amount_format }}</td>
+          <td><span class="badge badge-{{ 'success' if r.status == 'completed' else 'warning' }}">{{ r.status }}</span></td>
+          <td class="r"><a href="{{ url_for('accounting.bank_rec_view', id=r.id) }}" class="btn btn-sm btn-outline">Open</a></td>
+        </tr>
+      {% else %}
+        <tr><td colspan="5" class="text-center" style="color:var(--muted);">No reconciliations yet.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+<style>
+  .br-sub { font-size: 13px; color: var(--muted); margin: 4px 0 0; max-width: 720px; }
+  .br-form { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; padding: 12px; }
+  .br-form label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
+  .br-form .form-control { min-width: 0; max-width: 100%; }
+  .r { text-align: right; white-space: nowrap; }
+</style>
+{% endblock %}
