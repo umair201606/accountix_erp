@@ -33,3 +33,7 @@ shots/
 # Local server output captures
 stdout.txt
 stderr.txt
+
+# Database backups (live data, e.g. pg_dump of Neon) - never commit
+instance/backups/
+*.dump
