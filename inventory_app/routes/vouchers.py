@@ -7,8 +7,8 @@ from shared.tenancy import scoped_get, scoped_get_404
 from shared.models.stock_ledger import StockLedger, VoucherNumber
 from shared.stock_utils import dependency_check, validate_no_dependents
 from shared.ledger_utils import post_journal_entry, get_or_create_account
-from shared.costing import (cost_of_issue, current_unit_cost, on_hand,
-                            record_in, record_out, reverse_voucher_stock)
+from shared.costing import (cost_of_issue, current_unit_cost, lock_products, on_hand,
+                            on_hand_at, record_in, record_out, reverse_voucher_stock)
 from shared.models.ledger import ChartOfAccount
 from shared.models.project_label import ProjectLabel
 from shared.permissions import deny_page
@@ -96,7 +96,9 @@ def _post_voucher_journal(vtype, v, lines, entry_date=None):
 @inv_vouchers_bp.route("/consumption/<int:id>", methods=["GET", "POST"])
 @login_required
 def consumption_form(id=None):
-    voucher = scoped_get(ConsumptionVoucher, id) if id else None
+    # A save or approval locks the voucher until commit: two users approving
+    # it at once post it once (the second finds it approved).
+    voucher = scoped_get(ConsumptionVoucher, id, for_update=request.method == "POST") if id else None
     if id and voucher is None:
         flash("Voucher not found.", "error")
         return redirect(url_for("inv_vouchers.consumption_list"))
@@ -155,6 +157,7 @@ def consumption_form(id=None):
 
         if status == "approved":
             db.session.flush()
+            lock_products(i.product_id for i in new_items)
             # Issue stock through the costing engine — it computes the true
             # historic cost (weighted avg / FIFO) at this moment, which is
             # exactly what gets charged to the target ledger account.
@@ -204,7 +207,7 @@ def consumption_list():
 def consumption_delete(id):
     if deny_page("consumption_vouchers", "delete"):
         return redirect(url_for("inv_vouchers.consumption_list"))
-    v = scoped_get_404(ConsumptionVoucher, id)
+    v = scoped_get_404(ConsumptionVoucher, id, for_update=True)
     if v.status == "approved":
         flash("Cannot delete an approved voucher. Unapprove it first.", "error")
         return redirect(url_for("inv_vouchers.consumption_list"))
@@ -219,7 +222,7 @@ def consumption_delete(id):
 def consumption_unapprove(id):
     if deny_page("consumption_vouchers", "approve"):
         return redirect(url_for("inv_vouchers.consumption_list"))
-    v = scoped_get_404(ConsumptionVoucher, id)
+    v = scoped_get_404(ConsumptionVoucher, id, for_update=True)
     if v.status != "approved":
         flash("Voucher is not approved.", "error")
         return redirect(url_for("inv_vouchers.consumption_list"))
@@ -251,7 +254,9 @@ def consumption_unapprove(id):
 @inv_vouchers_bp.route("/scrap/<int:id>", methods=["GET", "POST"])
 @login_required
 def scrap_form(id=None):
-    voucher = scoped_get(ScrapVoucher, id) if id else None
+    # A save or approval locks the voucher until commit: two users approving
+    # it at once post it once (the second finds it approved).
+    voucher = scoped_get(ScrapVoucher, id, for_update=request.method == "POST") if id else None
     if id and voucher is None:
         flash("Voucher not found.", "error")
         return redirect(url_for("inv_vouchers.scrap_list"))
@@ -309,6 +314,7 @@ def scrap_form(id=None):
 
         if status == "approved":
             db.session.flush()
+            lock_products(i.product_id for i in new_items)
             # Cost computed from the product's purchase history at this
             # moment — the receivable/loss is booked at true historic cost.
             for item in new_items:
@@ -357,7 +363,7 @@ def scrap_list():
 def scrap_delete(id):
     if deny_page("scrap_vouchers", "delete"):
         return redirect(url_for("inv_vouchers.scrap_list"))
-    v = scoped_get_404(ScrapVoucher, id)
+    v = scoped_get_404(ScrapVoucher, id, for_update=True)
     if v.status == "approved":
         flash("Cannot delete an approved voucher. Unapprove it first.", "error")
         return redirect(url_for("inv_vouchers.scrap_list"))
@@ -372,7 +378,7 @@ def scrap_delete(id):
 def scrap_unapprove(id):
     if deny_page("scrap_vouchers", "approve"):
         return redirect(url_for("inv_vouchers.scrap_list"))
-    v = scoped_get_404(ScrapVoucher, id)
+    v = scoped_get_404(ScrapVoucher, id, for_update=True)
     if v.status != "approved":
         flash("Voucher is not approved.", "error")
         return redirect(url_for("inv_vouchers.scrap_list"))
@@ -404,7 +410,9 @@ def scrap_unapprove(id):
 @inv_vouchers_bp.route("/adjustment/<int:id>", methods=["GET", "POST"])
 @login_required
 def adjustment_form(id=None):
-    voucher = scoped_get(StockAdjustmentVoucher, id) if id else None
+    # A save or approval locks the voucher until commit: two users approving
+    # it at once post it once (the second finds it approved).
+    voucher = scoped_get(StockAdjustmentVoucher, id, for_update=request.method == "POST") if id else None
     if id and voucher is None:
         flash("Voucher not found.", "error")
         return redirect(url_for("inv_vouchers.adjustment_list"))
@@ -435,13 +443,20 @@ def adjustment_form(id=None):
         db.session.flush()
 
         products = request.form.getlist("product_id[]")
-        sys_qtys = request.form.getlist("system_qty[]")
         phys_qtys = request.form.getlist("physical_qty[]")
+        if status == "approved":
+            # Locked before the system quantity is read, so a sale posted at
+            # the same moment cannot slip between the count and the posting.
+            lock_products(int(p) for p in products if p and p.strip())
         new_items = []
         for i, pid in enumerate(products):
             if not pid or not pid.strip():
                 continue
-            sq = Decimal(str(float(sys_qtys[i]) if i < len(sys_qtys) else 0))
+            # The system quantity is the ledger's, at the voucher's date — not
+            # the figure the form showed when it was opened. Stock that moved
+            # since (another user's sale, a late purchase) used to make the
+            # adjustment post the wrong difference.
+            sq = on_hand_at(int(pid), voucher.date)
             pq = Decimal(str(float(phys_qtys[i]) if i < len(phys_qtys) else 0))
             diff = pq - sq
             if diff == 0:
@@ -528,7 +543,7 @@ def adjustment_list():
 def adjustment_delete(id):
     if deny_page("adjustment_vouchers", "delete"):
         return redirect(url_for("inv_vouchers.adjustment_list"))
-    v = scoped_get_404(StockAdjustmentVoucher, id)
+    v = scoped_get_404(StockAdjustmentVoucher, id, for_update=True)
     if v.status == "approved":
         flash("Cannot delete an approved voucher. Unapprove it first.", "error")
         return redirect(url_for("inv_vouchers.adjustment_list"))
@@ -543,7 +558,7 @@ def adjustment_delete(id):
 def adjustment_unapprove(id):
     if deny_page("adjustment_vouchers", "approve"):
         return redirect(url_for("inv_vouchers.adjustment_list"))
-    v = scoped_get_404(StockAdjustmentVoucher, id)
+    v = scoped_get_404(StockAdjustmentVoucher, id, for_update=True)
     if v.status != "approved":
         flash("Voucher is not approved.", "error")
         return redirect(url_for("inv_vouchers.adjustment_list"))
@@ -575,7 +590,9 @@ def adjustment_unapprove(id):
 @inv_vouchers_bp.route("/stock-take/<int:id>", methods=["GET", "POST"])
 @login_required
 def stock_take_form(id=None):
-    st = scoped_get(StockTake, id) if id else None
+    # A save or approval locks the voucher until commit: two users approving
+    # it at once post it once (the second finds it approved).
+    st = scoped_get(StockTake, id, for_update=request.method == "POST") if id else None
     if id and st is None:
         flash("Stock take not found.", "error")
         return redirect(url_for("inv_vouchers.stock_take_list"))
@@ -606,13 +623,23 @@ def stock_take_form(id=None):
         db.session.flush()
 
         products = request.form.getlist("product_id[]")
-        sys_q = request.form.getlist("system_qty[]")
         phys_q = request.form.getlist("physical_qty[]")
+        adj_number = None
+        if status == "approved":
+            # The adjustment's number first, then the products — the order
+            # every other stock document takes them in (a number series stays
+            # locked until commit; the opposite order could deadlock against
+            # an adjustment voucher being approved at the same moment).
+            adj_number = VoucherNumber.next("ADJ")
+            # Locked before the system quantity is read (see adjustment_form).
+            lock_products(int(p) for p in products if p and p.strip())
         new_items = []
         for i, pid in enumerate(products):
             if not pid or not pid.strip():
                 continue
-            sq = Decimal(str(float(sys_q[i]) if i < len(sys_q) else 0))
+            # Counted against the ledger's quantity at the take's date, not
+            # the figure the form showed (see adjustment_form).
+            sq = on_hand_at(int(pid), st.date)
             pq = Decimal(str(float(phys_q[i]) if i < len(phys_q) else 0))
             diff = pq - sq
             cost = _cost_from_ledger(int(pid))
@@ -635,7 +662,7 @@ def stock_take_form(id=None):
         if status == "approved":
             db.session.flush()
             adj = StockAdjustmentVoucher(
-                voucher_number=VoucherNumber.next("ADJ"),
+                voucher_number=adj_number,
                 date=st.date,
                 reason=f"Stock Take: {st.reference} ({st.location})",
                 status="approved",
@@ -721,7 +748,7 @@ def stock_take_list():
 def stock_take_delete(id):
     if deny_page("stock_take_vouchers", "delete"):
         return redirect(url_for("inv_vouchers.stock_take_list"))
-    st = scoped_get_404(StockTake, id)
+    st = scoped_get_404(StockTake, id, for_update=True)
     if st.status == "approved":
         flash("Cannot delete an approved stock take.", "error")
         return redirect(url_for("inv_vouchers.stock_take_list"))

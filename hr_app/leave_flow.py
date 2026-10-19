@@ -103,6 +103,14 @@ def decide(approval, action, comment, user_id):
     if action not in ("approve", "reject"):
         return "Unknown action."
     lr = approval.leave_request
+    # One decision at a time per employee: two approvers (or two clicks)
+    # deciding at once both found it pending, and each rewrote the balance
+    # from what it could see. The request is re-read after the wait.
+    from shared.concurrency import serialize
+    serialize("leave", lr.user_id)
+    from shared.extensions import db as _db
+    _db.session.refresh(approval)
+    _db.session.refresh(lr)
     if approval.status != "pending" or lr.status != "pending":
         return "This request has already been decided."
     comment = (comment or "").strip()

@@ -284,7 +284,7 @@ def capitalise_from_stock():
 def approve_capitalisation_route(id):
     if not current_user.module_access("fixed_assets"):
         return render_template("access_denied.html")
-    transfer = scoped_get_404(AssetTransfer, id)
+    transfer = scoped_get_404(AssetTransfer, id, for_update=request.method == "POST")
     if transfer.status == "approved" or transfer.direction != "to_fixed_asset":
         flash("Not a draft capitalisation.", "error")
         return redirect(url_for("fa_transfers.list_transfers"))
@@ -304,7 +304,7 @@ def approve_capitalisation_route(id):
 def unapprove_capitalisation(id):
     if not current_user.module_access("fixed_assets"):
         return render_template("access_denied.html")
-    transfer = scoped_get_404(AssetTransfer, id)
+    transfer = scoped_get_404(AssetTransfer, id, for_update=request.method == "POST")
     if transfer.status != "approved" or transfer.direction != "to_fixed_asset":
         flash("Not an approved capitalisation.", "error")
         return redirect(url_for("fa_transfers.list_transfers"))
@@ -426,7 +426,7 @@ def create_transfer():
 def edit_transfer(id):
     if not current_user.module_access("fixed_assets"):
         return render_template("access_denied.html")
-    transfer = scoped_get_404(AssetTransfer, id)
+    transfer = scoped_get_404(AssetTransfer, id, for_update=request.method == "POST")
     if transfer.status == "approved":
         flash("Cannot edit an approved transfer.", "error")
         return redirect(url_for("fa_transfers.list_transfers"))
@@ -498,7 +498,7 @@ def edit_transfer(id):
 def unapprove_transfer(id):
     if not current_user.module_access("fixed_assets"):
         return render_template("access_denied.html")
-    transfer = scoped_get_404(AssetTransfer, id)
+    transfer = scoped_get_404(AssetTransfer, id, for_update=request.method == "POST")
     if transfer.status != "approved":
         flash("Transfer is not approved.", "error")
         return redirect(url_for("fa_transfers.list_transfers"))
@@ -531,7 +531,7 @@ def unapprove_transfer(id):
 def delete_transfer(id):
     if not current_user.module_access("fixed_assets"):
         return render_template("access_denied.html")
-    transfer = scoped_get_404(AssetTransfer, id)
+    transfer = scoped_get_404(AssetTransfer, id, for_update=request.method == "POST")
     if transfer.status == "approved":
         flash("Cannot delete an approved transfer. Unapprove it first.", "error")
         return redirect(url_for("fa_transfers.list_transfers"))

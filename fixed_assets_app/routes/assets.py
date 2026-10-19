@@ -224,7 +224,7 @@ def view_asset(asset_id):
 def edit_asset(asset_id):
     if not current_user.module_access("fixed_assets"):
         return render_template("access_denied.html")
-    asset = scoped_get_404(FixedAsset, asset_id)
+    asset = scoped_get_404(FixedAsset, asset_id, for_update=request.method == "POST")
     categories = AssetCategory.query.filter_by(is_active=True).all()
     choices = account_choices()
     if request.method == "POST":
@@ -324,7 +324,7 @@ def edit_asset(asset_id):
 def record_depreciation(asset_id):
     if not current_user.module_access("fixed_assets"):
         return jsonify({"ok": False, "error": "Access denied"}), 403
-    asset = scoped_get_404(FixedAsset, asset_id)
+    asset = scoped_get_404(FixedAsset, asset_id, for_update=True)
     if asset.status != "active":
         flash("Only an asset in service can be depreciated.", "error")
         return redirect(url_for("fa_assets.view_asset", asset_id=asset.id))
@@ -376,7 +376,7 @@ def record_depreciation(asset_id):
 def dispose_asset(asset_id):
     if not current_user.module_access("fixed_assets"):
         return render_template("access_denied.html")
-    asset = scoped_get_404(FixedAsset, asset_id)
+    asset = scoped_get_404(FixedAsset, asset_id, for_update=True)
     if not asset.fixed_asset_account_id:
         fa_acct, _ = create_fixed_asset_accounts(asset, asset.name)
         asset.fixed_asset_account_id = fa_acct.id
@@ -483,7 +483,7 @@ def undo_disposal(asset_id):
     """
     if not current_user.module_access("fixed_assets"):
         return render_template("access_denied.html")
-    asset = scoped_get_404(FixedAsset, asset_id)
+    asset = scoped_get_404(FixedAsset, asset_id, for_update=True)
     if asset.status != "disposed":
         flash("This asset is not disposed.", "error")
         return redirect(url_for("fa_assets.view_asset", asset_id=asset.id))

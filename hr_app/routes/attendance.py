@@ -4,6 +4,7 @@ from flask_login import login_required, current_user
 from sqlalchemy import func, extract
 from ..extensions import db, csrf
 from shared.tenancy import scoped_get_404
+from shared.concurrency import serialize
 from ..models.attendance import Attendance, AttendanceLog
 from ..models.holiday import BreakLog, TimePolicy, AttendanceCorrection, OvertimeAccount
 from ..models.communication import Notification, NotificationRecipient
@@ -97,6 +98,9 @@ def index():
 @csrf.exempt
 @login_required
 def clock_in():
+    # One attendance action at a time per person: a double tap used to log
+    # twice (or hit the one-row-a-day key); the second now sees the first.
+    serialize("attendance", current_user.id)
     today = local_today()
     existing = Attendance.query.filter_by(user_id=current_user.id, date=today).first()
     if existing and existing.clock_in:
@@ -122,6 +126,9 @@ def clock_in():
 @csrf.exempt
 @login_required
 def clock_out():
+    # One attendance action at a time per person: a double tap used to log
+    # twice (or hit the one-row-a-day key); the second now sees the first.
+    serialize("attendance", current_user.id)
     today = local_today()
     att = Attendance.query.filter_by(user_id=current_user.id, date=today).first()
     if not att or not att.clock_in:
@@ -144,6 +151,9 @@ def clock_out():
 @csrf.exempt
 @login_required
 def break_start():
+    # One attendance action at a time per person: a double tap used to log
+    # twice (or hit the one-row-a-day key); the second now sees the first.
+    serialize("attendance", current_user.id)
     today = local_today()
     att = Attendance.query.filter_by(user_id=current_user.id, date=today).first()
     if not att or not att.clock_in:
@@ -164,6 +174,9 @@ def break_start():
 @csrf.exempt
 @login_required
 def break_end():
+    # One attendance action at a time per person: a double tap used to log
+    # twice (or hit the one-row-a-day key); the second now sees the first.
+    serialize("attendance", current_user.id)
     today = local_today()
     att = Attendance.query.filter_by(user_id=current_user.id, date=today).first()
     if not att:

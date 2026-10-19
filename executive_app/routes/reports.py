@@ -7,6 +7,7 @@ figure here is ever stored.
 
 from datetime import datetime
 from shared.clock import local_now
+from shared.concurrency import consistent_snapshot
 
 from flask import (Blueprint, render_template, request, redirect, url_for,
                    flash)
@@ -36,6 +37,7 @@ def _parse_date(value):
 
 @exec_bp.route("/")
 @login_required
+@consistent_snapshot
 def dashboard():
     if deny_page(RESOURCE, "view"):
         return redirect(url_for("dashboard.hub"))
@@ -128,6 +130,7 @@ def _export_register(fmt, side, rows, as_of, search, group_id):
 
 @exec_bp.route("/integrity")
 @login_required
+@consistent_snapshot
 def integrity():
     """Books integrity: does every sub-ledger still agree with the GL?
 
@@ -174,18 +177,21 @@ def integrity():
 
 @exec_bp.route("/receivables")
 @login_required
+@consistent_snapshot
 def receivables():
     return _register(er.RECEIVABLE)
 
 
 @exec_bp.route("/payables")
 @login_required
+@consistent_snapshot
 def payables():
     return _register(er.PAYABLE)
 
 
 @exec_bp.route("/party/<int:account_id>")
 @login_required
+@consistent_snapshot
 def party(account_id):
     """The postings behind one balance."""
     if deny_page(RESOURCE, "view"):

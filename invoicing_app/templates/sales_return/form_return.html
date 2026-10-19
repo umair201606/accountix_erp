@@ -262,6 +262,9 @@ textarea.inp{resize:vertical;font-family:inherit}
 {% endblock %}
 
 {% block extra_scripts %}
+{# The version this page loaded: saves from a stale copy are refused (static/js/edit_version.js). #}
+<input type="hidden" id="editVersion" value="{{ (return_doc.edit_version or 0) if return_doc else 0 }}">
+<script src="{{ url_for('static', filename='js/edit_version.js') }}"></script>
 <script>
 var invoiceData = null, itemsData = [], editable = {{ 'false' if is_approved else 'true' }};
 function fmt(v){return window.formatAmount(v,2)}

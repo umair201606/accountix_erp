@@ -81,6 +81,8 @@ would leave a later issue uncovered.
 from datetime import date, datetime
 from decimal import Decimal
 
+from sqlalchemy import event, select
+
 from shared.extensions import db
 from shared.models.stock_ledger import StockLedger
 from shared.models.stock_layer import StockLayer, LayerConsumption
@@ -136,6 +138,57 @@ def _settings():
 # OUT rows whose cost is a fixed basis rather than drawn from the layers: a
 # purchase return leaves at the cost it was bought at.
 EXPLICIT_BASIS_TYPES = {"PRV"}
+
+
+def lock_products(product_ids):
+    """Hold these products' stock until the transaction ends.
+
+    Every change to a product's stock — receipt, issue, reversal, re-costing —
+    reads its open cost layers, decides what to take from each and writes the
+    remainders back. Two users doing that to one product at once both read
+    "10 on hand", both took the same units and the second write overwrote
+    the first: stock sold twice, layers no longer backing the ledger. The
+    product row is locked (SELECT ... FOR NO KEY UPDATE) first, so the second
+    user waits, then reads what the first one left.
+
+    Ids are locked in ascending order, all at once: a document should call
+    this with every product it moves before moving any (two invoices taking
+    A-then-B and B-then-A would otherwise deadlock). record_in / record_out /
+    reverse_voucher_stock lock on their own as a fallback. Stock objects this
+    session read before the lock are expired so they are read again.
+    """
+    session = db.session
+    held = session.info.setdefault("stock_locks", set())
+    wanted = set()
+    for p in product_ids:
+        try:
+            wanted.add(int(p))
+        except (TypeError, ValueError):
+            continue        # a blank or junk id from a form: validation refuses it
+    ids = sorted(wanted - held)
+    if not ids:
+        return
+    from inventory_app.models.product import InvProduct
+    P = InvProduct.__table__
+    session.flush()
+    session.connection().execute(
+        select(P.c.id).where(P.c.id.in_(ids)).order_by(P.c.id)
+        .with_for_update(key_share=True))   # NO KEY UPDATE: see tenancy.scoped_get
+    held.update(ids)
+    wanted = set(ids)
+    for obj in list(session.identity_map.values()):
+        if isinstance(obj, InvProduct):
+            if obj.id in wanted:
+                session.expire(obj)
+        elif isinstance(obj, (StockLedger, StockLayer, LayerConsumption)):
+            if obj.product_id in wanted:
+                session.expire(obj)
+
+
+@event.listens_for(db.session, "after_commit")
+@event.listens_for(db.session, "after_rollback")
+def _release_stock_locks(session):
+    session.info.pop("stock_locks", None)
 
 
 def as_txn_date(when):
@@ -488,6 +541,7 @@ def record_in(product_id, voucher_type, voucher_id, voucher_number,
             f"Cannot receive {qty} of product {product_id}: receipt quantity "
             "must be positive."
         )
+    lock_products([product_id])
     unit_cost = _q(unit_cost)
     total_cost = _q(qty * unit_cost, 2) if total_cost is None else _q(_d(total_cost), 2)
     txn_date = as_txn_date(txn_date)
@@ -569,6 +623,7 @@ def record_out(product_id, voucher_type, voucher_id, voucher_number,
     qty = _d(qty)
     if qty <= 0:
         return ZERO, ZERO
+    lock_products([product_id])
 
     txn_date = as_txn_date(txn_date)
     if _is_backdated(product_id, txn_date):
@@ -683,6 +738,7 @@ def revalue_for_method_change(new_method, created_by=1):
     """
     products = [r[0] for r in db.session.query(StockLayer.product_id)
                 .filter(StockLayer.qty_remaining > 0).distinct().all()]
+    lock_products(products)
     for product_id in products:
         layers = _open_layers(product_id)
         if len(layers) <= 1:
@@ -838,6 +894,7 @@ def reverse_voucher_stock(voucher_type, voucher_id, allow_variance=False,
     if not rows:
         return {}
     product_ids = {r.product_id for r in rows}
+    lock_products(product_ids)
     row_ids = [r.id for r in rows]
     voucher_number = rows[0].voucher_number
 

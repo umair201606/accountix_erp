@@ -92,7 +92,7 @@ def create_transfer():
 def edit_transfer(id):
     if not current_user.module_access("inventory"):
         return render_template("access_denied.html")
-    transfer = scoped_get_404(AssetTransfer, id)
+    transfer = scoped_get_404(AssetTransfer, id, for_update=request.method == "POST")
     if transfer.direction not in _DIRECTIONS:
         flash("That transfer belongs to Fixed Assets.", "error")
         return redirect(url_for("inv_transfers.list_transfers"))
@@ -133,7 +133,7 @@ def edit_transfer(id):
 def unapprove_transfer(id):
     if not current_user.module_access("inventory"):
         return render_template("access_denied.html")
-    transfer = scoped_get_404(AssetTransfer, id)
+    transfer = scoped_get_404(AssetTransfer, id, for_update=request.method == "POST")
     if transfer.status != "approved" or transfer.direction not in _DIRECTIONS:
         flash("Transfer is not an approved capitalisation.", "error")
         return redirect(url_for("inv_transfers.list_transfers"))
@@ -178,7 +178,7 @@ def unapprove_transfer(id):
 def delete_transfer(id):
     if not current_user.module_access("inventory"):
         return render_template("access_denied.html")
-    transfer = scoped_get_404(AssetTransfer, id)
+    transfer = scoped_get_404(AssetTransfer, id, for_update=request.method == "POST")
     if transfer.direction not in _DIRECTIONS:
         flash("That transfer belongs to Fixed Assets.", "error")
         return redirect(url_for("inv_transfers.list_transfers"))

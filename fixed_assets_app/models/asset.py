@@ -184,8 +184,15 @@ class FixedAsset(db.Model):
     def next_code():
         """FA-0001, FA-0002, … per company. Three creation paths used to
         number from the last id or from count()+1 — the latter collided with
-        the unique code after any delete and the create failed."""
+        the unique code after any delete and the create failed.
+
+        Two users creating assets at once both read the same highest code, so
+        the read is queued per company (an advisory lock held to commit) and
+        the second one numbers after the first one's asset."""
         import re
+        from shared.concurrency import serialize
+        from shared.tenancy import current_company_id
+        serialize("asset-code", current_company_id())
         top = 0
         for (code,) in db.session.query(FixedAsset.asset_code).filter(
                 FixedAsset.asset_code.like("FA-%")):

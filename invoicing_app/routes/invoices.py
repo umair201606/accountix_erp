@@ -5,6 +5,8 @@ import json
 from decimal import Decimal
 from inventory_app.extensions import db
 from shared.tenancy import scoped_get, scoped_get_404
+from shared.doc_numbers import is_placeholder, number_from_id, placeholder
+from shared.concurrency import bump_edit, stale_edit
 from inventory_app.models.invoice import InvInvoice, InvInvoiceItem
 from inventory_app.models.additional_charge import AdditionalCharge
 from inventory_app.models.customer import InvCustomer
@@ -22,7 +24,7 @@ from shared.models.invoice_template import (
     items_table_metrics)
 from shared.formatting import format_amount as _m
 from shared.permissions import deny_json, deny_page
-from shared.costing import record_out, reverse_voucher_stock, NegativeStockError
+from shared.costing import lock_products, record_out, reverse_voucher_stock, NegativeStockError
 from shared.periods import ClosedPeriodError
 from shared.posting_helpers import (parse_doc_date, DocumentDateError,
                                     label_weights, split_by_label)
@@ -65,8 +67,8 @@ def _read_manual(raw):
         return []
 
 
-def next_voucher():
-    """The document number. A sales invoice has exactly one.
+def assign_number(inv):
+    """Give a new invoice its document number. A sales invoice has exactly one.
 
     There used to be two generators off the same counter — SI-… into
     voucher_number and INV-… into invoice_number — so every invoice carried two
@@ -77,10 +79,11 @@ def next_voucher():
     carries its own NOT NULL and UNIQUE constraint. Storing the same string in
     both keeps every reader working (a value is unique per column, so this does
     not collide) without a migration.
+
+    The number is built from the invoice's own row id (shared/doc_numbers.py)
+    — "last id + 1" gave two users saving at once the same number.
     """
-    last = InvInvoice.query.order_by(InvInvoice.id.desc()).first()
-    n = (last.id + 1) if last else 1
-    return f"SI-{datetime.utcnow():%Y%m}-{n:04d}"
+    return number_from_id(inv, "SI", "invoice_number", "voucher_number")
 
 
 @inv_inv_bp.route("/", defaults={"id": None})
@@ -225,13 +228,18 @@ def save_invoice():
             return denied
     
         if inv_id:
-            inv = scoped_get_404(InvInvoice, inv_id)
+            # Locked until commit: a second user saving or approving the same
+            # invoice waits, then finds it approved instead of posting it again.
+            inv = scoped_get_404(InvInvoice, inv_id, for_update=True)
             if inv.voucher_status == "approved":
                 return jsonify({"ok": False, "error": "Cannot modify approved invoice"}), 400
+            stale = stale_edit(inv, data.get("edit_version"), f"Invoice {inv.invoice_number}")
+            if stale:
+                return jsonify({"ok": False, "error": stale, "stale": True}), 409
         else:
             number = data.get("invoice_number")
             if not number or number == "(auto)":
-                number = next_voucher()
+                number = placeholder()
             inv = InvInvoice(
                 voucher_number=number,
                 invoice_number=number,
@@ -301,6 +309,12 @@ def save_invoice():
             inv.voucher_status = "unapproved"
     
         db.session.flush()
+        if is_placeholder(inv.invoice_number):
+            assign_number(inv)
+        if action == "approve":
+            # Every product this invoice moves, locked together and in one
+            # order before any stock moves (shared/costing.py: lock_products).
+            lock_products(r.get("product_id") for r in data.get("items", []))
     
         total_cogs = Decimal("0")
         cogs_by_label = {}
@@ -504,6 +518,7 @@ def save_invoice():
         else:
             msg = "saved"
         return jsonify({"ok": True, "id": inv.id, "voucher_status": inv.voucher_status,
+                        "edit_version": inv.edit_version,
                         "payment_status": inv.payment_status,
                         "number": inv.invoice_number, "voucher": inv.voucher_number,
                         "message": f"Invoice {msg}"})
@@ -513,6 +528,11 @@ def save_invoice():
         return jsonify({"ok": False, "error": str(e)}), 400
     except Exception as e:
         db.session.rollback()
+        from shared.concurrency import conflict_message
+        msg = conflict_message(e)
+        if msg:
+            # Another user saved the same records at the same moment.
+            return jsonify({"ok": False, "error": msg}), 409
         _tb.print_exc()
         return jsonify({"ok": False, "error": f"Server error: {e}"}), 500
 
@@ -523,7 +543,7 @@ def unapprove_invoice(id):
     denied = deny_json("sales_invoices", "approve")
     if denied:
         return denied
-    inv = scoped_get_404(InvInvoice, id)
+    inv = scoped_get_404(InvInvoice, id, for_update=True)
     if inv.voucher_status != "approved":
         return jsonify({"ok": False, "error": "Only approved invoices can be unapproved"}), 400
     # A posted return credits this invoice; un-posting the invoice under it
@@ -572,12 +592,14 @@ def unapprove_invoice(id):
     # same products are re-costed in date order and any change is journalled.
     reverse_voucher_stock("SI", inv.id, created_by=current_user.id)
 
+    bump_edit(inv)
     db.session.commit()
     # An unapproved invoice owes nothing, so anything assigned to it stops
     # counting and the receipts return to the feed.
     from shared import payment_tracking as _pt
     _pt.sync_invoice(_pt.SALES, inv.id)
     return jsonify({"ok": True, "voucher_status": "unapproved",
+                    "edit_version": inv.edit_version,
                     "message": "Invoice unapproved and unlocked"})
 
 
@@ -587,7 +609,7 @@ def delete_invoice(id):
     denied = deny_json("sales_invoices", "delete")
     if denied:
         return denied
-    inv = scoped_get_404(InvInvoice, id)
+    inv = scoped_get_404(InvInvoice, id, for_update=True)
     if inv.voucher_status == "approved":
         return jsonify({"ok": False, "error": "Cannot delete an approved invoice. Unapprove it first."}), 400
     try:

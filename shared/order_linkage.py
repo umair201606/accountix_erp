@@ -24,6 +24,53 @@ def _models(side):
     return InvPurchaseOrder, InvPurchaseOrderItem
 
 
+def lock_order_lines(side, order_item_ids):
+    """Lock these order lines until the transaction ends, in id order.
+
+    Billing an order line reads its invoiced quantity, checks the balance and
+    writes the new figure back. Two invoices billing one line at the same
+    instant both saw the old balance — both passed the over-invoicing check
+    and the second write overwrote the first, losing a quantity. Locked
+    first, the second invoice waits and checks against what the first left.
+    Taken before any stock is moved, so every posting locks in the same
+    order: document, order lines, products.
+    """
+    _, OrderItem = _models(side)
+    ids = sorted({int(i) for i in order_item_ids if i})
+    if not ids:
+        return
+    # Mid-save, with a half-built invoice pending: no autoflush (see
+    # check_over_invoicing).
+    with db.session.no_autoflush:
+        (OrderItem.query.filter(OrderItem.id.in_(ids)).order_by(OrderItem.id)
+         .with_for_update(key_share=True).populate_existing().all())
+
+
+def invoices_drawing_on(side, order_id):
+    """Numbers of the invoices (draft or approved) with lines imported from
+    this order. While there are any, the order cannot be unapproved, edited
+    or deleted: saving an order replaces its lines, which threw away the
+    quantities already billed (so they could be billed again) and orphaned
+    the invoices' links to them. The order's lines are locked first, so an
+    invoice being approved at that moment is seen."""
+    Order, OrderItem = _models(side)
+    if side == "sales":
+        from inventory_app.models.invoice import InvInvoice as Inv, InvInvoiceItem as Item
+        fk = OrderItem.so_id
+    else:
+        from inventory_app.models.purchase_invoice import (
+            InvPurchaseInvoice as Inv, InvPurchaseInvoiceItem as Item)
+        fk = OrderItem.po_id
+    line_ids = [i for (i,) in db.session.query(OrderItem.id).filter(fk == order_id)]
+    if not line_ids:
+        return []
+    lock_order_lines(side, line_ids)
+    rows = (db.session.query(Inv.invoice_number)
+            .join(Item, Item.invoice_id == Inv.id)
+            .filter(Item.source_order_item_id.in_(line_ids)).distinct().all())
+    return sorted(r[0] for r in rows)
+
+
 def _tolerance_pct():
     """Admin over-invoicing tolerance (§11.2). Absent settings mean no slack."""
     try:
@@ -146,6 +193,7 @@ def check_over_invoicing(side, invoice_items):
         if oid:
             wanted[oid] = wanted.get(oid, 0.0) + float(it.quantity or 0)
     errors = []
+    lock_order_lines(side, wanted)
     # This runs mid-save, while a half-built invoice is pending in the session.
     # Autoflush would push that incomplete row to the database and fail on its
     # NOT NULL columns, so every read here — the settings lookup included — is
@@ -176,6 +224,9 @@ def apply_writeback(side, invoice_items, sign=1):
     against a posted one, restores the balances and reopens the orders").
     """
     Order, OrderItem = _models(side)
+    invoice_items = list(invoice_items)
+    lock_order_lines(side, [getattr(it, "source_order_item_id", None)
+                            for it in invoice_items])
     touched = set()
     for it in invoice_items:
         oid = getattr(it, "source_order_item_id", None)

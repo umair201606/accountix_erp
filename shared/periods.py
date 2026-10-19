@@ -63,7 +63,16 @@ def require_open_period(when, action="post to"):
     that has only the current fiscal year seeded. Only an explicit close locks.
     """
     p = period_for(when)
-    if p is None or not p.is_closed:
+    if p is None:
+        return p
+    # A shared lock on the period, held to commit: postings never block each
+    # other, but closing the period (an exclusive lock) waits for the ones in
+    # flight, and a posting that arrives during a close waits for it and is
+    # then refused. Without it a posting checked "open", the period was
+    # closed, and the posting committed into the closed period.
+    p = (AccountingPeriod.query.filter(AccountingPeriod.id == p.id)
+         .with_for_update(read=True).populate_existing().first())
+    if not p.is_closed:
         return p
     closed_on = p.closed_at.strftime("%d %b %Y") if p.closed_at else "earlier"
     raise ClosedPeriodError(

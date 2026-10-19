@@ -1007,3 +1007,181 @@ def test_assign_api_rejects_a_bad_split(client, reset, scenario):
                                           "amount": 99999}]})
     assert resp.status_code == 400
     assert resp.get_json()["ok"] is False
+
+
+# ── Returns, partial force-close, complete splits, bulk matching ────────────
+
+@contextmanager
+def _returned(scenario, invoice_id, amount):
+    """An approved return (credit note) against ``invoice_id`` for the
+    duration of the block. Removed afterwards — the scenario is shared."""
+    from inventory_app.models.sales_return import InvSalesReturn
+    r = InvSalesReturn(return_number=f"TRK-CN-{invoice_id}-{int(amount)}",
+                       original_invoice_id=invoice_id,
+                       customer_id=scenario["customer_id"],
+                       return_date=datetime.utcnow(), net_return_amount=amount,
+                       status="approved", created_by=1)
+    db.session.add(r)
+    db.session.commit()
+    rid = r.id
+    try:
+        yield r
+    finally:
+        db.session.rollback()
+        InvSalesReturn.query.filter_by(id=rid).delete()
+        db.session.commit()
+
+
+def test_a_return_settles_part_of_its_invoice(engine, scenario):
+    """A credit note settles part of its invoice with no money moving — the
+    return's own journal credited the customer. Ignored, the invoice read as
+    owed in full: a receipt for the net amount left it partly paid forever,
+    and more could be assigned to it than the customer owed."""
+    from shared import payment_tracking as pt
+    with _returned(scenario, scenario["inv_a"], 500):
+        row = pt.invoice_row(pt.SALES, scenario["inv_a"])
+        assert row["credited"] == pytest.approx(500.0)
+        assert row["outstanding"] == pytest.approx(2500.0)
+        assert row["pay_state"] == "partial"
+        inv = next(i for i in pt.open_invoices("customer", scenario["customer_id"])
+                   if i["id"] == scenario["inv_a"])
+        assert inv["assignable"] == pytest.approx(2500.0)
+        with pytest.raises(pt.AllocationError, match="2,500"):
+            pt.allocate(scenario["line_id"], [{"doc_id": scenario["inv_a"], "amount": 3000}])
+        pt.allocate(scenario["line_id"], [{"doc_id": scenario["inv_a"], "amount": 2500}])
+        assert pt.invoice_row(pt.SALES, scenario["inv_a"])["pay_state"] == "paid"
+        story = pt.history_for_doc(pt.SALES, scenario["inv_a"])
+        assert [e["kind"] for e in story] == ["return", "money"]
+        assert story[-1]["balance_after"] == pytest.approx(0.0)
+
+
+def test_a_fully_returned_invoice_is_settled_and_not_offered(engine, scenario):
+    from shared import payment_tracking as pt
+    with _returned(scenario, scenario["inv_a"], 3000):
+        assert pt.invoice_row(pt.SALES, scenario["inv_a"])["pay_state"] == "paid"
+        open_ids = [i["id"] for i in pt.open_invoices("customer", scenario["customer_id"])]
+        assert scenario["inv_a"] not in open_ids
+        assert pt.outstanding_summary(pt.SALES)["outstanding"] == pytest.approx(
+            sum(r["outstanding"] for r in pt.invoice_rows(pt.SALES)))
+
+
+def test_a_partly_force_closed_receipt_stays_in_the_queue(engine, scenario):
+    """Closing part of a receipt without an invoice used to mark the whole
+    line "forced" — hidden by the default view — and the rest of the money
+    dropped out of every queue."""
+    from shared import payment_tracking as pt
+    row = pt.force_close(scenario["line_id"], amount=1000, reason="bank charge")
+    assert row["state"] == "partial"
+    assert row["unassigned"] == pytest.approx(4000.0)
+    default = [r["line_id"] for r in pt.feed_rows(assign_states=pt.DEFAULT_ASSIGN_STATES)]
+    assert scenario["line_id"] in default
+    summary = pt.feed_summary(pt.feed_rows())
+    assert summary["partial_count"] >= 1 and summary["receipts_open_value"] >= 4000
+
+
+def test_auto_split_is_a_complete_split_when_the_line_is_already_split(engine, scenario):
+    """The proposal replaces the line's split: 1,000 already on B, so oldest
+    first is 3,000 on A and 2,000 on B — saving it uses the whole 5,000."""
+    from shared import payment_tracking as pt
+    pt.allocate(scenario["line_id"], [{"doc_id": scenario["inv_b"], "amount": 1000}])
+    proposal = {p["doc_id"]: p["amount"] for p in pt.auto_split(scenario["line_id"])}
+    assert proposal == {scenario["inv_a"]: pytest.approx(3000.0),
+                        scenario["inv_b"]: pytest.approx(2000.0)}
+    pt.allocate(scenario["line_id"], [{"doc_id": d, "amount": a} for d, a in proposal.items()])
+    assert pt.feed_row(scenario["line_id"])["state"] == "assigned"
+
+
+def test_auto_match_settles_the_oldest_invoices_first(engine, scenario):
+    from shared import payment_tracking as pt
+    from shared.models.ledger import JournalEntry
+    journals = JournalEntry.query.count()
+    result = pt.auto_match(user_id=1)
+    assert result["lines"] >= 1 and result["amount"] >= 5000
+    assert pt.invoice_row(pt.SALES, scenario["inv_a"])["pay_state"] == "paid"
+    b = pt.invoice_row(pt.SALES, scenario["inv_b"])
+    assert b["settled"] == pytest.approx(2000.0) and b["pay_state"] == "partial"
+    assert pt.feed_row(scenario["line_id"])["state"] == "assigned"
+    assert pt.auto_match(user_id=1)["amount"] == 0, "a second run has nothing left"
+    assert JournalEntry.query.count() == journals, "matching posts nothing"
+
+
+def test_auto_match_leaves_existing_splits_and_closed_money_alone(engine, scenario):
+    from shared import payment_tracking as pt
+    pt.allocate(scenario["line_id"], [{"doc_id": scenario["inv_b"], "amount": 1000}])
+    pt.force_close(scenario["line_id"], amount=500, reason="rounding")
+    pt.auto_match(user_id=1)
+    row = pt.feed_row(scenario["line_id"])
+    assert row["forced"] == pytest.approx(500.0)
+    assert row["unassigned"] == pytest.approx(0.0)
+    assert pt.invoice_row(pt.SALES, scenario["inv_a"])["settled"] == pytest.approx(3000.0)
+    assert pt.invoice_row(pt.SALES, scenario["inv_b"])["settled"] == pytest.approx(1500.0)
+
+
+def test_feed_filtering_in_memory_matches_the_query(engine, scenario):
+    """The feed page builds every row once and narrows it in memory."""
+    from shared import payment_tracking as pt
+    rows, _stale = pt.feed_snapshot()
+    for kw in ({"assign_states": ("unassigned",)}, {"flow": "receipt"},
+               {"party_type": "customer", "party_id": scenario["customer_id"]},
+               {"search": "TRK-CRV"}, {"search": "nothing-like-this"}):
+        assert [r["line_id"] for r in pt.filter_feed(rows, **kw)] == \
+               [r["line_id"] for r in pt.feed_rows(**kw)], kw
+    inv = pt.invoice_rows(pt.SALES)
+    for kw in ({"pay_states": ("unpaid",)}, {"overdue_only": True}, {"search": "TRK-A"},
+               {"party_id": scenario["customer_id"]}):
+        assert [r["id"] for r in pt.filter_invoices(inv, **kw)] == \
+               [r["id"] for r in pt.invoice_rows(pt.SALES, **kw)], kw
+
+
+def test_apply_here_and_match_oldest_first_over_http(client, reset, scenario):
+    line = scenario["line_id"]
+    # From invoice B's page: as much of the receipt as B can take.
+    resp = client.post(f"/invoicing/tracking/api/apply/{line}/SI/{scenario['inv_b']}")
+    assert resp.status_code == 200, resp.get_data(as_text=True)
+    # The rest, oldest first, from the feed's button.
+    resp = client.post("/invoicing/tracking/api/auto-match", json={})
+    body = resp.get_json()
+    assert resp.status_code == 200 and body["ok"], body
+    with _tenant_ctx(scenario):
+        from shared import payment_tracking as pt
+        assert pt.invoice_row(pt.SALES, scenario["inv_b"])["settled"] == pytest.approx(4000.0)
+        assert pt.invoice_row(pt.SALES, scenario["inv_a"])["settled"] == pytest.approx(1000.0)
+        assert pt.feed_row(line)["state"] == "assigned"
+
+
+def test_registers_open_on_what_is_still_owed(client, reset, scenario):
+    with _tenant_ctx(scenario):
+        from shared import payment_tracking as pt
+        pt.allocate(scenario["line_id"], [{"doc_id": scenario["inv_a"], "amount": 3000}])
+    body = client.get("/invoicing/tracking/sales").get_data(as_text=True)
+    assert "TRK-B" in body and "TRK-A" not in body, "a paid invoice is one chip away"
+    body = client.get("/invoicing/tracking/sales?pay=").get_data(as_text=True)
+    assert "TRK-A" in body and "TRK-B" in body
+    for sort in ("oldest", "late", "owed"):
+        assert client.get(f"/invoicing/tracking/sales?sort={sort}&pay=").status_code == 200
+
+
+def test_pages_render_with_returns_paging_and_the_match_bar(client, reset, scenario):
+    body = client.get("/invoicing/tracking/").get_data(as_text=True)
+    assert "Match oldest first" in body
+    assert client.get("/invoicing/tracking/?page=99").status_code == 200
+    # The return is made and removed in contexts of its own: a context held
+    # open across client.get() tears down the wrong one (see ``reset``).
+    from inventory_app.models.sales_return import InvSalesReturn
+    with _tenant_ctx(scenario):
+        r = InvSalesReturn(return_number="TRK-CN-HTTP", original_invoice_id=scenario["inv_a"],
+                           customer_id=scenario["customer_id"], return_date=datetime.utcnow(),
+                           net_return_amount=700, status="approved", created_by=1)
+        db.session.add(r)
+        db.session.commit()
+        rid = r.id
+    try:
+        body = client.get(
+            f"/invoicing/tracking/invoice/SI/{scenario['inv_a']}").get_data(as_text=True)
+        assert "Credit note" in body and "TRK-CN-HTTP" in body
+        body = client.get("/invoicing/tracking/sales?pay=").get_data(as_text=True)
+        assert "returned" in body
+    finally:
+        with _tenant_ctx(scenario):
+            InvSalesReturn.query.filter_by(id=rid).delete()
+            db.session.commit()

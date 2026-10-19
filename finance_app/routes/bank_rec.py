@@ -9,6 +9,7 @@ from flask import flash, redirect, render_template, request, url_for
 from flask_login import current_user, login_required
 
 from shared.extensions import db
+from shared.concurrency import serialize
 from shared.forms import FormInputError, REQUIRED, form_date, form_float
 from shared.models.bank_rec import BankRecItem, BankReconciliation
 from shared.models.ledger import JournalEntry, JournalLine
@@ -89,6 +90,9 @@ def bank_rec_new():
         raise FormInputError("Choose the bank or cash account to reconcile.")
     when = form_date("statement_date", REQUIRED, label="Statement date")
     balance = form_float("statement_balance", REQUIRED, label="Statement closing balance")
+    # One draft per account: two users starting one at once queue here, and
+    # the second then finds the first one's draft.
+    serialize("bank-rec", account.id)
     if BankReconciliation.query.filter_by(account_id=account.id, status="draft").first():
         raise FormInputError(f"{account.name} already has a reconciliation in progress — "
                              "finish or delete it first.")
@@ -118,7 +122,7 @@ def bank_rec_view(id):
 @acct_bp.route("/bank-reconciliation/<int:id>/save", methods=["POST"])
 @login_required
 def bank_rec_save(id):
-    rec = scoped_get_404(BankReconciliation, id)
+    rec = scoped_get_404(BankReconciliation, id, for_update=True)
     if rec.status != "draft":
         raise FormInputError("Reopen the reconciliation to change it.")
     if request.form.get("statement_balance") not in (None, ""):
@@ -150,7 +154,8 @@ def bank_rec_save(id):
 @acct_bp.route("/bank-reconciliation/<int:id>/reopen", methods=["POST"])
 @login_required
 def bank_rec_reopen(id):
-    rec = scoped_get_404(BankReconciliation, id)
+    rec = scoped_get_404(BankReconciliation, id, for_update=True)
+    serialize("bank-rec", rec.account_id)
     later = (BankReconciliation.query.filter(BankReconciliation.account_id == rec.account_id,
                                              BankReconciliation.statement_date > rec.statement_date)
              .first())
@@ -168,7 +173,7 @@ def bank_rec_reopen(id):
 @acct_bp.route("/bank-reconciliation/<int:id>/delete", methods=["POST"])
 @login_required
 def bank_rec_delete(id):
-    rec = scoped_get_404(BankReconciliation, id)
+    rec = scoped_get_404(BankReconciliation, id, for_update=True)
     if rec.status != "draft":
         raise FormInputError("Reopen a completed reconciliation before deleting it.")
     db.session.delete(rec)

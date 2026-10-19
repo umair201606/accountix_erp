@@ -62,7 +62,13 @@ class PayrollSettings(db.Model):
 
     @staticmethod
     def get():
-        s = PayrollSettings.query.first()
+        s = PayrollSettings.query.order_by(PayrollSettings.id).first()
+        if s is None:
+            # First use: queued per company so two requests create one row.
+            from shared.concurrency import serialize
+            from shared.tenancy import current_company_id
+            serialize("first-use", "payroll_settings", current_company_id())
+            s = PayrollSettings.query.order_by(PayrollSettings.id).first()
         if s is None:
             s = PayrollSettings(overtime_multiplier=1.5, overtime_hours_basis=160,
                                 eobi_enabled=False, eobi_wage_base=37000,
@@ -71,5 +77,7 @@ class PayrollSettings(db.Model):
                                 gratuity_enabled=False, gratuity_basis="basic",
                                 gratuity_days_per_year=30, leave_encashment_enabled=False)
             db.session.add(s)
-            db.session.flush()
+            # Only this row: the getter can run mid-save, and a full flush
+            # pushed the caller's half-built objects early.
+            db.session.flush(objects=[s])
         return s

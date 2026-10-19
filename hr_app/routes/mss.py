@@ -99,7 +99,7 @@ def approve_leave(aid):
 @mss_bp.route("/approve-timesheet/<int:aid>", methods=["POST"])
 @login_required
 def approve_timesheet(aid):
-    approval = scoped_get_404(TimesheetApproval, aid)
+    approval = scoped_get_404(TimesheetApproval, aid, for_update=True)
     if approval.approver_id != current_user.id:
         return _answer(False, "Not authorized", 403)
     action = request.form.get("action")
@@ -124,7 +124,7 @@ def approve_timesheet(aid):
 @mss_bp.route("/approve-loan/<int:lid>", methods=["POST"])
 @login_required
 def approve_loan(lid):
-    loan = scoped_get_404(LoanAdvanceRequest, lid)
+    loan = scoped_get_404(LoanAdvanceRequest, lid, for_update=True)
     if loan.user.manager_id != current_user.id and not current_user.is_admin():
         return _answer(False, "Not authorized", 403)
     action = request.form.get("action")
@@ -155,8 +155,8 @@ def approve_loan(lid):
 def bulk_approve_timesheets():
     ids = (request.get_json(silent=True) or {}).get("ids", [])
     done = 0
-    for tid in ids:
-        approval = scoped_get(TimesheetApproval, tid)
+    for tid in sorted({int(t) for t in ids if str(t).isdigit()}):
+        approval = scoped_get(TimesheetApproval, tid, for_update=True)
         if approval and approval.approver_id == current_user.id and approval.status == "pending":
             approval.status = "approved"
             approval.week.status = "approved"

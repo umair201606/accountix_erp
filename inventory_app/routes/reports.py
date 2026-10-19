@@ -4,6 +4,7 @@ from flask import Blueprint, render_template, request, jsonify
 from shared import report_export as rx
 from flask_login import login_required, current_user
 from shared.extensions import db
+from shared.concurrency import consistent_snapshot
 from shared.tenancy import scoped_get
 from shared.models.stock_ledger import StockLedger
 from ..models.product import InvProduct
@@ -79,6 +80,7 @@ def export_stock_ledger(fmt, product, entries, adjustments=None):
 
 @inv_reports_bp.route("/valuation", methods=["GET"])
 @login_required
+@consistent_snapshot
 def valuation_report():
     """Stock valuation at any date, with movement since a start date and a
     reconciliation to the inventory accounts in the general ledger.

@@ -119,7 +119,7 @@ def change_requests():
 def review_change(cid):
     if not current_user.is_admin():
         return jsonify({"error": "Access denied"}), 403
-    cr = scoped_get_404(ChangeRequest, cid)
+    cr = scoped_get_404(ChangeRequest, cid, for_update=True)
     action = request.form.get("action")
     notes = request.form.get("notes", "")
     if cr.status != "pending":

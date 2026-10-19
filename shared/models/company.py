@@ -179,7 +179,11 @@ class GlobalLimits(db.Model):
 
     @classmethod
     def get(cls):
-        r = cls.query.first()
+        r = cls.query.order_by(cls.id).first()
+        if not r:
+            from shared.concurrency import serialize
+            serialize("first-use", cls.__tablename__)
+            r = cls.query.order_by(cls.id).first()
         if not r:
             r = cls()
             db.session.add(r)

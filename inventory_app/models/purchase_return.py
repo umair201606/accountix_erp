@@ -29,6 +29,10 @@ class InvPurchaseReturn(db.Model):
     created_by = db.Column(db.Integer, db.ForeignKey("users.id"))
     approved_by = db.Column(db.Integer, db.ForeignKey("users.id"))
     approved_at = db.Column(db.DateTime)
+    # Bumped on every save and state change. The form sends the version it
+    # loaded; a save from a stale copy is refused instead of silently
+    # overwriting another user's edit (shared/concurrency.py).
+    edit_version = db.Column(db.Integer, default=0)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     original_invoice = db.relationship("InvPurchaseInvoice", foreign_keys=[original_invoice_id])

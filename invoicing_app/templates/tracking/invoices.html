@@ -3,6 +3,7 @@
 {% block page_title %}{{ doc_meta.title }}{% endblock %}
 {% block extra_css %}{% include "tracking/_style.html" %}{% endblock %}
 {% block content %}
+{% from "tracking/_pager.html" import pager as page_links %}
 {# The ageing ramp is one of the few places colour carries meaning rather than
    decoration, so it stays — but as a SEQUENTIAL ramp, not the rainbow it used
    to be. Age buckets are ordered severity, and a grey-teal-amber-red ramp
@@ -18,6 +19,7 @@
   'd31_60':   'color-mix(in srgb, var(--v2-neg) 52%, var(--v2-surface))',
   'd61_90':   'color-mix(in srgb, var(--v2-neg) 76%, var(--v2-surface))',
   'd90_plus': 'var(--v2-neg)'} %}
+{% set filtering = filters.party_id or filters.q or filters['from'] or filters.to or filters.age or filters.overdue %}
 <div class="trk">
 
   {# No page title here: the top bar already names the page. #}
@@ -48,7 +50,30 @@
   </div>
   {% endif %}
 
-  <form method="GET" class="trk-filterbar">
+  {% if waiting_total > 0 %}
+  {# Money already in the books but not yet matched to any invoice: until it
+     is, the invoices it paid still read as owed. Said once here, with the job
+     that fixes it, instead of a badge repeated on every row of the party. #}
+  <div class="trk-matchbar" id="trkMatchBar">
+    <div>
+      <p><b>{{ waiting_total|amount_format(2) }}</b> {{ doc_meta.money_word|lower }} from
+        {{ waiting_parties }} {{ doc_meta.party_plural if waiting_parties != 1 else doc_meta.party_label|lower }}
+        is not matched to invoices yet, so some invoices below are not really {{ 'unpaid' if doc_type == 'SI' else 'owed' }}.</p>
+      <p class="trk-note">Match it oldest invoice first, or assign it by hand in the
+        <a href="{{ url_for('inv_tracking.feed', side=doc_meta.party_label|lower) }}">payment &amp; receipt feed</a>.</p>
+    </div>
+    {% if can_assign %}
+    <button type="button" class="btn btn-sm btn-primary" id="trkMatch"
+            data-side="{{ doc_meta.party_label|lower }}" data-label="Match oldest first">Match oldest first</button>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  <form method="GET" class="trk-filterbar {{ 'open' if filtering }}">
+    {# Always sent: with every chip unticked the page shows every invoice,
+       paid ones too. Without it the form sent nothing and the default
+       (open invoices) came straight back. #}
+    <input type="hidden" name="pay" value="">
     <div class="trk-chips">
       {% for key, label in [('unpaid','Unpaid'),('partial','Partial'),('paid','Paid')] %}
       <label class="trk-chip">
@@ -60,9 +85,18 @@
         <input type="checkbox" name="overdue" value="1" {{ 'checked' if filters.overdue }}>
         <span>Overdue only</span>
       </label>
+      <button type="button" class="btn btn-sm btn-outline trk-filter-toggle"
+              aria-expanded="{{ 'true' if filtering else 'false' }}"
+              onclick="var f=this.form;f.classList.toggle('open');this.setAttribute('aria-expanded',f.classList.contains('open'))">
+        Filters</button>
     </div>
 
     <div class="trk-filterbar-row">
+      <select name="sort" class="trk-select" aria-label="Order">
+        {% for key, label in sorts %}
+        <option value="{{ key }}" {{ 'selected' if key == sort }}>{{ label }}</option>
+        {% endfor %}
+      </select>
       {# Five age chips collapsed into one control — it is a single choice in
          practice, and the chips were a whole extra row. #}
       <select name="age" class="trk-select" aria-label="Overdue age">
@@ -89,13 +123,14 @@
       <input type="date" name="from" value="{{ filters['from'] }}" class="trk-input" aria-label="From date">
       <input type="date" name="to" value="{{ filters.to }}" class="trk-input" aria-label="To date">
       <button type="submit" class="btn btn-sm btn-primary">Apply</button>
-      {% if filters.party_id or filters.q or filters['from'] or filters.to or filters.age or filters.pay or filters.overdue %}
+      {% if filtering or sort != 'newest' %}
       <a href="{{ url_for(doc_meta.endpoint) }}" class="trk-rowbtn">Reset</a>
       {% endif %}
     </div>
   </form>
 
-  <p class="trk-count">{{ rows|length }} invoice{{ '' if rows|length == 1 else 's' }}</p>
+  <p class="trk-count">{{ pager.total }} invoice{{ '' if pager.total == 1 else 's' }}
+    {%- if filters.pay and filters.pay|length < 3 %} · {{ filters.pay|join(' or ') }}{% endif %}</p>
 
     <div class="trk-table-wrap trk-table-plain">
       <table class="trk-table">
@@ -103,15 +138,13 @@
           <tr>
             <th>Invoice</th>
             <th>{{ doc_meta.party_label }}</th>
-            <th>Date</th>
+            <th class="trk-hide-sm">Date</th>
             <th>Due</th>
-            <th class="num">Total</th>
+            <th class="num trk-hide-sm">Total</th>
             <th class="num">{{ doc_meta.money_word }}</th>
             <th class="num">Outstanding</th>
-            <th>Settled</th>
             <th>Age</th>
             <th>State</th>
-            <th>Action</th>
           </tr>
         </thead>
         <tbody>
@@ -119,29 +152,18 @@
           <tr>
             <td data-label="Invoice">
               <a href="{{ url_for('inv_tracking.invoice_history', doc_type=doc_type, doc_id=r.id) }}"
-                 class="trk-doclink">{{ r.number }}</a>
+                 class="trk-doclink" title="Settlement history">{{ r.number }}</a>
             </td>
-            <td data-label="{{ doc_meta.party_label }}">
-              {{ r.party_name }}
-              {% if waiting.get(r.party_id, 0) > 0 and r.pay_state != 'paid' %}
-              <a class="trk-waiting" style="margin-left:6px;"
-                 href="{{ url_for('inv_tracking.feed', party=r.party_type ~ ':' ~ r.party_id) }}"
-                 title="Money already in the books for this {{ doc_meta.party_label|lower }}, not yet assigned">
-                {{ waiting.get(r.party_id, 0)|amount_format(0) }} unassigned
-              </a>
-              {% endif %}
+            <td data-label="{{ doc_meta.party_label }}">{{ r.party_name }}</td>
+            <td data-label="Date" class="trk-nowrap trk-hide-sm">{{ r.date_str or '—' }}</td>
+            <td data-label="Due" class="trk-nowrap">{{ r.due_str or '—' }}</td>
+            <td data-label="Total" class="num trk-hide-sm">{{ r.total|amount_format(2) }}</td>
+            <td data-label="{{ doc_meta.money_word }}" class="num">
+              {{ r.settled|amount_format(2) }}
+              {% if r.credited %}<span class="trk-subline">+ {{ r.credited|amount_format(2) }} returned</span>{% endif %}
             </td>
-            <td data-label="Date">{{ r.date_str or '—' }}</td>
-            <td data-label="Due">{{ r.due_str or '—' }}</td>
-            <td data-label="Total" class="num">{{ r.total|amount_format(2) }}</td>
-            <td data-label="{{ doc_meta.money_word }}" class="num">{{ r.settled|amount_format(2) }}</td>
             <td data-label="Outstanding" class="num strong">{{ r.outstanding|amount_format(2) }}</td>
-            <td data-label="Settled">
-              <div class="trk-minibar" title="{{ '%.0f'|format(r.progress) }}% settled">
-                <i style="width:{{ '%.1f'|format(r.progress if r.progress < 100 else 100) }}%"></i>
-              </div>
-            </td>
-            <td data-label="Age">
+            <td data-label="Age" class="trk-nowrap">
               {% if r.overdue_days > 0 %}
               <span class="trk-age {{ 'hot' if r.overdue_days > 30 else 'warm' }}">{{ r.overdue_days }} days late</span>
               {% else %}
@@ -153,24 +175,66 @@
                 {{ 'Unpaid' if r.pay_state == 'unpaid' else ('Partial' if r.pay_state == 'partial' else 'Paid') }}
               </span>
             </td>
-            <td data-label="Action">
-              <a href="{{ url_for('inv_tracking.invoice_history', doc_type=doc_type, doc_id=r.id) }}"
-                 class="trk-rowbtn">History</a>
-            </td>
           </tr>
           {% else %}
           <tr>
-            <td colspan="11" class="trk-empty">
+            <td colspan="9" class="trk-empty">
               <span class="trk-empty-icon">&#128203;</span>
               <strong>No invoice matches these filters</strong>
               <p>Only approved invoices are tracked here — an unapproved one owes
-                nothing yet. Try clearing a filter, or approve the invoice first.</p>
-              <a href="{{ url_for(doc_meta.endpoint) }}" class="btn btn-outline">Reset filters</a>
+                nothing yet.{% if filters.pay == ['unpaid', 'partial'] %} Every open invoice is settled; tick Paid to see them.{% endif %}</p>
+              <a href="{{ url_for(doc_meta.endpoint, pay='') }}" class="btn btn-outline">Show every invoice</a>
             </td>
           </tr>
           {% endfor %}
         </tbody>
       </table>
     </div>
+    {{ page_links(pager, doc_meta.endpoint) }}
 </div>
+{% endblock %}
+
+{% block extra_scripts %}
+{% if can_assign and waiting_total > 0 %}
+<script>
+(function () {
+  var btn = document.getElementById('trkMatch');
+  if (!btn) return;
+  var armed = null;
+  btn.addEventListener('click', function () {
+    // First press arms it; the second matches.
+    if (!btn.classList.contains('is-armed')) {
+      btn.classList.add('is-armed');
+      btn.textContent = 'Press again to match';
+      armed = setTimeout(function () { btn.classList.remove('is-armed'); btn.textContent = btn.dataset.label; }, 4000);
+      return;
+    }
+    clearTimeout(armed);
+    btn.classList.remove('is-armed');
+    btn.disabled = true;
+    btn.textContent = 'Matching…';
+    fetch('{{ url_for("inv_tracking.api_auto_match") }}', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ side: btn.dataset.side })
+    }).then(function (r) { return r.json(); })
+      .then(function (data) {
+        var bar = document.getElementById('trkMatchBar');
+        if (!data.ok) {
+          btn.disabled = false;
+          btn.textContent = btn.dataset.label;
+          if (bar) bar.querySelector('.trk-note').textContent = data.error || 'That was refused.';
+          return;
+        }
+        if (bar) {
+          bar.classList.add('is-done');
+          bar.querySelector('div').innerHTML = '<p></p>';
+          bar.querySelector('p').textContent = data.message;
+        }
+        setTimeout(function () { window.location.reload(); }, 900);
+      })
+      .catch(function () { btn.disabled = false; btn.textContent = btn.dataset.label; });
+  });
+})();
+</script>
+{% endif %}
 {% endblock %}

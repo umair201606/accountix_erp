@@ -97,7 +97,8 @@ def delete_entry(eid):
 @timesheet_bp.route("/submit/<int:wid>", methods=["POST"])
 @login_required
 def submit(wid):
-    week = scoped_get_404(TimesheetWeek, wid)
+    # Locked: a double-clicked Submit queued two approvals for one week.
+    week = scoped_get_404(TimesheetWeek, wid, for_update=True)
     if week.user_id != current_user.id:
         return jsonify({"error": "Not authorized"}), 403
     # Submitting twice used to queue a second approval for the same week.
@@ -143,7 +144,7 @@ def approvals():
 @timesheet_bp.route("/review/<int:aid>", methods=["POST"])
 @login_required
 def review(aid):
-    approval = scoped_get_404(TimesheetApproval, aid)
+    approval = scoped_get_404(TimesheetApproval, aid, for_update=True)
     if approval.approver_id != current_user.id:
         return jsonify({"error": "Not authorized"}), 403
     action = request.form.get("action")

@@ -1,6 +1,5 @@
 from datetime import datetime
 from decimal import Decimal
-from sqlalchemy.exc import IntegrityError
 from shared.extensions import db
 
 
@@ -58,25 +57,41 @@ class VoucherNumber(db.Model):
     def next(cls, prefix):
         """Allocate the next number for ``prefix`` in the ACTIVE company.
 
-        The lookup and the insert are both tenant-scoped (ORM + the tenancy
-        engine's before_flush stamping), so every company has its own
-        independent sequence. The create races with concurrent allocations
-        (and with rows written by other sessions), so a unique-violation on
-        insert is retried against the scoped sequence instead of crashing —
-        the loser simply reads the winner's row and continues.
+        One atomic ``UPDATE ... SET next_number = next_number + 1 RETURNING``
+        on the company's row: two users saving at the same instant queue on
+        that row and get consecutive numbers. (Reading the counter and writing
+        it back from Python handed both of them the same number.) A prefix's
+        first use creates its row with ``ON CONFLICT DO NOTHING``, so two
+        first uses at once cannot fail either.
+
+        Nothing is committed here. The number belongs to the caller's
+        transaction: it is kept if the document is saved and given back if
+        the save fails, so the series has no gaps — and committing here used
+        to commit the caller's half-built document along with the counter.
+        The row stays locked until the caller commits; documents of one
+        series are therefore numbered strictly in the order they are saved.
         """
-        v = cls.query.filter_by(prefix=prefix).first()
-        if not v:
-            v = cls(prefix=prefix, next_number=1)
-            db.session.add(v)
-            try:
-                db.session.commit()
-            except IntegrityError:
-                db.session.rollback()
-                v = cls.query.filter_by(prefix=prefix).first()
-                if not v:
-                    raise
-        num = v.next_number
-        v.next_number += 1
-        db.session.commit()
+        from sqlalchemy import update
+        from shared.tenancy import NoActiveCompanyError, current_company_id
+        cid = current_company_id()
+        if cid is None:
+            raise NoActiveCompanyError(f"VoucherNumber.next({prefix!r}) with no active company")
+        T = cls.__table__
+        conn = db.session.connection()
+        if conn.dialect.name == "postgresql":
+            from sqlalchemy.dialects.postgresql import insert
+        else:
+            from sqlalchemy.dialects.sqlite import insert
+        conn.execute(insert(T).values(company_id=cid, prefix=prefix, next_number=1)
+                     .on_conflict_do_nothing(index_elements=["company_id", "prefix"]))
+        taken = conn.execute(
+            update(T).where(T.c.company_id == cid, T.c.prefix == prefix)
+            .values(next_number=T.c.next_number + 1)
+            .returning(T.c.next_number)).scalar_one()
+        # A VoucherNumber row already loaded in this session (settings page,
+        # an earlier allocation) must not write its stale value back.
+        for obj in list(db.session.identity_map.values()):
+            if isinstance(obj, cls) and obj.prefix == prefix:
+                db.session.expire(obj)
+        num = taken - 1
         return f"{prefix}-{num:05d}"

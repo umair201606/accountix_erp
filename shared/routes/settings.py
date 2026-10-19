@@ -348,7 +348,9 @@ def close_period(id):
     denied = _require("periods")
     if denied:
         return denied
-    p = scoped_get_404(AccountingPeriod, id)
+    # Exclusive until commit: waits for postings into the period that are in
+    # flight (shared/periods.py: require_open_period), then holds new ones off.
+    p = scoped_get_404(AccountingPeriod, id, for_update=True)
     # Anything still open in the period can never be posted there once it is
     # closed: list it and ask again rather than closing over it silently.
     from shared.periods import close_checklist
@@ -371,7 +373,7 @@ def reopen_period(id):
     denied = _require("periods")
     if denied:
         return denied
-    p = scoped_get_404(AccountingPeriod, id)
+    p = scoped_get_404(AccountingPeriod, id, for_update=True)
     p.is_open, p.is_closed, p.closed_at = True, False, None
     db.session.commit()
     flash(f"Period {p.period_name} reopened.", "success")

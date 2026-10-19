@@ -12,6 +12,8 @@ An item is a dict:
     icon      HTML entity string
     active    how to decide the highlighted item (see ``_is_active``):
                 {"exact": [...]} | {"prefix": "x."} | {"prefix": ..., "exclude": [...]}
+                plus optional "args": {endpoint: {view_arg: value}} for a
+                page that serves two items
               defaults to exact match on ``endpoint``
     gate      optional callable(user, ctx) -> bool; item hidden when False
     tab       optional URL query key for sections that share one route:
@@ -249,13 +251,17 @@ NAV = {
                   "label": "Invoice Register",
                   "active": {"prefix": "inv_registers"}},
                 {"endpoint": "inv_tracking.feed", "icon": "&#9632;",
-                 "label": "Payment Feed",
+                 "label": "Payment & Receipt Feed",
                  "active": {"exact": ["inv_tracking.feed",
                                       "inv_tracking.assign_workspace"]}},
                 {"endpoint": "inv_tracking.sales", "icon": "&#9632;",
-                 "label": "Sales Invoice Tracking"},
+                 "label": "Sales Invoice Tracking",
+                 "active": {"exact": ["inv_tracking.sales", "inv_tracking.invoice_history"],
+                            "args": {"inv_tracking.invoice_history": {"doc_type": "SI"}}}},
                 {"endpoint": "inv_tracking.purchases", "icon": "&#9632;",
-                 "label": "Purchase Invoice Tracking"},
+                 "label": "Purchase Invoice Tracking",
+                 "active": {"exact": ["inv_tracking.purchases", "inv_tracking.invoice_history"],
+                            "args": {"inv_tracking.invoice_history": {"doc_type": "PI"}}}},
             ]),
         ],
     },
@@ -396,6 +402,13 @@ def _is_active(item, endpoint, ctx):
         matched = endpoint.startswith(spec["prefix"])
     else:
         matched = endpoint == item["endpoint"]
+    # One page serving two items (an invoice's history, sales or purchase)
+    # names the view args that pick the item.
+    need = (spec or {}).get("args", {}).get(endpoint)
+    if matched and need:
+        from flask import request
+        args = request.view_args or {}
+        matched = all(str(args.get(k)) == str(v) for k, v in need.items())
     # Tab-scoped items (settings sections) are active only on their tab.
     if matched and item.get("tab"):
         matched = ctx.get("tab") == item["tab"]

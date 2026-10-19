@@ -377,6 +377,45 @@ td.trk-empty{border-top:1px solid var(--border-soft)}
   .trk-party{white-space:normal}
   .trk-filterbar-row{grid-template-columns:1fr}
 }
+/* ── Paging, matching, phone ergonomics ── */
+.trk-nowrap{white-space:nowrap}
+.trk-subline{display:block;color:var(--muted);font-size:11px;font-weight:500;margin-top:2px}
+.trk-pager{display:flex;align-items:center;justify-content:space-between;gap:12px;
+  flex-wrap:wrap;margin:16px 0 4px;color:var(--muted);font-size:12.5px}
+.trk-pager-links{display:flex;gap:8px}
+.trk-pager-links .is-off{opacity:.45;pointer-events:none}
+/* One quiet line, not a banner: the matching job and its one button. */
+.trk-matchbar{display:flex;align-items:center;justify-content:space-between;gap:12px;
+  flex-wrap:wrap;border:1px solid var(--trk-line);border-radius:10px;background:var(--card);
+  padding:10px 14px;margin:0 0 14px;font-size:13px;color:var(--text)}
+.trk-matchbar p{margin:0}
+.trk-matchbar .trk-note{color:var(--muted);font-size:11.5px;margin-top:2px}
+.trk-matchbar.is-done{border-color:var(--trk-in)}
+/* A two-step button: the first press arms it, the second acts. */
+.btn.is-armed,.trk-rowbtn.is-armed{background:var(--danger);border-color:var(--danger);color:#fff}
+.trk-filterbar .trk-filter-toggle{display:none}
+.trk-ev.is-return .trk-vtype{background:var(--surface-variant)}
+.trk-ev.is-stale{opacity:.6}
+.trk-ev.is-stale .trk-ev-amount{text-decoration:line-through}
+.trk-mobile-save{display:none}
+@media(max-width:900px){
+  /* The split's total and its Save button follow the thumb instead of
+     waiting below every invoice in the list. */
+  .trk-mobile-save{display:flex;position:fixed;left:0;right:0;bottom:0;z-index:300;
+    align-items:center;justify-content:space-between;gap:12px;padding:10px 16px;
+    background:var(--card);border-top:1px solid var(--trk-line);box-shadow:var(--shadow-lg)}
+  .trk-mobile-save .lbl{color:var(--muted);font-size:11px}
+  .trk-mobile-save .val{font-weight:800;font-variant-numeric:tabular-nums}
+  .trk-mobile-save.over .val{color:var(--danger)}
+  .trk-has-mobile-save{padding-bottom:76px}
+}
+@media(max-width:720px){
+  /* Filters fold behind one button so the first screen shows money, not
+     five empty inputs. Open while any of them is in use. */
+  .trk-filterbar .trk-filter-toggle{display:inline-flex}
+  .trk-filterbar:not(.open) .trk-filterbar-row{display:none}
+  .trk-hide-sm{display:none!important}
+}
 @media print{
   .trk-filterbar,.trk-item-actions,.trk-savebar,.trk-back{display:none!important}
 }

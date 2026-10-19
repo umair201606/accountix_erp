@@ -194,15 +194,17 @@ def index():
 def post_depreciation():
     if not current_user.module_access("fixed_assets"):
         return render_template("access_denied.html")
-    asset_ids = request.form.getlist("asset_ids[]")
+    asset_ids = sorted({int(a) for a in request.form.getlist("asset_ids[]")
+                        if str(a).strip().isdigit()})
     entry_date = parse_doc_date(request.form.get("entry_date")).date()
     posted = 0
     errors = []
     for aid in asset_ids:
-        try:
-            asset = scoped_get(FixedAsset, int(aid))
-        except (TypeError, ValueError):
-            continue
+        # Locked (in id order, outside the savepoint so a refused charge does
+        # not release it) before its due months are worked out: two users
+        # running depreciation at once both found the same months due and
+        # charged them twice.
+        asset = scoped_get(FixedAsset, aid, for_update=True)
         if not asset or asset.status != "active":
             continue
         # One savepoint per asset: a refused charge (closed period, missing
@@ -234,6 +236,10 @@ def reverse_entry(dep_id):
     if not current_user.module_access("fixed_assets"):
         return render_template("access_denied.html")
     dep_entry = scoped_get_404(AssetDepreciation, dep_id)
+    # Asset first, as the run locks it, then the charge itself — re-read, so a
+    # reversal made a moment ago by another user is seen.
+    scoped_get(FixedAsset, dep_entry.asset_id, for_update=True)
+    dep_entry = scoped_get_404(AssetDepreciation, dep_id, for_update=True)
     if not dep_entry.is_live:
         flash("That depreciation charge is already reversed.", "error")
         return redirect(url_for("fa_assets.view_asset", asset_id=dep_entry.asset_id))

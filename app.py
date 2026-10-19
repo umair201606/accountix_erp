@@ -46,6 +46,8 @@ def _create_app():
     import shared.models.stored_file  # noqa: F401  (uploaded files live in the DB)
     import shared.models.bank_rec  # noqa: F401  (bank reconciliations)
     import shared.audit  # noqa: F401  (registers the audit session hooks)
+    from shared.concurrency import install_lock_timeout
+    install_lock_timeout()  # a request waits at most so long on another's rows
 
     app = Flask(
         __name__,
@@ -441,6 +443,35 @@ a:hover{{background:#1d4ed8}}
                 ["application/json", "text/html"]) == "application/json":
             return jsonify({"ok": False, "error": str(e)}), 409
         flash(str(e), "error")
+        from shared.security import safe_local_url
+        return redirect(safe_local_url(request.referrer)
+                        or url_for("dashboard.hub"))
+
+    from sqlalchemy.exc import IntegrityError, OperationalError
+    from sqlalchemy.orm.exc import ObjectDeletedError, StaleDataError
+
+    @app.errorhandler(IntegrityError)
+    @app.errorhandler(OperationalError)
+    @app.errorhandler(StaleDataError)
+    @app.errorhandler(ObjectDeletedError)
+    def handle_db_conflict(e):
+        # Another user changed the same records first (a deadlock between two
+        # postings, a unique number both raced for, a row they deleted). The
+        # request is rolled back whole and the user is told why in words —
+        # the same answer a refused posting gets. Anything else is a real
+        # error and goes to handle_all.
+        from shared.concurrency import conflict_message
+        msg = conflict_message(e)
+        if msg is None:
+            return handle_all(e)
+        from flask import flash, jsonify
+        from shared.extensions import db as _db
+        _db.session.rollback()
+        app.logger.warning("Concurrent change refused: %s", e)
+        if request.is_json or request.accept_mimetypes.best_match(
+                ["application/json", "text/html"]) == "application/json":
+            return jsonify({"ok": False, "error": msg}), 409
+        flash(msg, "error")
         from shared.security import safe_local_url
         return redirect(safe_local_url(request.referrer)
                         or url_for("dashboard.hub"))

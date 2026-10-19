@@ -317,7 +317,7 @@ def _stamp_company_id(session, flush_context, instances):
 
 # ── Safe PK lookups (identity-map bypasses the event, so NEVER use .get) ────
 
-def scoped_get(model, pk):
+def scoped_get(model, pk, for_update=False):
     """PK lookup that is always tenant-filtered.
 
     For scoped models filters by (id, company_id). For global models
@@ -327,21 +327,37 @@ def scoped_get(model, pk):
     seeding and backfill reach scoped models through shared posting paths
     (journals, costing, order write-back), and those must not fail closed in
     the one mode that has deliberately opted out.
+
+    ``for_update=True`` locks the row until the request commits (SELECT ...
+    FOR NO KEY UPDATE; a no-op on SQLite, which serialises writers anyway)
+    and reloads it. Every route that changes a document's state — approve,
+    unapprove, delete, pay, post — loads it this way: a second user acting on
+    the same document at the same instant waits, then sees the first one's
+    result ("already approved") instead of posting it a second time.
     """
     if is_scoped_model(model) and not _bypassed():
         cid = current_company_id()
         if cid is None:
             raise NoActiveCompanyError(
                 f"scoped_get({model.__name__}, {pk}) with no active company")
-        return model.query.filter(model.id == pk,
-                                  model.company_id == cid).first()
-    return model.query.get(pk)
+        q = model.query.filter(model.id == pk, model.company_id == cid)
+    else:
+        if not for_update:
+            return model.query.get(pk)
+        q = model.query.filter(model.id == pk)
+    if for_update:
+        # FOR NO KEY UPDATE: excludes every other locker of the row, but not
+        # the key-share lock a foreign-key insert takes on it. With plain FOR
+        # UPDATE, two users who had each inserted a row pointing at it (a
+        # return at its invoice) and then locked it waited on each other.
+        q = q.with_for_update(key_share=True).populate_existing()
+    return q.first()
 
 
-def scoped_get_404(model, pk):
+def scoped_get_404(model, pk, for_update=False):
     """Like scoped_get, but 404s when missing (replaces get_or_404)."""
     from flask import abort
-    obj = scoped_get(model, pk)
+    obj = scoped_get(model, pk, for_update=for_update)
     if obj is None:
         abort(404)
     return obj

@@ -8,6 +8,7 @@ from flask_login import login_required, current_user
 from sqlalchemy import extract, func
 from ..extensions import db
 from shared.tenancy import scoped_get_404, get_member, current_company_id
+from shared.concurrency import serialize
 from ..models.compensation import PayrollProfile, PayrollComponent, PayrollRun, PayrollSlip, SalaryRevision
 from ..models.user import User
 from ..models.attendance import Attendance
@@ -495,6 +496,10 @@ def run_payroll():
         # salary expense belongs to, whenever the run is actually processed.
         period_end = date(year, month, calendar.monthrange(year, month)[1])
 
+        # One payroll operation at a time per company: a second user running
+        # the same month waits and then finds it run; runs of different months
+        # read each other's tax withheld and both draw down the same loans.
+        serialize("payroll", current_company_id())
         existing = PayrollRun.query.filter_by(month=month, year=year).first()
         if existing:
             if replace_all:
@@ -964,7 +969,8 @@ def pay_run(rid):
     from shared.ledger_utils import cash_bank_account
     from shared.posting_helpers import parse_doc_date
     from .. import payroll_posting as pp_
-    run = scoped_get_404(PayrollRun, rid)
+    serialize("payroll", current_company_id())
+    run = scoped_get_404(PayrollRun, rid, for_update=True)
     account = cash_bank_account(request.form.get("account_id", type=int))
     if account is None:
         raise FormInputError("Choose the bank or cash account the salaries were paid from.")
@@ -989,7 +995,8 @@ def unpay_run(rid):
         flash("Access denied.", "danger")
         return redirect(url_for("dashboard"))
     from .. import payroll_posting as pp_
-    run = scoped_get_404(PayrollRun, rid)
+    serialize("payroll", current_company_id())
+    run = scoped_get_404(PayrollRun, rid, for_update=True)
     if not run.paid_at:
         raise FormInputError("This payroll is not marked as paid.")
     pp_.undo_salary_payment(run)
@@ -1007,7 +1014,8 @@ def delete_run(rid):
     if not current_user.is_admin():
         flash("Access denied.", "danger")
         return redirect(url_for("dashboard"))
-    run = scoped_get_404(PayrollRun, rid)
+    serialize("payroll", current_company_id())
+    run = scoped_get_404(PayrollRun, rid, for_update=True)
     if run.paid_at:
         raise FormInputError("Undo the salary payment before deleting this payroll.")
     label = f"{run.month}/{run.year}"
@@ -1045,7 +1053,7 @@ def disburse_loan(lid):
     from shared.ledger_utils import cash_bank_account
     from shared.posting_helpers import parse_doc_date
     from .. import payroll_posting as pp_
-    loan = scoped_get_404(LoanAdvanceRequest, lid)
+    loan = scoped_get_404(LoanAdvanceRequest, lid, for_update=True)
     account = cash_bank_account(request.form.get("account_id", type=int))
     if account is None:
         raise FormInputError("Choose the bank or cash account the loan is paid from.")
@@ -1068,7 +1076,7 @@ def undo_loan_disbursement(lid):
         flash("Access denied.", "danger")
         return redirect(url_for("dashboard"))
     from .. import payroll_posting as pp_
-    loan = scoped_get_404(LoanAdvanceRequest, lid)
+    loan = scoped_get_404(LoanAdvanceRequest, lid, for_update=True)
     try:
         pp_.undo_disbursement(loan)
     except ValueError as e:

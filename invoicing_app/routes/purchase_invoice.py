@@ -4,6 +4,8 @@ from datetime import datetime
 from decimal import Decimal
 from inventory_app.extensions import db
 from shared.tenancy import scoped_get, scoped_get_404
+from shared.doc_numbers import is_placeholder, number_from_id, placeholder
+from shared.concurrency import bump_edit, stale_edit
 from inventory_app.models.purchase_invoice import InvPurchaseInvoice, InvPurchaseInvoiceItem
 from inventory_app.models.purchase_order import InvPurchaseOrder
 from inventory_app.models.additional_charge import AdditionalCharge
@@ -21,7 +23,7 @@ from shared.models.invoice_template import (
     items_table_metrics)
 from shared.formatting import format_amount as _m
 from shared.permissions import deny_json, deny_page
-from shared.costing import record_in, reverse_voucher_stock
+from shared.costing import lock_products, record_in, reverse_voucher_stock
 from shared.posting_helpers import parse_doc_date, label_weights, split_by_label
 
 inv_pinv_bp = Blueprint("inv_purchase_invoice", __name__,
@@ -90,8 +92,8 @@ def charge_buckets(charges):
     return absorb_total, bill_total, expense_total, billed, expensed
 
 
-def next_voucher():
-    """The document number. A purchase invoice has exactly one.
+def assign_number(inv):
+    """Give a new purchase invoice its document number. It has exactly one.
 
     Was two generators off the same counter — VCH-… into voucher_number and
     PINV-… into invoice_number — so the document carried two numbers for itself.
@@ -99,11 +101,10 @@ def next_voucher():
     everywhere else; VCH belongs to an actual voucher, which this is not.
 
     Both columns are still written with the same value — see the note on
-    invoices.next_voucher() for why.
+    invoices.assign_number() for why, and for why the number is built from
+    the row's own id.
     """
-    last = InvPurchaseInvoice.query.order_by(InvPurchaseInvoice.id.desc()).first()
-    n = (last.id + 1) if last else 1
-    return f"PI-{datetime.utcnow():%Y%m}-{n:04d}"
+    return number_from_id(inv, "PI", "invoice_number", "voucher_number")
 
 
 @inv_pinv_bp.route("/", defaults={"id": None})
@@ -229,13 +230,18 @@ def save_invoice():
         return denied
 
     if inv_id:
-        inv = scoped_get_404(InvPurchaseInvoice, inv_id)
+        # Locked until commit: a second user approving the same invoice waits,
+        # then finds it approved instead of posting it again.
+        inv = scoped_get_404(InvPurchaseInvoice, inv_id, for_update=True)
         if inv.status == "approved":
             return jsonify({"ok": False, "error": "Cannot modify approved invoice"}), 400
+        stale = stale_edit(inv, data.get("edit_version"), f"Invoice {inv.invoice_number}")
+        if stale:
+            return jsonify({"ok": False, "error": stale, "stale": True}), 409
     else:
         number = data.get("invoice_number")
         if not number or number == "(auto)":
-            number = next_voucher()
+            number = placeholder()
         inv = InvPurchaseInvoice(
             voucher_number=number,
             invoice_number=number,
@@ -309,6 +315,12 @@ def save_invoice():
         inv.status = "unapproved"
 
     db.session.flush()
+    if is_placeholder(inv.invoice_number):
+        assign_number(inv)
+    if action == "approve":
+        # Every product this invoice receives, locked together and in one
+        # order before any stock moves (shared/costing.py: lock_products).
+        lock_products(r.get("product_id") for r in data.get("items", []))
 
     # Additional charges by treatment. Absorb = carriage inward (capitalised
     # into inventory cost); bill = supplier's own charge line (adds to AP,
@@ -546,6 +558,7 @@ def save_invoice():
     else:
         msg = "saved as unapproved"
     return jsonify({"ok": True, "id": inv.id, "status": inv.status,
+                    "edit_version": inv.edit_version,
                     "voucher": inv.voucher_number, "message": f"Invoice {msg}"})
 
 
@@ -555,7 +568,7 @@ def unapprove_invoice(id):
     denied = deny_json("purchase_invoices", "approve")
     if denied:
         return denied
-    inv = scoped_get_404(InvPurchaseInvoice, id)
+    inv = scoped_get_404(InvPurchaseInvoice, id, for_update=True)
     if inv.status != "approved":
         return jsonify({"ok": False, "error": "Only approved invoices can be unapproved"}), 400
 
@@ -598,6 +611,7 @@ def unapprove_invoice(id):
     moved = reverse_voucher_stock("PI", inv.id, allow_variance=True,
                                   created_by=current_user.id)
 
+    bump_edit(inv)
     db.session.commit()
     # An unapproved invoice owes nothing, so anything assigned to it stops
     # counting and the payments return to the feed.
@@ -615,6 +629,7 @@ def unapprove_invoice(id):
                     + ", ".join(short[:5]) + "); re-approve the corrected "
                     "invoice on its date to re-cost those issues")
     return jsonify({"ok": True, "status": "unapproved", "message": message,
+                    "edit_version": inv.edit_version,
                     "variance": float(sum(moved.values())) if moved else 0})
 
 
@@ -624,7 +639,7 @@ def delete_invoice(id):
     denied = deny_json("purchase_invoices", "delete")
     if denied:
         return denied
-    inv = scoped_get_404(InvPurchaseInvoice, id)
+    inv = scoped_get_404(InvPurchaseInvoice, id, for_update=True)
     if inv.status == "approved":
         return jsonify({"ok": False, "error": "Cannot delete an approved invoice. Unapprove it first."}), 400
     try:
@@ -642,40 +657,20 @@ def delete_invoice(id):
 @inv_pinv_bp.route("/pay/<int:id>", methods=["POST"])
 @login_required
 def pay_invoice(id):
-    if deny_page("purchase_invoices", "edit"):
-        return redirect(url_for("inv_purchase_invoice.list_invoices"))
+    """Retired, as on the sales side (invoices.pay_invoice): payments are
+    recorded as vouchers and assigned in Invoicing > Tracking.
+
+    It posted its own ``PMT`` journal (Dr AP / Cr Cash) and added to
+    ``paid_amount`` by hand — a second way for money to leave the books with no
+    voucher behind it, writing the figure the tracker derives from
+    assignments. The list offered it on UNAPPROVED invoices too, so cash could
+    be paid against a bill that had never credited Payables. Kept so old
+    links land somewhere useful; it neither posts nor writes anything.
+    """
     inv = scoped_get_404(InvPurchaseInvoice, id)
-    amount = request.form.get("amount", 0, type=float)
-    if amount <= 0:
-        flash("Invalid payment amount", "error")
-    else:
-        inv.paid_amount = (inv.paid_amount or 0) + amount
-        if inv.paid_amount >= inv.total_amount:
-            inv.payment_status = "paid"
-        else:
-            inv.payment_status = "partial"
-        cash_acc = posting_account("cash")
-        ap_acc = party_account("supplier", inv.supplier_id,
-                               inv.supplier.name if inv.supplier else None,
-                               inv.party_account_id)
-        if cash_acc and ap_acc:
-            post_journal_entry(
-                voucher_type="PMT",
-                voucher_id=inv.id,
-                voucher_number=f"PMT-{inv.invoice_number}-{datetime.utcnow():%Y%m%d%H%M%S}",
-                description=f"Payment for {inv.invoice_number} - {inv.supplier.name if inv.supplier else ''}",
-                lines=[
-                    {"account_id": ap_acc.id, "debit": amount, "credit": 0,
-                     "description": f"AP - {inv.invoice_number}"},
-                    {"account_id": cash_acc.id, "debit": 0, "credit": amount,
-                     "description": f"Cash - {inv.invoice_number}"},
-                ],
-                entry_date=datetime.utcnow(),
-                created_by=current_user.id,
-            )
-        db.session.commit()
-        flash(f"Payment of {amount} recorded", "success")
-    return redirect(url_for("inv_purchase_invoice.list_invoices"))
+    flash("Record payments as a Cash/Bank Payment Voucher first.", "info")
+    return redirect(url_for("inv_tracking.invoice_history",
+                            doc_type="PI", doc_id=inv.id))
 
 
 @inv_pinv_bp.route("/list")

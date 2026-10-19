@@ -4,6 +4,9 @@ from datetime import datetime
 
 from inventory_app.extensions import db
 from shared.tenancy import scoped_get, scoped_get_404
+from shared.doc_numbers import is_placeholder, number_from_id, placeholder
+from shared.concurrency import bump_edit, stale_edit
+from shared import payment_tracking as _pt
 from inventory_app.models.sales_return import InvSalesReturn, InvSalesReturnItem
 from inventory_app.models.invoice import InvInvoice, InvInvoiceItem
 from inventory_app.models.customer import InvCustomer
@@ -12,17 +15,17 @@ from inventory_app.models.stock_movement import InvStockMovement
 from shared.ledger_utils import (post_journal_entry, reverse_journal_entry,
                                  posting_account, party_account)
 from shared.permissions import deny_json
-from shared.costing import record_in, reverse_voucher_stock, original_issue_cost
+from shared.costing import lock_products, record_in, reverse_voucher_stock, original_issue_cost
 from shared.posting_helpers import as_date, parse_doc_date
 
 inv_sreturn_bp = Blueprint("inv_sales_return", __name__,
                            url_prefix="/invoicing/sales-return")
 
 
-def next_return_number():
-    last = InvSalesReturn.query.order_by(InvSalesReturn.id.desc()).first()
-    n = (last.id + 1) if last else 1
-    return f"CN-{datetime.utcnow():%Y%m}-{n:04d}"
+def assign_number(ret):
+    """CN-YYYYMM-<the return's own row id>: two users saving new returns
+    at once can never draw the same number ("last id + 1" could)."""
+    return number_from_id(ret, "CN", "return_number")
 
 
 @inv_sreturn_bp.route("/", defaults={"id": None})
@@ -160,12 +163,17 @@ def save_return():
         return denied
 
     if ret_id:
-        ret = scoped_get_404(InvSalesReturn, ret_id)
+        # Locked until commit: a second user approving the same return waits,
+        # then finds it approved instead of posting it again.
+        ret = scoped_get_404(InvSalesReturn, ret_id, for_update=True)
         if ret.status == "approved":
             return jsonify({"ok": False, "error": "Cannot modify approved return"}), 400
+        stale = stale_edit(ret, data.get("edit_version"), f"Return {ret.return_number}")
+        if stale:
+            return jsonify({"ok": False, "error": stale, "stale": True}), 409
     else:
         ret = InvSalesReturn(
-            return_number=next_return_number(),
+            return_number=placeholder(),
             created_by=current_user.id,
         )
         db.session.add(ret)
@@ -179,7 +187,10 @@ def save_return():
     ret.customer_id = data.get("customer_id")
     # The return posts on its own date — and can never precede the sale.
     ret.return_date = parse_doc_date(data.get("date"), fallback=ret.return_date)
-    _orig = scoped_get(InvInvoice, ret.original_invoice_id) if ret.original_invoice_id else None
+    # Approving locks the invoice being returned against: two returns raised
+    # on it at the same instant both passed the over-return check below.
+    _orig = (scoped_get(InvInvoice, ret.original_invoice_id, for_update=(action == "approve"))
+             if ret.original_invoice_id else None)
     if action == "approve":
         if _orig is None or _orig.voucher_status != "approved":
             return jsonify({"ok": False, "error":
@@ -207,6 +218,15 @@ def save_return():
         ret.status = "unapproved"
 
     db.session.flush()
+    if is_placeholder(ret.return_number):
+        assign_number(ret)
+    if action == "approve":
+        # Lock order: document, order lines, products — as every posting does.
+        from shared.order_linkage import lock_order_lines
+        lock_order_lines("sales", [it.source_order_item_id for it in
+                                   InvInvoiceItem.query.filter_by(invoice_id=ret.original_invoice_id)])
+        lock_products(r.get("product_id") for r in data.get("items", [])
+                      if float(r.get("current_return_qty", 0) or 0) > 0)
 
     InvSalesReturnItem.query.filter_by(return_id=ret.id).delete()
     total_cost_returned = 0.0
@@ -342,6 +362,10 @@ def save_return():
         )
 
     db.session.commit()
+    # A return settles part of its invoice: the invoice's paid/unpaid
+    # status moves with it (shared/payment_tracking.credited_by_doc).
+    if ret.original_invoice_id:
+        _pt.sync_invoice(_pt.SALES, ret.original_invoice_id)
     if action == "approve":
         msg = "approved and posted"
     elif ret_id:
@@ -349,6 +373,7 @@ def save_return():
     else:
         msg = "saved as unapproved"
     return jsonify({"ok": True, "id": ret.id, "status": ret.status,
+                    "edit_version": ret.edit_version,
                     "return_number": ret.return_number, "message": f"Return {msg}"})
 
 
@@ -391,7 +416,7 @@ def unapprove_return(id):
     denied = deny_json("sales_returns", "approve")
     if denied:
         return denied
-    ret = scoped_get_404(InvSalesReturn, id)
+    ret = scoped_get_404(InvSalesReturn, id, for_update=True)
     if ret.status != "approved":
         return jsonify({"ok": False, "error": "Only approved returns can be unapproved"}), 400
 
@@ -422,8 +447,13 @@ def unapprove_return(id):
     # cannot be removed without leaving that cost backed by nothing.
     reverse_voucher_stock("SRV", ret.id, created_by=current_user.id)
 
+    bump_edit(ret)
     db.session.commit()
-    return jsonify({"ok": True, "status": "unapproved",
+    # A return settles part of its invoice: the invoice's paid/unpaid
+    # status moves with it (shared/payment_tracking.credited_by_doc).
+    if ret.original_invoice_id:
+        _pt.sync_invoice(_pt.SALES, ret.original_invoice_id)
+    return jsonify({"ok": True, "status": "unapproved", "edit_version": ret.edit_version,
                     "message": "Return has been unapproved and unlocked for editing"})
 
 

@@ -27,6 +27,7 @@ PAGES = [
     "/inventory/transfer-to-fa/", "/compensation/run-payroll", "/compensation/tax-settings",
     "/compensation/loans", "/pf/", "/accounting/bank-reconciliation",
     "/compensation/",
+    "/invoicing/tracking/", "/invoicing/tracking/sales", "/invoicing/tracking/purchases",
 ]
 
 # Elements wider than the screen that are NOT inside a scroll container.
@@ -35,10 +36,14 @@ CLIPPED_JS = r"""() => {
   for (const el of document.querySelectorAll('body *')) {
     const r = el.getBoundingClientRect();
     if (r.right <= W + 2 || !r.width) continue;
+    // Inside a scroll container, or a fixed overlay (a closed slide-in
+    // drawer parked off-screen): neither widens the page.
     let p = el.parentElement, scrolls = false;
     while (p && p !== document.body) {
-      const o = getComputedStyle(p).overflowX;
-      if (o === 'auto' || o === 'scroll') { scrolls = true; break; }
+      const cs = getComputedStyle(p);
+      if (cs.overflowX === 'auto' || cs.overflowX === 'scroll' || cs.position === 'fixed') {
+        scrolls = true; break;
+      }
       p = p.parentElement;
     }
     if (!scrolls && getComputedStyle(el).position !== 'fixed')

@@ -1,0 +1,17 @@
+{# Page links for the Tracking lists. Every filter in the query string is kept;
+   only ?page= changes. Nothing renders for a single page. #}
+{% macro pager(p, endpoint) %}
+{% if p.pages > 1 %}
+{% set args = request.args.to_dict(flat=False) %}
+<nav class="trk-pager" aria-label="Pages">
+  <span>{{ p.first }}–{{ p.last }} of {{ p.total }}</span>
+  <span class="trk-pager-links">
+    <a class="trk-rowbtn {{ 'is-off' if p.page <= 1 }}" rel="prev"
+       href="{{ url_for(endpoint, **dict(args, page=p.page - 1)) }}">&larr; Previous</a>
+    <span style="align-self:center;">Page {{ p.page }} of {{ p.pages }}</span>
+    <a class="trk-rowbtn {{ 'is-off' if p.page >= p.pages }}" rel="next"
+       href="{{ url_for(endpoint, **dict(args, page=p.page + 1)) }}">Next &rarr;</a>
+  </span>
+</nav>
+{% endif %}
+{% endmacro %}

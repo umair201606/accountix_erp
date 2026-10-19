@@ -623,7 +623,7 @@ body{background:var(--card);font-size:10px}
           <input type="hidden" id="supplierId" value="{{ invoice.supplier_id if invoice else '' }}">
           <div class="ac-dd" id="supplierDropdown"></div>
         </div>
-        <!-- One document, one number — see next_voucher() in the route. It is
+        <!-- One document, one number — see assign_number() in the route. It is
              the page title now; the field stays for the save payload. -->
         <input type="hidden" id="invVoucher" value="{{ invoice.voucher_number if invoice else '(auto)' }}">
         <div class="ffield"><label class="lbl" for="invDate">Invoice date</label>
@@ -1055,6 +1055,9 @@ body{background:var(--card);font-size:10px}
 {% endblock %}
 
 {% block extra_scripts %}
+{# The version this page loaded: saves from a stale copy are refused (static/js/edit_version.js). #}
+<input type="hidden" id="editVersion" value="{{ (invoice.edit_version or 0) if invoice else 0 }}">
+<script src="{{ url_for('static', filename='js/edit_version.js') }}"></script>
 <script>
 // ============================================================
 // STATE

@@ -4,7 +4,8 @@
 {% block extra_css %}{% include "tracking/_style.html" %}{% endblock %}
 {% block content %}
 {% set doc_word = 'sales' if row.doc_type == 'SI' else 'purchase' %}
-<div class="trk">
+{% set capacity = row.amount - row.forced %}
+<div class="trk {{ 'trk-has-mobile-save' if can_assign and invoices }}">
 
   {# The back link is real navigation so it stays. No heading: the top bar
      already says "Assign receipt · <voucher>". What is left is the facts of
@@ -32,7 +33,14 @@
           <div class="trk-card-title"><span class="trk-dot"></span><span>Open {{ doc_word }} invoices for {{ row.party_name }}</span></div>
           <span class="trk-card-hint">Oldest first &middot; tick an invoice and set how much of this {{ row.flow }} it settles</span>
         </div>
-        {% if invoices %}
+        {% if row.is_ledger %}
+        <div class="trk-empty">
+          <strong>{{ row.party_name }} is a whole ledger, not a {{ doc_meta.party_label|lower }}</strong>
+          <p>Money booked straight to this account has no invoices behind it to
+            settle. Close it with a reason on the right — an advance, a
+            settlement of an opening balance — so it leaves the queue.</p>
+        </div>
+        {% elif invoices %}
         <div class="trk-table-wrap">
           <table class="trk-alloc-table" id="allocTable">
             <thead>
@@ -60,9 +68,10 @@
                      class="trk-doclink">{{ inv.number }}</a>
                   <div style="color:var(--muted);font-size:11px;margin-top:2px;">
                     settled {{ inv.settled|amount_format(2) }} of {{ inv.total|amount_format(2) }}
+                    {%- if inv.credited %} · returned {{ inv.credited|amount_format(2) }}{% endif %}
                   </div>
                 </td>
-                <td data-label="Issued">{{ inv.date_str or '—' }}</td>
+                <td data-label="Issued" class="trk-nowrap">{{ inv.date_str or '—' }}</td>
                 <td data-label="Due / age">
                   {% if inv.overdue_days > 0 %}
                   <span class="trk-age {{ 'hot' if inv.overdue_days > 30 else 'warm' }}">{{ inv.overdue_days }} days late</span>
@@ -75,7 +84,7 @@
                 <td data-label="Assign now">
                   <input type="number" step="0.01" min="0" class="trk-amt" data-doc="{{ inv.id }}"
                          data-max="{{ '%.2f'|format(inv.assignable) }}"
-                         value="{{ '%.2f'|format(inv.assigned_here if inv.assigned_here > 0 else inv.assignable) }}"
+                         value="{{ '%.2f'|format(inv.assigned_here) if inv.assigned_here > 0 else '' }}"
                          aria-label="Amount to assign to {{ inv.number }}">
                 </td>
               </tr>
@@ -144,13 +153,18 @@
         <div class="trk-card-body">
           <div class="trk-sum">
             <div class="trk-sum-row"><span>Amount {{ 'received' if row.flow == 'receipt' else 'paid' }}</span><b>{{ row.amount|amount_format(2) }}</b></div>
-            <div class="trk-sum-row"><span>Already assigned</span><b>{{ row.assigned|amount_format(2) }}</b></div>
+            <div class="trk-sum-row"><span>On invoices</span><b>{{ row.to_invoices|amount_format(2) }}</b></div>
+            {% if row.forced %}
+            <div class="trk-sum-row" title="{{ row.forced_reason }}"><span>Closed without an invoice</span><b>{{ row.forced|amount_format(2) }}</b></div>
+            {% endif %}
             <div class="trk-sum-row total"><span>Unassigned</span><b>{{ row.unassigned|amount_format(2) }}</b></div>
           </div>
+          {% if invoices %}
           <div class="trk-remaining" id="trkRemaining" style="margin-top:14px;">
             <div class="lbl">Left after this split</div>
-            <div class="val" id="trkRemainingVal">{{ '%.2f'|format(row.amount) }}</div>
+            <div class="val" id="trkRemainingVal">{{ '%.2f'|format(capacity) }}</div>
           </div>
+          {% endif %}
           {% if can_assign and invoices %}
           <div class="trk-savebar" style="margin-top:13px;">
             <button type="button" class="btn btn-primary" id="trkSave">Save assignment</button>
@@ -158,6 +172,33 @@
           <div class="trk-savebar" style="margin-top:8px;">
             <button type="button" class="btn btn-outline" id="trkAuto">Auto-assign oldest first</button>
           </div>
+          {% endif %}
+          {% if can_assign and row.forced %}
+          <div class="trk-savebar" style="margin-top:8px;">
+            <button type="button" class="btn btn-outline" id="trkReopen"
+                    title="{{ row.forced_reason }}">Reopen the closed {{ row.forced|amount_format(2) }}</button>
+          </div>
+          {% endif %}
+          {% if can_assign and row.unassigned > 0 %}
+          {# For money no invoice will ever match: an advance, a rounding
+             difference, a ledger payer. A reason is required — it is a person
+             overriding the match, and the feed shows who said so and why. #}
+          <details class="trk-forcebox" style="margin-top:13px;" {{ 'open' if row.is_ledger or not invoices }}>
+            <summary style="cursor:pointer;font-size:12.5px;font-weight:600;">Close without an invoice</summary>
+            <div class="trk-field" style="margin-top:10px;">
+              <label class="trk-lbl" for="trkForceAmt">Amount</label>
+              <input type="number" step="0.01" min="0.01" max="{{ '%.2f'|format(row.unassigned) }}"
+                     id="trkForceAmt" class="trk-input" value="{{ '%.2f'|format(row.unassigned) }}">
+            </div>
+            <div class="trk-field" style="margin-top:8px;">
+              <label class="trk-lbl" for="trkForceReason">Reason (required)</label>
+              <input type="text" id="trkForceReason" class="trk-input" maxlength="300"
+                     placeholder="e.g. advance against future orders">
+            </div>
+            <div class="trk-savebar" style="margin-top:10px;">
+              <button type="button" class="btn btn-outline" id="trkForceSave">Close as not applicable</button>
+            </div>
+          </details>
           {% endif %}
           <p style="margin:13px 0 0;color:var(--muted);font-size:11.5px;line-height:1.5;">
             Assigning records which invoices this money settles. It posts no journal
@@ -168,6 +209,12 @@
       </div>
     </aside>
   </div>
+  {% if can_assign and invoices %}
+  <div class="trk-mobile-save" id="trkMobileSave">
+    <div><div class="lbl">Left after this split</div><div class="val" id="trkMobileLeft">{{ '%.2f'|format(capacity) }}</div></div>
+    <button type="button" class="btn btn-primary" id="trkMobileSaveBtn">Save assignment</button>
+  </div>
+  {% endif %}
 </div>
 {% endblock %}
 
@@ -181,7 +228,10 @@
   var saveBtn = document.getElementById('trkSave');
   var autoBtn = document.getElementById('trkAuto');
   var pickAll = document.getElementById('pickAll');
-  var capacity = {{ row.amount }};
+  var capacity = {{ '%.2f'|format(row.amount - row.forced) }};   // the money less any part closed without an invoice
+  var mobileBar = document.getElementById('trkMobileSave');
+  var mobileLeft = document.getElementById('trkMobileLeft');
+  var mobileSave = document.getElementById('trkMobileSaveBtn');
   var fmt = window.formatAmount || function (v) { return (+v || 0).toFixed(2); };
 
   function showError(msg) {
@@ -203,20 +253,47 @@
     var left = Math.round((capacity - used) * 100) / 100;
     if (remainVal) remainVal.textContent = fmt(left, 2);
     if (remainBox) remainBox.classList.toggle('over', left < -0.001);
+    if (mobileLeft) mobileLeft.textContent = fmt(left, 2);
+    if (mobileBar) mobileBar.classList.toggle('over', left < -0.001);
+    if (mobileSave) mobileSave.disabled = left < -0.001;
     if (saveBtn) {
       saveBtn.disabled = left < -0.001;
       saveBtn.style.opacity = left < -0.001 ? '.6' : '';
     }
   }
 
+  // Ticking an invoice offers what is still loose — never more than the
+  // invoice owes or the money has left — instead of its whole balance, which
+  // overshot the receipt the moment a second invoice was ticked.
+  function fillOnPick(cb) {
+    var input = cb.closest('tr').querySelector('input.trk-amt');
+    if (!cb.checked) { input.value = ''; return; }
+    if (parseFloat(input.value) > 0) return;
+    var used = 0;
+    table.querySelectorAll('input.trk-amt').forEach(function (other) {
+      if (other !== input && other.closest('tr').querySelector('input.trk-pick').checked) {
+        used += parseFloat(other.value) || 0;
+      }
+    });
+    var take = Math.max(0, Math.min(capacity - used, parseFloat(input.dataset.max) || 0));
+    input.value = (Math.round(take * 100) / 100).toFixed(2);
+  }
+
   if (table) {
     table.addEventListener('input', recalc);
-    table.addEventListener('change', recalc);
+    table.addEventListener('change', function (e) {
+      if (e.target.classList.contains('trk-pick')) fillOnPick(e.target);
+      recalc();
+    });
     recalc();
   }
+  if (mobileSave) mobileSave.addEventListener('click', function () { if (saveBtn) saveBtn.click(); });
   if (pickAll) {
     pickAll.addEventListener('change', function () {
-      table.querySelectorAll('input.trk-pick').forEach(function (cb) { cb.checked = pickAll.checked; });
+      table.querySelectorAll('input.trk-pick').forEach(function (cb) {
+        cb.checked = pickAll.checked;
+        fillOnPick(cb);
+      });
       recalc();
     });
   }
@@ -254,6 +331,11 @@
           saveBtn.disabled = false;
           saveBtn.textContent = 'Save assignment';
           if (!data.ok) { showError(data.error || 'The assignment was refused.'); return; }
+          // Fully accounted for: back to the queue for the next one.
+          if (data.row && data.row.unassigned <= 0.005) {
+            window.location.href = '{{ url_for("inv_tracking.feed") }}';
+            return;
+          }
           window.location.reload();
         })
         .catch(function () {
@@ -264,7 +346,17 @@
     });
   }
   document.querySelectorAll('.trk-unassign').forEach(function (btn) {
+    var armed = null;
     btn.addEventListener('click', function () {
+      // First press arms it: detaching is undone only by assigning again.
+      if (!btn.classList.contains('is-armed')) {
+        btn.classList.add('is-armed');
+        btn.textContent = 'Press again to detach';
+        armed = setTimeout(function () { btn.classList.remove('is-armed'); btn.textContent = 'Detach'; }, 4000);
+        return;
+      }
+      clearTimeout(armed);
+      btn.classList.remove('is-armed');
       btn.disabled = true;
       btn.textContent = 'Detaching…';
       fetch('{{ url_for("inv_tracking.api_unassign", alloc_id=0) }}'.replace(/0$/, btn.dataset.id),
@@ -283,6 +375,36 @@
         });
     });
   });
+
+  function postJson(url, payload, onDone, onFail) {
+    fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                 body: JSON.stringify(payload || {}) })
+      .then(function (r) { return r.json(); })
+      .then(function (data) { if (data.ok) onDone(data); else onFail(data.error || 'That was refused.'); })
+      .catch(function () { onFail('Could not save. Check your connection and try again.'); });
+  }
+  var forceSave = document.getElementById('trkForceSave');
+  if (forceSave) {
+    forceSave.addEventListener('click', function () {
+      var reason = document.getElementById('trkForceReason').value.trim();
+      if (!reason) { showError('Give a reason for closing this without an invoice.'); return; }
+      showError('');
+      forceSave.disabled = true;
+      postJson('{{ url_for("inv_tracking.api_force_close", line_id=row.line_id) }}',
+               { amount: parseFloat(document.getElementById('trkForceAmt').value) || 0, reason: reason },
+               function () { window.location.reload(); },
+               function (msg) { forceSave.disabled = false; showError(msg); });
+    });
+  }
+  var reopen = document.getElementById('trkReopen');
+  if (reopen) {
+    reopen.addEventListener('click', function () {
+      reopen.disabled = true;
+      postJson('{{ url_for("inv_tracking.api_release_force", line_id=row.line_id) }}', {},
+               function () { window.location.reload(); },
+               function (msg) { reopen.disabled = false; showError(msg); });
+    });
+  }
 })();
 </script>
 {% endblock %}

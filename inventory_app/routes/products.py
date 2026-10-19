@@ -79,14 +79,19 @@ def create_product():
 def edit_product(id):
     if deny_page("products", "edit"):
         return redirect(url_for("inv_products.list_products"))
-    prod = scoped_get_404(InvProduct, id)
+    prod = scoped_get_404(InvProduct, id, for_update=request.method == "POST")
     if request.method == "POST":
         prod.sku = request.form["sku"]
         prod.name = request.form["name"]
         prod.description = request.form.get("description", "")
         prod.category_id = request.form.get("category_id", type=int) or None
         prod.unit_price = request.form.get("unit_price", 0, type=float)
-        prod.cost_price = request.form.get("cost_price", 0, type=float)
+        from shared.models.stock_ledger import StockLedger
+        if StockLedger.query.filter_by(product_id=prod.id).first() is None:
+            # Once stock has moved, the costing engine keeps this figure at the
+            # current valuation cost; the form's copy (read when the page
+            # opened) would overwrite it with a stale one.
+            prod.cost_price = request.form.get("cost_price", 0, type=float)
         prod.reorder_level = request.form.get("reorder_level", 0, type=int)
         prod.unit = request.form.get("unit", "pcs")
         prod.hs_code = request.form.get("hs_code", "").strip()
@@ -98,7 +103,10 @@ def edit_product(id):
         return redirect(url_for("inv_products.list_products"))
     categories = InvCategory.query.filter_by(is_active=True).all()
     units = InvUnit.query.filter_by(is_active=True).order_by(InvUnit.name).all()
-    return render_template("products/form_inv.html", product=prod, categories=categories, units=units)
+    from shared.models.stock_ledger import StockLedger
+    cost_locked = StockLedger.query.filter_by(product_id=prod.id).first() is not None
+    return render_template("products/form_inv.html", product=prod, categories=categories,
+                           units=units, cost_locked=cost_locked)
 
 
 @inv_prod_bp.route("/delete/<int:id>", methods=["POST"])
@@ -106,7 +114,9 @@ def edit_product(id):
 def delete_product(id):
     if deny_page("products", "delete"):
         return redirect(url_for("inv_products.list_products"))
-    prod = scoped_get_404(InvProduct, id)
+    # Locked: a sale of this product in flight finishes first, and its stock
+    # history then refuses the delete.
+    prod = scoped_get_404(InvProduct, id, for_update=True)
     from shared.models.stock_ledger import StockLedger
     if prod.po_items.count() > 0 or prod.so_items.count() > 0:
         flash("Cannot delete product with order history", "error")

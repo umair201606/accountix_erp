@@ -15,6 +15,11 @@ context.configure(connection=connection, target_metadata=None,
 
 with context.begin_transaction():
     if connection.dialect.name == "postgresql":
+        # Migrations wait as long as they must: an instance queued behind the
+        # one migrating, or an ALTER waiting for requests in flight, must not
+        # give up after the app's per-request lock_timeout
+        # (shared/concurrency.py: install_lock_timeout).
+        connection.execute(text("SET LOCAL lock_timeout = 0"))
         # Serialise concurrent cold starts; released at COMMIT/ROLLBACK.
         connection.execute(text("SELECT pg_advisory_xact_lock(:k)"),
                            {"k": ADVISORY_LOCK_KEY})

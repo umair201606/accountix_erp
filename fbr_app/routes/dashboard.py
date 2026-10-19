@@ -44,7 +44,10 @@ def submit_invoice(invoice_id):
     if not config.is_active or not config.access_token:
         return jsonify({"ok": False, "error": "FBR not configured"}), 400
 
-    invoice = scoped_get_404(InvInvoice, invoice_id)
+    # Locked through the call to FBR: two users pressing Send at once both
+    # found no successful submission and reported the invoice twice — which
+    # cannot be taken back. The second now waits, then finds it reported.
+    invoice = scoped_get_404(InvInvoice, invoice_id, for_update=True)
     if invoice.voucher_status != "approved":
         return jsonify({"ok": False, "error": "Only approved invoices can be submitted to FBR"}), 400
 

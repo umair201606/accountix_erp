@@ -115,3 +115,22 @@ document.addEventListener('DOMContentLoaded', function () {
         setTimeout(() => { el.remove(); }, 4500);
     });
 });
+
+// One submit per form at a time. A double-clicked Save posted the same form
+// twice — two customers, two products, a second approval racing the first.
+// Registered on window, so it runs after every page handler: a form whose
+// own handler cancels the submit (it saves with fetch) is left to it. The
+// guard lifts when the user comes back to the page (back button), and after
+// a few seconds in case the answer was a file download rather than a page.
+window.addEventListener('submit', (e) => {
+    const form = e.target;
+    if (e.defaultPrevented || !(form instanceof HTMLFormElement)) return;
+    if ((form.getAttribute('method') || 'get').toLowerCase() !== 'post') return;
+    if ((form.target && form.target !== '_self') || 'allowResubmit' in form.dataset) return;
+    if (form.dataset.submitting === '1') { e.preventDefault(); return; }
+    form.dataset.submitting = '1';
+    setTimeout(() => { delete form.dataset.submitting; }, 8000);
+});
+window.addEventListener('pageshow', () => {
+    document.querySelectorAll('form[data-submitting]').forEach((f) => { delete f.dataset.submitting; });
+});

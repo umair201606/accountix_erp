@@ -48,7 +48,14 @@ class CompanyInfo(db.Model):
         cache = getattr(g, "_company_info", None) if has_app_context() else None
         if cache is not None and cache[0] == cid:
             return cache[1]
-        c = cls.query.filter_by(company_id=cid).first()
+        c = cls.query.filter_by(company_id=cid).order_by(cls.id).first()
+        if not c:
+            # First use: queued per company, so two requests arriving together
+            # create one row, not two (with two, .first() could hand back
+            # either, and a setting saved on one came and went).
+            from shared.concurrency import serialize
+            serialize("first-use", cls.__tablename__, cid)
+            c = cls.query.filter_by(company_id=cid).order_by(cls.id).first()
         if not c:
             c = cls(company_id=cid, company_name="SolarKon Energy Solutions")
             db.session.add(c)
@@ -117,7 +124,11 @@ class ReportSettings(db.Model):
             # No active company (login page, boot): return an unsaved default
             # rather than querying a tenant-scoped table (which fails closed).
             return cls()
-        s = cls.query.filter_by(company_id=cid).first()
+        s = cls.query.filter_by(company_id=cid).order_by(cls.id).first()
+        if not s:
+            from shared.concurrency import serialize
+            serialize("first-use", cls.__tablename__, cid)
+            s = cls.query.filter_by(company_id=cid).order_by(cls.id).first()
         if not s:
             s = cls(company_id=cid)
             db.session.add(s)
@@ -169,7 +180,11 @@ class FiscalYearRule(db.Model):
             # No active company (login page, boot): return an unsaved default
             # rather than querying a tenant-scoped table (which fails closed).
             return cls()
-        r = cls.query.filter_by(company_id=cid).first()
+        r = cls.query.filter_by(company_id=cid).order_by(cls.id).first()
+        if not r:
+            from shared.concurrency import serialize
+            serialize("first-use", cls.__tablename__, cid)
+            r = cls.query.filter_by(company_id=cid).order_by(cls.id).first()
         if not r:
             r = cls(company_id=cid, start_month=1, start_day=1)
             db.session.add(r)

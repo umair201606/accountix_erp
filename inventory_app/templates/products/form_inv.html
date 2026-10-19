@@ -70,7 +70,7 @@
       </div>
       <div class="form-group">
         <label>Cost Price</label>
-        <input type="number" step="0.01" name="cost_price" class="form-control focus-ring" value="{{ product.cost_price if product else '0' }}">
+        <input type="number" step="0.01" name="cost_price" class="form-control focus-ring" value="{{ product.cost_price if product else '0' }}"{% if cost_locked %} readonly title="Kept at the current valuation cost by the stock ledger"{% endif %}>
       </div>
       <div class="form-group">
         <label>Reorder Level</label>

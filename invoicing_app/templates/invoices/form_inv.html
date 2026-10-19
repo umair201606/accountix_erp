@@ -1131,6 +1131,9 @@ body{background:var(--card);font-size:10px}
 {% endblock %}
 
 {% block extra_scripts %}
+{# The version this page loaded: saves from a stale copy are refused (static/js/edit_version.js). #}
+<input type="hidden" id="editVersion" value="{{ (invoice.edit_version or 0) if invoice else 0 }}">
+<script src="{{ url_for('static', filename='js/edit_version.js') }}"></script>
 <script>
 // ============================================================
 // STATE

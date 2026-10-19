@@ -25,7 +25,12 @@ class FBRConfig(db.Model):
 
     @classmethod
     def get(cls):
-        c = cls.query.first()
+        c = cls.query.order_by(cls.id).first()
+        if not c:
+            from shared.concurrency import serialize
+            from shared.tenancy import current_company_id
+            serialize("first-use", cls.__tablename__, current_company_id())
+            c = cls.query.order_by(cls.id).first()
         if not c:
             c = cls()
             db.session.add(c)

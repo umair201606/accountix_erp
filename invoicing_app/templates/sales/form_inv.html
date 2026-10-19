@@ -458,6 +458,9 @@
 {% endblock %}
 
 {% block extra_scripts %}
+{# The version this page loaded: saves from a stale copy are refused (static/js/edit_version.js). #}
+<input type="hidden" id="editVersion" value="{{ (order.edit_version or 0) if order else 0 }}">
+<script src="{{ url_for('static', filename='js/edit_version.js') }}"></script>
 <script>
 var allProducts = {{ products|tojson }}, rowCount = 0, charges = {{ order_charges|tojson }};
 const editable = {{ 'false' if not editable else 'true' }};

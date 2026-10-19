@@ -3,6 +3,9 @@ from flask_login import login_required, current_user
 from datetime import date, datetime
 from inventory_app.extensions import db
 from shared.tenancy import scoped_get, scoped_get_404
+from shared.order_linkage import invoices_drawing_on
+from shared.concurrency import bump_edit, stale_edit
+from shared.doc_numbers import is_placeholder, number_from_id, placeholder
 from inventory_app.models.purchase_order import InvPurchaseOrder, InvPurchaseOrderItem
 from inventory_app.models.supplier import InvSupplier
 from inventory_app.models.product import InvProduct
@@ -16,10 +19,10 @@ from shared.models.invoice_settings import InvoiceSettings
 inv_pur_bp = Blueprint("inv_purchases", __name__, url_prefix="/inventory/purchases")
 
 
-def next_po_number():
-    last = InvPurchaseOrder.query.order_by(InvPurchaseOrder.id.desc()).first()
-    num = (last.id + 1) if last else 1
-    return f"PO-{datetime.utcnow():%Y%m}-{num:04d}"
+def assign_number(order):
+    """PO-YYYYMM-<the order's own row id>: two users saving new orders at
+    once can never draw the same number ("last id + 1" could)."""
+    return number_from_id(order, "PO", "po_number")
 
 
 @inv_pur_bp.route("/", defaults={"id": None})
@@ -77,12 +80,23 @@ def save_purchase():
         return denied
 
     if order_id:
-        order = scoped_get_404(InvPurchaseOrder, order_id)
+        order = scoped_get_404(InvPurchaseOrder, order_id, for_update=True)
         if order.status == "approved":
             return jsonify({"ok": False, "error": "Cannot modify approved order"}), 400
+        stale = stale_edit(order, data.get("edit_version"), f"Order {order.po_number}")
+        if stale:
+            return jsonify({"ok": False, "error": stale, "stale": True}), 409
+        billed = invoices_drawing_on("purchase", order.id)
+        if billed:
+            return jsonify({"ok": False, "error": (
+                f"Cannot change {order.po_number}: invoice(s) {', '.join(billed)} were "
+                "billed from it. Unapprove and delete those invoices first.")}), 400
     else:
         order = InvPurchaseOrder(
-            po_number=data.get("po_number") or next_po_number(),
+            # The form sends "(auto)" for a new order; that text used to be
+            # saved as the number itself (and the next order then clashed).
+            po_number=(data.get("po_number") if data.get("po_number") not in (None, "", "(auto)")
+                   else placeholder()),
             created_by=current_user.id,
         )
         db.session.add(order)
@@ -113,6 +127,8 @@ def save_purchase():
         order.status = "unapproved"
 
     db.session.flush()
+    if is_placeholder(order.po_number):
+        assign_number(order)
 
     InvPurchaseOrderItem.query.filter_by(po_id=order.id).delete()
     for row in data.get("items", []):
@@ -143,6 +159,7 @@ def save_purchase():
     else:
         msg = "saved as unapproved"
     return jsonify({"ok": True, "id": order.id, "status": order.status,
+                    "edit_version": order.edit_version,
                     "number": order.po_number, "message": f"Order {msg}"})
 
 
@@ -152,14 +169,22 @@ def unapprove_purchase(id):
     denied = deny_json("purchase_orders", "approve")
     if denied:
         return denied
-    order = scoped_get_404(InvPurchaseOrder, id)
+    order = scoped_get_404(InvPurchaseOrder, id, for_update=True)
     if order.status != "approved":
         return jsonify({"ok": False, "error": "Only approved orders can be unapproved"}), 400
+    billed = invoices_drawing_on("purchase", order.id)
+    if billed:
+        return jsonify({"ok": False, "error": (
+            f"Cannot unapprove {order.po_number}: invoice(s) {', '.join(billed)} were "
+            "billed from it. Unapprove and delete those invoices first, or cancel "
+            "the order to stop further billing.")}), 400
     order.status = "unapproved"
     order.approved_by = None
     order.approved_at = None
+    bump_edit(order)
     db.session.commit()
-    return jsonify({"ok": True, "status": "unapproved", "message": "Order unapproved"})
+    return jsonify({"ok": True, "status": "unapproved", "edit_version": order.edit_version,
+                    "message": "Order unapproved"})
 
 
 @inv_pur_bp.route("/delete/<int:id>", methods=["POST"])
@@ -168,9 +193,14 @@ def delete_purchase(id):
     denied = deny_json("purchase_orders", "delete")
     if denied:
         return denied
-    order = scoped_get_404(InvPurchaseOrder, id)
+    order = scoped_get_404(InvPurchaseOrder, id, for_update=True)
     if order.status == "approved":
         return jsonify({"ok": False, "error": "Cannot delete approved order. Unapprove first."}), 400
+    billed = invoices_drawing_on("purchase", order.id)
+    if billed:
+        return jsonify({"ok": False, "error": (
+            f"Cannot delete {order.po_number}: invoice(s) {', '.join(billed)} were "
+            "billed from it.")}), 400
     try:
         InvPurchaseOrderItem.query.filter_by(po_id=order.id).delete()
         AdditionalCharge.query.filter_by(doc_type="PO", doc_id=order.id).delete()
@@ -214,7 +244,7 @@ def receive_purchase(id):
 def cancel_purchase(id):
     if deny_page("purchase_orders", "edit"):
         return redirect(url_for("inv_purchases.list_purchases"))
-    order = scoped_get_404(InvPurchaseOrder, id)
+    order = scoped_get_404(InvPurchaseOrder, id, for_update=True)
     if order.status not in ("unapproved", "approved", "new"):
         flash(f"PO {order.po_number} is {order.status}; it cannot be cancelled.", "error")
         return redirect(url_for("inv_purchases.list_purchases"))

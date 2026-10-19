@@ -159,6 +159,10 @@ def apply():
             total_days = _get_working_days(start_date, end_date)
         if total_days < 0.5:
             return again("No working days in selected range (weekends/holidays excluded).")
+        # A double-clicked Apply used to file two overlapping requests: the
+        # second waits here, then finds the first.
+        from shared.concurrency import serialize
+        serialize("leave", current_user.id)
         clash = leave_flow.overlapping(current_user.id, start_date, end_date)
         if clash:
             return again(f"You already have a {clash.status} request for "

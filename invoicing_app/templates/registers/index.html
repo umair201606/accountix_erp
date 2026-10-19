@@ -70,7 +70,7 @@
 </div>
 
 <div id="regLoaded" {% if not loaded %}style="display:none"{% endif %}>
-{% set _total = totals[5] %}{% set _paid = totals[6] %}{% set _bal = totals[7] %}
+{% set _total = totals[5] %}{% set _paid = totals[6] %}{% set _bal = totals[8] %}
 <div class="reg-cards">
   <div class="reg-card"><span>Invoices</span><strong id="cardCount">{{ rows|length if loaded else 0 }}</strong></div>
   <div class="reg-card"><span>Total</span><strong id="cardGrand">{{ _total|amount_format(0) }}</strong></div>
@@ -207,7 +207,7 @@
         }
       }catch(e){
         if(e && e.name!=='AbortError'){
-          tbody.innerHTML='<tr><td colspan="15" style="text-align:center;color:var(--danger,#b91c1c)">Could not load the register. Please try again.</td></tr>';
+          tbody.innerHTML='<tr><td colspan="{{ columns|length + 1 }}" style="text-align:center;color:var(--danger,#b91c1c)">Could not load the register. Please try again.</td></tr>';
         }
       }
       btn.disabled=false;btn.innerHTML=btnLabel;controller=null;

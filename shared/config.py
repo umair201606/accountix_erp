@@ -39,6 +39,11 @@ class Config:
         SQLALCHEMY_ENGINE_OPTIONS = {"pool_pre_ping": True, "pool_recycle": 280,
                                      "pool_size": 2 if _serverless else 5,
                                      "max_overflow": 2 if _serverless else 5}
+    elif SQLALCHEMY_DATABASE_URI.startswith("sqlite"):
+        # Local / test server: SQLite lets one writer in at a time and makes
+        # the next wait — 5 s by default, after which a second user saving at
+        # a busy moment got "database is locked". Wait longer instead.
+        SQLALCHEMY_ENGINE_OPTIONS = {"connect_args": {"timeout": 30}}
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     WTF_CSRF_ENABLED = False
     MAX_CONTENT_LENGTH = 16 * 1024 * 1024

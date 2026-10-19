@@ -17,6 +17,83 @@ E2E tests must cover all app modules:
 - **Inventory**: Login, Dashboard, Products, Suppliers, Customers, Purchase Invoice (form, add/clear items, pill toggles, calculations, global inputs), Purchase Return, Logout
 - **HR**: Login, Hub, Dashboard, Attendance, Leave, ESS, Profile, Logout
 
+## Session Summary (19 Oct 2026) — Invoice Tracking Re-read: Returns, Bulk Matching, Paging
+
+Invoicing → Invoice Tracking (payment & receipt feed, assign workspace, sales / purchase tracking, invoice history) and the Invoice Register, read end to end and run against a migrated copy of `instance/erp_dev.db` (Samba: 1,907 receipts/payments, 2,760 SI, 794 PI, 102 returns).
+
+### Bugs
+- **Returns were ignored** (`shared/payment_tracking.credited_by_doc`): an invoice's outstanding was total − assigned money, so a credit/debit note (which credits the party by exactly `net_return_amount` — checked for all 102) left it "owed" in full: 53 of 128 parties disagreed with their ledger by exactly their returns, a receipt for the net amount left the invoice partial forever, and assignment allowed more than was owed. Now outstanding = total − assigned − returned everywhere (`_doc_dict`, registers, workspace headroom, `allocate`, `recompute_doc` status — `paid_amount` stays money received), credit notes appear in the invoice's history with the running balance, and approving/unapproving a return refreshes its invoice's status. On the copy: every party's ledger = invoices outstanding − unassigned money (0 of 128 off, before and after matching)
+- **Partly force-closed receipt vanished**: any forced amount made the line "forced" (hidden by the default view) even with money still loose. Now "partial" until fully accounted for
+- **Assign drawer / workspace**: capacity was the whole receipt (force-closed money offered again, server refused with a confusing error); every unticked invoice pre-filled its whole balance (ticking two overshot the receipt). Now capacity = amount − forced and a tick offers min(invoice balance, what is left)
+- **`auto_split`** (server proposal) under-proposed when the line was already split; now a complete replacement split. **Unassign** did not lock the line
+- **Filter chips**: unticking every chip sent no value and the defaults came back — "all" was unreachable (hidden empty value now)
+- **Invoice Register** balance = total − paid, ignoring returns → new **Returned** column; balance = total − paid − returned (ties to the tracker to the paisa on the copy)
+- Purchase-invoice side, ledger payers (Trade Debtors — General): "Assign" was offered on rows that carry no invoices; now only "No invoice" (close with a reason) with an explanation in the workspace
+- Closed drawers were tabbable off-screen (now `visibility:hidden` once slid out); detach used `confirm()`/`alert()` (now a two-step button, inline errors); sidebar lost its place on invoice history (nav `active` gained per-endpoint `args`: SI → Sales Invoice Tracking, PI → Purchase)
+
+### Flows
+- **Match oldest first** (`payment_tracking.auto_match`, `POST /invoicing/tracking/api/auto-match`, button on the feed scoped to the chosen party/side and on each register): every open receipt/payment settles its party's oldest invoices; existing splits, forced money, lines under review and ledger payers untouched; locks lines then invoices; one pass, no per-invoice queries; idempotent. On the copy: 1,905 receipts/payments → 3,260 invoices in ~10 s; receivable 4.18bn "all overdue" → 539m in 342 open invoices
+- **Apply here** on an invoice's history (`POST /api/apply/<line>/<SI|PI>/<id>`): one click puts min(unassigned, outstanding) of a waiting receipt on the invoice
+- Registers open on **unpaid + partial** (paid one chip away), **sort** (newest / oldest / most overdue / largest outstanding); one match bar per page instead of an "unassigned" badge repeated on every row of the party; Settled-bar and History columns removed; dates no longer wrap; returned shown under Received
+- Workspace: close-without-invoice and Reopen in the side panel; saving a fully assigned receipt returns to the feed; phones get a pinned "left after this split + Save" bar; filters fold behind one button on phones; feed keeps its scroll position across saves; nav label "Payment & Receipt Feed"
+
+### Speed
+- Feed built once per page (`feed_snapshot` + in-memory `filter_feed`, tiles from the same rows), party index built once, assignments classified once, invoice approval checked by id-only query: feed 5.3 s → 1.1 s, sales register 5.9 s → ~2 s (`filter_invoices`, summary from the same rows); 100 rows a page (`tracking/_pager.html`)
+
+### Tests
+- `test_payment_tracking.py` 52 → 62 (returns settle and cap assignment, fully returned invoice, partly forced stays queued, complete auto-split, auto-match oldest first + leaves splits/forced alone + idempotent + posts nothing, in-memory filters = SQL, apply-here + match over HTTP, registers default to open, pages render with returns/paging/match bar); `test_responsive_pages.py` + three tracking pages (clip check now ignores children of fixed overlays)
+- Browser run on the copy: 22/22 behaviours (desktop + 375 px), no script errors, no dialogs
+- **Full run (this round + the 15 Oct round): unit 472 passed; `tests/concurrency` 21 passed; E2E 983 passed, 2 skipped** (Postgres-only), run as 10 foreground chunks (`pytest <files>` per chunk) because one long background run was killed for low memory
+
+### Claude Code on this machine (not the app)
+- The Warp plugin's hooks (`~/.claude/plugins/{cache,marketplaces}/claude-code-warp/…/warp/hooks/hooks.json`) ran `${CLAUDE_PLUGIN_ROOT}/scripts/…` unquoted; the path contains "Muhammad Umair", so every hook failed ("bash: C:/Users/Muhammad: No such file or directory"). Quoted in both copies (backups `hooks.json.bak-2026-10-19`); a plugin update may bring the unquoted version back (upstream bug)
+- Boxed "?" glyphs: the session ran in the classic `cmd.exe` console, whose fonts (Consolas / Lucida Console) lack U+23BF, U+23F5, U+273B and which has no font fallback. Run Claude Code in Warp (installed) or Windows Terminal
+
+## Session Summary (15 Oct 2026) — Many Users at Once; Live Data Checked and Cleaned
+
+### Live database (Neon), read-only from here
+- Neon was at **0007** (origin/main). Copied whole into a local Postgres (144,506 rows, 120 tables, counts equal) and backed up as `instance/backups/neon_2026-10-15_rev0007.dump` (pg_dump -Fc, test-restored: identical counts, sequences right). `instance/backups/` and `*.dump` are git-ignored — live data, never commit
+- **Upgrade 0007 → head proven on that copy** with today's code: every revision ran, both quantity columns NUMERIC(16,4), no on-hand figure moved (all 26 ledgered products already matched), boot wrote no rows, every model column present. Books Integrity: Samba and Sheraz 11/11
+- **Faulty data on Neon** (Default Company only, July demo): BRV-00001 journal (unposted, both lines debits, voucher gone), DN-202607-0001 ("approved", no stock, no journal), PINV-202607-0001 (Inventory debited 105,600 vs layers 92,250 — old discount-sign bug; nothing drew on it). `tools/remove_faulty_demo_records.py` (dry run; `--apply`) checks each is exactly that, deletes them, rebuilds company 1's report totals and on-hand; on a copy every company then passes 11/11; a second run aborts. **Not run on Neon** — writes to live data were refused from this session; run it yourself
+- Neon's sequences are all ahead of their tables (checked); a local copy made by reflection must reset them (`setval(max+1)`) or every insert collides — the first backup had that flaw and was redone
+- **Local dev DB** (`instance/erp_dev.db`): was at **0004** (the interpreter that runs `run_local.py` has no alembic, so boot skipped every revision since). Backed up to `instance/backups/erp_dev_2026-10-15_before_repair.db`, booted to 0013, `tools/repair_opening_stock.py --apply` posted the 22 missing opening journals (16,497,500). Both companies 11/11. `pip install -r requirements.txt` for that interpreter, or run with `venv`
+
+### Many users at once (Postgres; proven in `tests/concurrency/`)
+Tested by racing N=6 users (threads, own sessions) at one record on a real Postgres. The first five below were reproduced failing before the fix; the rest were found by reading each module and are covered by the same suite:
+- **Report totals** (`shared/gl_summary.py`): each posting recomputed its (account, label, day) rows from what its transaction could see and rewrote them — two users posting to Cash on one day deadlocked or hit the unique key (error page, posting lost). Now each flush adds its *difference* with one `INSERT … ON CONFLICT DO UPDATE SET debit = debit + …` (commutes; keys in sorted order; zero rows removed); savepoints roll back with it. `rebuild()` upserts too
+- **Voucher numbers** (`VoucherNumber.next`): read in Python and written back — 12 requests drew 6 numbers. Now one atomic `UPDATE … RETURNING` (first use `ON CONFLICT DO NOTHING`), and it **no longer commits** — it used to commit the caller's half-built document; the series is gapless and numbered in commit order
+- **Document numbers** (SI, PI, SO, PO, CN, DN): "last id + 1" → two saves collided ("Server error"). Now `shared/doc_numbers.py`: a placeholder until the insert, then PREFIX-YYYYMM-<own id> (month by the company clock). **Orders saved from the browser were numbered "(auto)"** (the form sends that text; the second order clashed) — fixed
+- **Double posting**: six users approving one invoice posted it six times. Every state change now loads its record with `scoped_get(..., for_update=True)` (SELECT … FOR NO KEY UPDATE + reload): SI/PI/SR/PR/SO/PO save, approve, unapprove, delete, cancel; accounting vouchers; consumption/scrap/adjustment/stock take; asset transfers and capitalisations; asset edit, manual charge, disposal, undo; depreciation runs (assets locked in id order, outside the per-asset savepoint) and reversal; payroll runs/pay/unpay/delete; staff loans; PF; leave, timesheets, MSS, change requests; bank reconciliations; products; FBR submission (two Sends reported one invoice twice — irreversible)
+- **NO KEY UPDATE, not FOR UPDATE**: a return inserting its row (FK key-share lock on the invoice) and then locking the invoice deadlocked against a second return doing the same. Every lock in the app is `with_for_update(key_share=True)`
+- **Stock** (`costing.lock_products`): two sales of one product both saw "10 on hand" and both took them. Every receipt/issue/reversal/re-costing locks the product rows first; documents lock all their products up front, ascending, after the document and its order lines — one lock order everywhere: document → order lines → products → report totals. No deadlocks in the mixed test
+- **Order lines** (`order_linkage.lock_order_lines`): billing read the invoiced quantity and wrote it back (lost quantities, over-billing). Locked before the over-invoicing check and in the write-back. **A billed order can no longer be unapproved, edited or deleted** (saving replaced its lines: billed quantities thrown away, invoice links orphaned; on Postgres the FK refused)
+- **Returns** lock the invoice they return against (two returns both passed the over-return check)
+- **Check-then-create** queued with `shared/concurrency.serialize(scope, key)` (transaction advisory lock, works through Neon's pooler): one draft reconciliation per account, payroll per company, PF fund movements per company (two withdrawals overdrew), leave per employee (double Apply filed two requests; decisions rewrote the balance), attendance per person, asset codes per company
+- **Payment tracking**: assigning locks the receipt line, then the invoices (two receipts overpaid one invoice)
+- **Period close**: postings take FOR SHARE on their period in `require_open_period`; close/reopen take it exclusively — a close waits for postings in flight, a posting during a close is refused (one used to commit into a closed period)
+- **Lock timeout**: every Postgres transaction `SET LOCAL lock_timeout` (`DB_LOCK_TIMEOUT_MS`, 15 s) — a request behind a stuck one answers instead of hanging until Vercel kills it
+- **Conflict answers** (`shared/concurrency.conflict_message`, app error handler, invoice catch-all): deadlock / lock timeout / serialization → "Another user changed the same records at the same moment…", unique → "clashes with a record that already exists", FK → "was removed by another user"; rolled back whole, JSON 409 or flash. Other errors are not disguised
+- **Stale edits**: two people editing one draft — the later save silently replaced the earlier. SI/PI/SO/PO/SR/PR carry `edit_version` (Alembic **0013_edit_version**, adds a column, no data change); save and unapprove bump it; a save carrying an older version is refused with who/when from the audit log ("…was changed by Ali at 15:02 on 15 Oct after you opened it"). `static/js/edit_version.js` adds the page's version to its JSON saves and updates it from every answer; a request without a version is not checked
+- **Reports read one instant** (`concurrency.consistent_snapshot` on TB, P&L, label P&L, BS, SOCIE, cash flow, ledger, executive dashboard/registers/party, Books Integrity, stock valuation): REPEATABLE READ on Postgres — a posting committing between a report's queries could make Books Integrity flag a mismatch the ledger did not have (reasoned, not observed)
+- **Settings made on first use** (company info, report/fiscal/inventory/invoice settings, FBR config, global limits, payroll settings): queued per company and read `order_by(id)` — two first requests could make two rows and `.first()` return either. `PayrollSettings.get()` flushed the whole session (now only its row)
+- **Lock order** everywhere: document → number series → order lines → products → report totals; a stock take now takes its ADJ number before locking products (as every stock document does). Migrations are exempt from the lock timeout (`SET LOCAL lock_timeout = 0` in `migrations/env.py`: instances queued behind the migrating one, or an ALTER waiting for requests in flight, must not give up)
+- SQLite (local/test) writers wait 30 s for each other instead of 5 (`connect_args timeout`) — "database is locked" at busy moments
+- **Double submit** (`static/js/app.js`): a second native POST of the same form while the first is in flight is cancelled (window-level, runs after page handlers, so fetch-driven forms are untouched; lifts on back-navigation and after 8 s)
+
+### Also fixed
+- Purchase-invoice **Pay** posted Dr AP / Cr Cash outside the voucher system and was offered on unapproved invoices — retired like the sales one; the Pay boxes are gone from both lists (no data was ever created through it)
+- Stock adjustment / stock take took **system quantity from the browser** — the difference posted was physical minus what the screen showed when it opened. Now the ledger's on-hand at the document date, read after the products are locked; the column is read-only
+- Product edit overwrote the engine-kept cost with the form's copy once stock had moved — now only before any movement (read-only after)
+- Five files had flipped line endings in the last round (company.py read as a 559-line rewrite) — restored
+
+### Tests
+- `tests/concurrency/test_concurrent_users.py` (21, Postgres: `TEST_DATABASE_URL` or `pip install pgserver`, dev only; run with `ERP_CONCURRENCY=1 pytest tests/concurrency`) — run inside the E2E suite by `tests/e2e/test_concurrency.py` in its own process (the app binds its DB at import)
+- `tests/e2e/test_edit_conflicts_ui.py` (2, browser: stale tab, submit guard — the guard test fails without the guard), `tests/unit/test_concurrency_messages.py` (5); Alembic head assertions → 0013
+- **Verified (19 Oct, with the tracking round)**: unit 472 passed; `tests/concurrency` 21 passed (first-use settings and report snapshot included); full E2E 983 passed, 2 skipped. The earlier failed / errored runs were memory pressure, not code
+
+### Push
+Local commits only (pushing was refused from this session). Pushing runs **0008–0013** on Neon at the first request; on Neon's data only 0010 (one PF config set to "gross") and 0011 (two column types; no figure changes) touch existing rows. Backup above.
+
 ## Session Summary (13 Oct 2026) — Fixed Assets & Payroll to Corporate Standard
 
 ### Fixed assets

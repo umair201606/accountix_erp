@@ -87,7 +87,10 @@ def dashboard():
 @acct_bp.route("/vouchers/<int:id>", methods=["GET", "POST"])
 @login_required
 def voucher_form(id=None):
-    voucher = scoped_get(AccountingVoucher, id) if id else None
+    # A save or approval locks the voucher until commit, so two users
+    # approving it at once post it once (the second sees it approved).
+    voucher = (scoped_get(AccountingVoucher, id, for_update=request.method == "POST")
+               if id else None)
     is_approved = voucher and voucher.status == "approved"
     edit_mode = request.args.get("edit") == "1" if (voucher and not is_approved) else False
 
@@ -490,7 +493,7 @@ def voucher_list():
 @acct_bp.route("/vouchers/<int:id>/approve", methods=["POST"])
 @login_required
 def approve_voucher(id):
-    v = scoped_get_404(AccountingVoucher, id)
+    v = scoped_get_404(AccountingVoucher, id, for_update=True)
     if deny_page(VOUCHER_SECTION.get(v.voucher_type, "journal_vouchers"), "approve"):
         return redirect(url_for("accounting.voucher_list"))
     if v.status == "approved":
@@ -515,7 +518,7 @@ def approve_voucher(id):
 @acct_bp.route("/vouchers/<int:id>/unapprove", methods=["POST"])
 @login_required
 def unapprove_voucher(id):
-    v = scoped_get_404(AccountingVoucher, id)
+    v = scoped_get_404(AccountingVoucher, id, for_update=True)
     if deny_page(VOUCHER_SECTION.get(v.voucher_type, "journal_vouchers"), "approve"):
         return redirect(url_for("accounting.voucher_list"))
     if v.status != "approved":
@@ -853,7 +856,7 @@ def voucher_register_documents():
 @acct_bp.route("/vouchers/<int:id>/delete", methods=["POST"])
 @login_required
 def delete_voucher(id):
-    v = scoped_get_404(AccountingVoucher, id)
+    v = scoped_get_404(AccountingVoucher, id, for_update=True)
     if deny_page(VOUCHER_SECTION.get(v.voucher_type, "journal_vouchers"), "delete"):
         return redirect(url_for("accounting.voucher_list"))
     if v.status == "approved":

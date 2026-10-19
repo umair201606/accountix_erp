@@ -3,7 +3,8 @@ from flask import Blueprint, render_template, request, jsonify, flash, redirect,
 from flask_login import login_required, current_user
 from sqlalchemy import func
 from ..extensions import db
-from shared.tenancy import scoped_get_404, get_member
+from shared.tenancy import current_company_id, scoped_get_404, get_member
+from shared.concurrency import serialize
 from shared.clock import local_today
 from ..models.pf import ProvidentFundConfig, PFContribution, PFLedger, PFWithdrawalRequest, PFLoanRequest
 from ..models.holiday import PFProfitDistribution, PFSettlement, ButtonPermission
@@ -196,7 +197,10 @@ def compliance_check(lid):
 def approve_withdrawal(wid):
     if not current_user.is_admin():
         return _reply(False, "Access denied", 403)
-    wr = scoped_get_404(PFWithdrawalRequest, wid)
+    # Fund movements one at a time per company: two withdrawals approved at
+    # once both passed the balance check below and overdrew the member.
+    serialize("pf", current_company_id())
+    wr = scoped_get_404(PFWithdrawalRequest, wid, for_update=True)
     # Approving again debited the fund again.
     if wr.status != "pending":
         return _reply(False, "This withdrawal has already been decided.", 400)
@@ -232,7 +236,8 @@ def approve_loan(lid):
         return _reply(False, "Access denied", 403)
     if not _has_button_perm("BUTTON_APPROVE_PF_LOAN"):
         return _reply(False, "No permission to approve loans", 403)
-    loan = scoped_get_404(PFLoanRequest, lid)
+    serialize("pf", current_company_id())
+    loan = scoped_get_404(PFLoanRequest, lid, for_update=True)
     if loan.status != "pending":
         return _reply(False, "This loan has already been decided.", 400)
     if request.form.get("action") == "reject":
@@ -272,6 +277,7 @@ def distribute_profit():
     total_profit = request.form.get("total_profit", type=float)
     if not month or not year or not total_profit or total_profit <= 0:
         return _reply(False, "Month, year, and total profit required", 400)
+    serialize("pf", current_company_id())
     users = [(u.user_id, float(u.bal or 0)) for u in db.session.query(
         PFLedger.user_id,
         (func.coalesce(func.sum(PFLedger.credit), 0)
@@ -310,6 +316,8 @@ def settle(uid):
         return _reply(False, "No permission", 403)
     if get_member(uid) is None:
         return _reply(False, "Not a member of this company.", 404)
+    # A second click (or a second admin) waits here, then finds it settled.
+    serialize("pf", current_company_id())
     if PFSettlement.query.filter_by(user_id=uid, status="completed").first():
         return _reply(False, "This member's PF has already been settled.", 400)
     employee_contrib = float(db.session.query(func.coalesce(func.sum(PFContribution.employee_amount), 0))

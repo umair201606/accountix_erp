@@ -29,7 +29,7 @@
           {% for item in st.items %}
           <tr>
             <td><input type="hidden" name="product_id[]" value="{{ item.product_id }}"><input type="text" class="form-control product-auto" value="{{ item.product_name }}" readonly></td>
-            <td><input type="number" step="any" name="system_qty[]" class="form-control sys-qty" value="{{ item.system_qty }}"></td>
+            <td><input type="number" step="any" name="system_qty[]" class="form-control sys-qty" readonly title="Stock on hand per the ledger at this date — recalculated when saved" value="{{ item.system_qty }}"></td>
             <td><input type="number" step="any" name="physical_qty[]" class="form-control phys-qty" value="{{ item.physical_qty }}"></td>
             <td><input type="text" class="form-control diff-display" value="{{ item.difference }}" readonly></td>
             <td><input type="text" class="form-control cost-display" value="{{ item.unit_cost }}" readonly></td>
@@ -74,7 +74,7 @@ function addRow(data) {
   var tr = document.createElement('tr');
   tr.innerHTML = '<td><input type="hidden" name="product_id[]" value="'+(data.id||'')+'">'
     + '<input type="text" class="form-control product-auto" placeholder="Search..." data-id="'+(data.id||'')+'" value="'+(data.name||'')+'"></td>'
-    + '<td><input type="number" step="any" name="system_qty[]" class="form-control sys-qty" value="'+(data.sys||'')+'"></td>'
+    + '<td><input type="number" step="any" name="system_qty[]" class="form-control sys-qty" readonly title="Stock on hand per the ledger at this date — recalculated when saved" value="'+(data.sys||'')+'"></td>'
     + '<td><input type="number" step="any" name="physical_qty[]" class="form-control phys-qty" value="'+(data.phys||'')+'"></td>'
     + '<td><input type="text" class="form-control diff-display" readonly value="0"></td>'
     + '<td><input type="text" class="form-control cost-display" readonly value="0"></td>'

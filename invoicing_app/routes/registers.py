@@ -21,12 +21,34 @@ inv_reg_bp = Blueprint("inv_registers", __name__,
 XLSX_MIMETYPE = ("application/vnd.openxmlformats-officedocument"
                  ".spreadsheetml.sheet")
 
+# "Returned" is the approved credit / debit notes against the invoice: they
+# settle it with no money moving, so the balance is total - paid - returned.
+# Without them a returned invoice showed its full value as still owed.
 SALES_COLUMNS = ["Date", "Invoice #", "Voucher #", "Customer", "Subtotal",
                  "Discount", "Sales Tax", "Further Tax", "WHT", "Total",
-                 "Paid", "Balance", "Status"]
+                 "Paid", "Returned", "Balance", "Status"]
 PURCHASE_COLUMNS = ["Date", "Invoice #", "Voucher #", "Supplier", "Subtotal",
                     "Discount", "Expenses", "Tax", "WHT", "Net Payable",
-                    "Paid", "Balance", "Status"]
+                    "Paid", "Returned", "Balance", "Status"]
+N_VALS = 9          # the numeric columns, Subtotal .. Balance
+
+
+def _returned(doc_type, invoices):
+    from shared.payment_tracking import credited_by_doc
+    got = credited_by_doc(doc_type, [i.id for i in invoices])
+    return {k: float(v) for k, v in got.items()}
+
+
+def _returned_total(doc_type, query, model):
+    """Approved returns against every invoice in the filtered set."""
+    from sqlalchemy import func
+    from shared.payment_tracking import _return_model
+    R = _return_model(doc_type)
+    ids = query.with_entities(model.id).subquery()
+    total = (R.query.with_entities(func.coalesce(func.sum(R.net_return_amount), 0))
+             .filter(R.status == "approved", R.original_invoice_id.in_(ids.select()))
+             .scalar())
+    return float(total or 0)
 
 
 def _sales_query(status):
@@ -52,15 +74,17 @@ def _purchase_query(status):
 
 
 def _sales_rows(invoices):
-    rows, totals = [], [0.0] * 8
+    rows, totals = [], [0.0] * N_VALS
+    returned = _returned("SI", invoices)
     for inv in invoices:
         total = float(inv.total_amount or 0)
         paid = float(inv.paid_amount or 0)
+        back = returned.get(inv.id, 0.0)
         vals = [float(inv.subtotal or 0), float(inv.total_discount or 0),
                 float(inv.total_tax or 0),
                 float(inv.total_further_tax or 0),
-                float(inv.total_withholding_tax or 0), total, paid,
-                total - paid]
+                float(inv.total_withholding_tax or 0), total, paid, back,
+                total - paid - back]
         for i, v in enumerate(vals):
             totals[i] += v
         approved = (inv.voucher_status or "") == "approved"
@@ -77,14 +101,17 @@ def _sales_rows(invoices):
 
 
 def _purchase_rows(invoices):
-    rows, totals = [], [0.0] * 8
+    rows, totals = [], [0.0] * N_VALS
+    returned = _returned("PI", invoices)
     for inv in invoices:
         net = (float(inv.net_payable) if inv.net_payable is not None
                else float(inv.total_amount or 0))
         paid = float(inv.paid_amount or 0)
+        back = returned.get(inv.id, 0.0)
         vals = [float(inv.subtotal or 0), float(inv.total_discount or 0),
                 float(inv.total_expenses or 0), float(inv.total_tax or 0),
-                float(inv.total_withholding_tax or 0), net, paid, net - paid]
+                float(inv.total_withholding_tax or 0), net, paid, back,
+                net - paid - back]
         for i, v in enumerate(vals):
             totals[i] += v
         approved = (inv.status or "") == "approved"
@@ -138,7 +165,8 @@ def _register_data(doc, status, from_date, to_date,
         from sqlalchemy import func as _func
         net = _sums(query, _func.coalesce(InvPurchaseInvoice.net_payable,
                                           InvPurchaseInvoice.total_amount))[0]
-        totals = sums[:5] + [net, paid, net - paid]
+        back = _returned_total("PI", query, InvPurchaseInvoice)
+        totals = sums[:5] + [net, paid, back, net - paid - back]
         title, columns = "Purchase Invoice Register", PURCHASE_COLUMNS
     else:
         doc = "sales"
@@ -157,7 +185,8 @@ def _register_data(doc, status, from_date, to_date,
         rows, _t = _sales_rows(invoices)
         paid = _sums(query, InvInvoice.paid_amount)[0]
         total = _sums(query, InvInvoice.total_amount)[0]
-        totals = sums[:5] + [total, paid, total - paid]
+        back = _returned_total("SI", query, InvInvoice)
+        totals = sums[:5] + [total, paid, back, total - paid - back]
         title, columns = "Sales Invoice Register", SALES_COLUMNS
     for r, inv in zip(rows, invoices):
         r["id"] = inv.id
@@ -172,7 +201,7 @@ def index():
     if status not in ("approved", "unapproved"):
         status = ""
     from_date, to_date, fctx = resolve_register_filter(request.args)
-    rows, totals = [], [0.0] * 8
+    rows, totals = [], [0.0] * N_VALS
     loaded = request.args.get("view") == "1"
     if loaded:
         doc, title, columns, rows, totals, _invoices, _total = _register_data(
@@ -278,7 +307,8 @@ def data():
     tfoot = render_template("registers/_table_totals.html", totals=totals)
     labels = {"grand": format_amount(totals[5], 0),
               "paid": format_amount(totals[6], 0),
-              "balance": format_amount(totals[7], 0)}
+              "returned": format_amount(totals[7], 0),
+              "balance": format_amount(totals[8], 0)}
     return jsonify({"total": total, "rows": len(rows), "totals": totals,
                     "labels": labels, "offset": offset, "limit": limit,
                     "html": html, "tfoot": tfoot})

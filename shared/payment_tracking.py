@@ -310,7 +310,7 @@ def bucket_label(key):
 
 # ── Allocation aggregates ───────────────────────────────────────────────────
 
-def settlement_lines(line_ids=None):
+def settlement_lines(line_ids=None, index=None):
     """``{line_id: (party_type, party_id)}`` for voucher lines that are, right
     now, an assignable receipt or payment.
 
@@ -318,21 +318,22 @@ def settlement_lines(line_ids=None):
     one: unapproved, the party line deleted, or its account repointed at a
     different customer. That is what makes the tracker self-correct.
     """
-    index = party_account_index()
+    index = party_account_index() if index is None else index
     if not index:
         return {}
-    q = _line_query().filter(
-        AccountingVoucherLine.account_id.in_(list(index.keys())))
-    if line_ids is not None:
-        if not line_ids:
-            return {}
-        q = q.filter(AccountingVoucherLine.id.in_([int(i) for i in line_ids]))
+    if line_ids is not None and not line_ids:
+        return {}
     out = {}
-    for line, voucher in q.all():
-        party = index.get(line.account_id)
-        if party is None or _flow_of(party[0], line, voucher) is None:
-            continue
-        out[int(line.id)] = (party[0], party[1])
+    ids = None if line_ids is None else sorted({int(i) for i in line_ids})
+    chunks = [None] if ids is None else [ids[i:i + 500] for i in range(0, len(ids), 500)]
+    base = _line_query().filter(AccountingVoucherLine.account_id.in_(list(index.keys())))
+    for chunk in chunks:
+        qq = base if chunk is None else base.filter(AccountingVoucherLine.id.in_(chunk))
+        for line, voucher in qq.all():
+            party = index.get(line.account_id)
+            if party is None or _flow_of(party[0], line, voucher) is None:
+                continue
+            out[int(line.id)] = (party[0], party[1])
     return out
 
 
@@ -341,12 +342,18 @@ def _live_doc_ids(doc_type, doc_ids):
     if not doc_ids:
         return set()
     model = _doc_model(doc_type)
-    rows = _approved_filter(doc_type, model.query).filter(
-        model.id.in_([int(d) for d in doc_ids])).all()
-    return {int(i.id) for i in rows}
+    status = model.voucher_status if doc_type == SALES else model.status
+    ids = sorted({int(d) for d in doc_ids})
+    out = set()
+    for i in range(0, len(ids), 500):
+        # Ids only: hydrating every invoice just to read its status was half
+        # the cost of the feed.
+        out.update(int(r[0]) for r in db.session.query(model.id).filter(
+            status == "approved", model.id.in_(ids[i:i + 500])).all())
+    return out
 
 
-def classify_allocations(allocs):
+def classify_allocations(allocs, index=None):
     """Split allocations into the ones still backed on both sides and the rest.
 
     An allocation is a claim that *this money* settled *that invoice*. Either
@@ -358,7 +365,7 @@ def classify_allocations(allocs):
     allocs = list(allocs)
     if not allocs:
         return [], []
-    lines = settlement_lines({a.voucher_line_id for a in allocs})
+    lines = settlement_lines({a.voucher_line_id for a in allocs}, index=index)
     live_docs = {}
     for doc_type in (SALES, PURCHASE):
         live_docs[doc_type] = _live_doc_ids(
@@ -451,21 +458,22 @@ def assign_state(amount, assigned, forced=Decimal("0")):
     edited downwards after the fact. The old split is kept and shown so it can
     be re-cut against the new amount, rather than being silently discarded.
 
-    ``forced`` then wins over "assigned" whenever any part of the line was
-    closed without an invoice, including the common case of a real invoice
-    match plus a forced remainder — the row is finished, but a person decided
-    the rest, and the feed has to keep saying so.
+    Once the whole line is accounted for, ``forced`` wins over "assigned"
+    whenever any part was closed without an invoice — including the common
+    case of an invoice match plus a forced remainder: the row is finished,
+    but a person decided the rest, and the feed keeps saying so. A line only
+    partly accounted for is "partial" even if some of it was force-closed:
+    it used to read "forced", which the default view hides, and the money
+    still loose on it dropped out of every queue.
     """
     forced = _q(forced)
     if assigned > amount + TOLERANCE:
         return "review"
-    if forced > TOLERANCE:
-        return "forced"
     if assigned <= TOLERANCE:
         return "unassigned"
-    if assigned >= amount - TOLERANCE:
-        return "assigned"
-    return "partial"
+    if assigned < amount - TOLERANCE:
+        return "partial"
+    return "forced" if forced > TOLERANCE else "assigned"
 
 
 def pay_state(total, settled):
@@ -506,14 +514,52 @@ def _party_id_of(doc_type, inv):
     return inv.customer_id if doc_type == SALES else inv.supplier_id
 
 
-def _doc_dict(doc_type, inv, settled, as_of=None):
+def _return_model(doc_type):
+    if doc_type == SALES:
+        from inventory_app.models.sales_return import InvSalesReturn
+        return InvSalesReturn
+    from inventory_app.models.purchase_return import InvPurchaseReturn
+    return InvPurchaseReturn
+
+
+def credited_by_doc(doc_type, doc_ids=None):
+    """``{invoice id: value of the approved returns raised against it}``.
+
+    A credit note (sales return) or debit note (purchase return) settles part
+    of its invoice with no money moving: its journal credits the customer —
+    or debits the supplier — by exactly ``net_return_amount``. Left out, a
+    returned invoice looked owed in full: the customer's receipt for the net
+    amount left it "partially paid" forever, more money could be assigned to
+    it than was owed, and the registers disagreed with the party ledgers by
+    the value of every return.
+    """
+    R = _return_model(doc_type)
+    q = (db.session.query(R.original_invoice_id,
+                          db.func.coalesce(db.func.sum(R.net_return_amount), 0))
+         .filter(R.status == "approved", R.original_invoice_id.isnot(None)))
+    if doc_ids is not None:
+        if not doc_ids:
+            return {}
+        q = q.filter(R.original_invoice_id.in_([int(d) for d in doc_ids]))
+    return {int(i): _q(v) for i, v in q.group_by(R.original_invoice_id).all()}
+
+
+def returns_for_doc(doc_type, doc_id):
+    """The approved returns against one invoice, oldest first."""
+    R = _return_model(doc_type)
+    return (R.query.filter(R.status == "approved", R.original_invoice_id == int(doc_id))
+            .order_by(R.return_date.asc(), R.id.asc()).all())
+
+
+def _doc_dict(doc_type, inv, settled, as_of=None, credited=Decimal("0")):
     party = _party_of(doc_type, inv)
     total = _q(inv.total_amount)
     settled = _q(settled)
-    outstanding = _q(total - settled)
+    credited = _q(credited)
+    outstanding = _q(total - settled - credited)
     due = effective_due_date(doc_type, inv, party)
     days = overdue_days(due, as_of) if outstanding > TOLERANCE else 0
-    state = pay_state(total, settled)
+    state = pay_state(total, settled + credited)
     return {
         "doc_type": doc_type,
         "id": inv.id,
@@ -529,9 +575,12 @@ def _doc_dict(doc_type, inv, settled, as_of=None):
         "party_id": _party_id_of(doc_type, inv),
         "party_name": party.name if party else "—",
         "total": _f(total),
+        # Money received (or paid) and assigned to it.
         "settled": _f(settled),
+        # Its approved returns — settled with no money moving.
+        "credited": _f(credited),
         "outstanding": _f(outstanding),
-        "progress": (float(settled / total * 100) if total > 0 else 0.0),
+        "progress": (float((settled + credited) / total * 100) if total > 0 else 0.0),
         "pay_state": state,
         "overdue_days": days,
         "age_bucket": age_bucket(days),
@@ -562,10 +611,13 @@ def invoice_rows(doc_type, party_id=None, pay_states=None, age_buckets=None,
         q = q.filter(model.invoice_number.ilike(f"%{search.strip()}%"))
     invoices = q.order_by(model.invoice_date.desc(), model.id.desc()).all()
 
-    settled_map = allocated_by_doc(doc_type, [i.id for i in invoices])
+    ids = [i.id for i in invoices]
+    settled_map = allocated_by_doc(doc_type, ids)
+    credited_map = credited_by_doc(doc_type, ids)
     rows = []
     for inv in invoices:
-        row = _doc_dict(doc_type, inv, settled_map.get(inv.id, Decimal("0")), as_of)
+        row = _doc_dict(doc_type, inv, settled_map.get(inv.id, Decimal("0")), as_of,
+                        credited_map.get(inv.id, Decimal("0")))
         if pay_states and row["pay_state"] not in pay_states:
             continue
         if overdue_only and not row["is_overdue"]:
@@ -576,13 +628,39 @@ def invoice_rows(doc_type, party_id=None, pay_states=None, age_buckets=None,
     return rows
 
 
+def filter_invoices(rows, party_id=None, pay_states=None, age_buckets=None,
+                    overdue_only=False, search=None, date_from=None, date_to=None):
+    """The narrowing ``invoice_rows`` does, over rows already built."""
+    term = (search or "").strip().lower()
+    d_from, d_to = _as_date(date_from), _as_date(date_to)
+    out = []
+    for r in rows:
+        if party_id and int(r["party_id"] or 0) != int(party_id):
+            continue
+        if d_from and (r["date"] is None or r["date"] < d_from):
+            continue
+        if d_to and (r["date"] is None or r["date"] > d_to):
+            continue
+        if term and term not in (r["number"] or "").lower():
+            continue
+        if pay_states and r["pay_state"] not in pay_states:
+            continue
+        if overdue_only and not r["is_overdue"]:
+            continue
+        if age_buckets and r["age_bucket"] not in age_buckets:
+            continue
+        out.append(r)
+    return out
+
+
 def invoice_row(doc_type, doc_id, as_of=None):
     from shared.tenancy import scoped_get
     inv = scoped_get(_doc_model(doc_type), doc_id)
     if inv is None:
         return None
     settled = allocated_by_doc(doc_type, [doc_id]).get(int(doc_id), Decimal("0"))
-    return _doc_dict(doc_type, inv, settled, as_of)
+    credited = credited_by_doc(doc_type, [doc_id]).get(int(doc_id), Decimal("0"))
+    return _doc_dict(doc_type, inv, settled, as_of, credited)
 
 
 def open_invoices(party_type, party_id, line_id=None, as_of=None):
@@ -600,6 +678,7 @@ def open_invoices(party_type, party_id, line_id=None, as_of=None):
         == int(party_id))
     invoices = q.order_by(model.invoice_date.asc(), model.id.asc()).all()
     settled_map = allocated_by_doc(doc_type, [i.id for i in invoices])
+    credited_map = credited_by_doc(doc_type, [i.id for i in invoices])
     mine = {}
     if line_id:
         mine = {int(a.doc_id): _q(a.amount) for a in PaymentAllocation.query.filter_by(
@@ -607,7 +686,7 @@ def open_invoices(party_type, party_id, line_id=None, as_of=None):
     rows = []
     for inv in invoices:
         settled = settled_map.get(inv.id, Decimal("0"))
-        row = _doc_dict(doc_type, inv, settled, as_of)
+        row = _doc_dict(doc_type, inv, settled, as_of, credited_map.get(inv.id, Decimal("0")))
         already = mine.get(inv.id, Decimal("0"))
         row["assigned_here"] = _f(already)
         # Headroom for THIS line: what is unpaid plus whatever this line has
@@ -694,13 +773,17 @@ def _feed_dict(line, voucher, party, assigned, forced=Decimal("0"),
 
 
 def feed_rows(assign_states=None, flow=None, party_type=None, party_id=None,
-              date_from=None, date_to=None, search=None, limit=None):
+              date_from=None, date_to=None, search=None, limit=None,
+              index=None, live=None):
     """Approved receipts from customers and payments to suppliers, newest first.
 
     ``assign_states`` filters on how much of each one has been assigned; the
     pages default it to the two states that still need attention.
+
+    ``index`` and ``live`` (the party-account index and the live allocations,
+    see ``feed_snapshot``) can be passed in so one page computes them once.
     """
-    index = party_account_index()
+    index = party_account_index() if index is None else index
     if not index:
         return []
     account_ids = [aid for aid, (kind, _pid, _n) in index.items()
@@ -736,9 +819,19 @@ def feed_rows(assign_states=None, flow=None, party_type=None, party_id=None,
                        AccountingVoucherLine.line_no.asc()).all()
 
     line_ids = [l.id for l, _v in pairs]
-    assigned_map = allocated_by_line(line_ids)
-    forced_map = forced_by_line(line_ids)
-    reason_map = forced_note_by_line(line_ids)
+    if live is None:
+        allocs = []
+        for i in range(0, len(line_ids), 500):
+            allocs.extend(PaymentAllocation.query.filter(
+                PaymentAllocation.voucher_line_id.in_(line_ids[i:i + 500])).all())
+        live = classify_allocations(allocs, index=index)[0]
+    assigned_map, forced_map, reason_map = {}, {}, {}
+    for a in live:
+        key = int(a.voucher_line_id)
+        assigned_map[key] = _q(assigned_map.get(key, Decimal("0")) + _q(a.amount))
+        if a.doc_type == NOT_APPLICABLE:
+            forced_map[key] = _q(forced_map.get(key, Decimal("0")) + _q(a.amount))
+            reason_map[key] = a.note or ""
     # One query for every ledger on the page rather than one per row.
     accounts = {}
     if pairs:
@@ -763,6 +856,45 @@ def feed_rows(assign_states=None, flow=None, party_type=None, party_id=None,
         if limit and len(rows) >= limit:
             break
     return rows
+
+
+def feed_snapshot():
+    """``(rows, stale)``: every feed row, newest first, and the broken
+    assignments — from one party index and one pass over the assignment
+    table. The feed page filters these rows in memory, so the tiles and the
+    list come from the same computation instead of three."""
+    index = party_account_index()
+    live, stale = classify_allocations(PaymentAllocation.query.all(), index=index)
+    return feed_rows(index=index, live=live), stale
+
+
+def filter_feed(rows, assign_states=None, flow=None, party_type=None, party_id=None,
+                date_from=None, date_to=None, search=None):
+    """The same narrowing ``feed_rows`` does in SQL, over rows already built."""
+    term = (search or "").strip().lower()
+    d_from = _as_date(date_from)
+    d_to = _as_date(date_to)
+    out = []
+    for r in rows:
+        if assign_states and r["state"] not in assign_states:
+            continue
+        if flow and r["flow"] != flow:
+            continue
+        if party_type and r["party_type"] != party_type:
+            continue
+        if party_id and int(r["party_id"]) != int(party_id):
+            continue
+        day = _as_date(r["date"])
+        if d_from and (day is None or day < d_from):
+            continue
+        if d_to and (day is None or day > d_to):
+            continue
+        if term and term not in " ".join(
+                str(r.get(k) or "") for k in ("voucher_number", "description", "notes",
+                                              "ledger_code", "ledger_name")).lower():
+            continue
+        out.append(r)
+    return out
 
 
 def feed_row(line_id):
@@ -826,9 +958,10 @@ def draft_settlement_count():
             .scalar()) or 0
 
 
-def outstanding_summary(doc_type, as_of=None):
-    """Totals for the tracking pages' tiles: outstanding and overdue value."""
-    rows = invoice_rows(doc_type, as_of=as_of)
+def outstanding_summary(doc_type, as_of=None, rows=None):
+    """Totals for the tracking pages' tiles: outstanding and overdue value.
+    ``rows`` (every invoice of the type) can be passed in when already built."""
+    rows = invoice_rows(doc_type, as_of=as_of) if rows is None else rows
     total = sum(r["outstanding"] for r in rows)
     overdue = sum(r["outstanding"] for r in rows if r["is_overdue"])
     buckets = {key: 0.0 for key, _l, _lo, _hi in AGE_BUCKETS}
@@ -848,8 +981,10 @@ def outstanding_summary(doc_type, as_of=None):
 # ── History ─────────────────────────────────────────────────────────────────
 
 def history_for_doc(doc_type, doc_id):
-    """Every payment/receipt assigned to one invoice, oldest first, with the
-    running balance after each one — the invoice's settlement story."""
+    """Everything that settled one invoice, oldest first, with the running
+    balance after each: the receipts/payments assigned to it and its approved
+    returns (credit or debit notes, which settle it with no money moving).
+    Each entry's ``kind`` is "money" or "return"."""
     from shared.tenancy import scoped_get
     inv = scoped_get(_doc_model(doc_type), doc_id)
     if inv is None:
@@ -860,15 +995,13 @@ def history_for_doc(doc_type, doc_id):
                     PaymentAllocation.voucher_id == AccountingVoucher.id)
               .order_by(AccountingVoucher.voucher_date.asc(),
                         PaymentAllocation.id.asc()).all())
-    total = _q(inv.total_amount)
-    running = total
-    out = []
+    live = {a.id for a in classify_allocations(allocs)[0]}
+    events = []
     for a in allocs:
-        amount = _q(a.amount)
-        running = _q(running - amount)
         v = a.voucher
         line = a.line
-        out.append({
+        events.append({
+            "kind": "money",
             "id": a.id,
             "voucher_id": a.voucher_id,
             "line_id": a.voucher_line_id,
@@ -878,13 +1011,31 @@ def history_for_doc(doc_type, doc_id):
             "cash_account": (v.cash_bank_account.name
                              if v and v.cash_bank_account else ""),
             "description": (line.description if line else "") or "",
-            "amount": _f(amount),
-            "balance_after": _f(running),
+            "amount": _q(a.amount),
+            "counts": a.id in live,
             "note": a.note or "",
             "by": a.creator.full_name if a.creator else "",
             "created_at": a.created_at,
         })
-    return out
+    for r in returns_for_doc(doc_type, doc_id):
+        events.append({
+            "kind": "return",
+            "id": r.id,
+            "voucher_number": r.return_number,
+            "voucher_type": "Credit note" if doc_type == SALES else "Debit note",
+            "date": r.return_date or r.created_at,
+            "description": r.notes or "",
+            "amount": _q(r.net_return_amount),
+            "counts": True,
+        })
+    events.sort(key=lambda e: (_as_date(e["date"]) or date.min, 0 if e["kind"] == "return" else 1))
+    running = _q(inv.total_amount)
+    for e in events:
+        if e["counts"]:
+            running = _q(running - e["amount"])
+        e["balance_after"] = _f(running)
+        e["amount"] = _f(e["amount"])
+    return events
 
 
 def history_for_line(line_id):
@@ -934,9 +1085,31 @@ def recompute_doc(doc_type, doc_id):
         return None
     settled = allocated_by_doc(doc_type, [int(doc_id)]).get(int(doc_id),
                                                            Decimal("0"))
+    credited = credited_by_doc(doc_type, [int(doc_id)]).get(int(doc_id), Decimal("0"))
+    # paid_amount is money received; a returned invoice is settled by its
+    # credit note without any, so the status counts both.
     inv.paid_amount = _f(settled)
-    inv.payment_status = pay_state(_q(inv.total_amount), _q(settled))
+    inv.payment_status = pay_state(_q(inv.total_amount), _q(settled) + credited)
     return inv
+
+
+def _lock_line(line_id):
+    """Lock the receipt/payment line until commit. Every assignment to it,
+    forced close and removal goes through here first, so two users splitting
+    the same receipt at once cannot both fit inside its amount."""
+    from shared.tenancy import scoped_get
+    scoped_get(AccountingVoucherLine, int(line_id), for_update=True)
+
+
+def _lock_docs(doc_type, doc_ids):
+    """Lock invoices (id order) whose outstanding balance is about to be
+    assigned against — two receipts assigned to one invoice at the same
+    instant both saw its full balance and overpaid it."""
+    ids = sorted({int(i) for i in doc_ids})
+    if ids:
+        model = _doc_model(doc_type)
+        (model.query.filter(model.id.in_(ids)).order_by(model.id)
+         .with_for_update(key_share=True).populate_existing().all())
 
 
 def allocate(line_id, entries, user_id=None, note=""):
@@ -951,6 +1124,7 @@ def allocate(line_id, entries, user_id=None, note=""):
     split is validated before the first row is touched, because a half-applied
     split is exactly the state that makes an invoice's settled figure wrong.
     """
+    _lock_line(line_id)
     row = feed_row(line_id)
     if row is None:
         raise AllocationError(
@@ -977,6 +1151,7 @@ def allocate(line_id, entries, user_id=None, note=""):
 
     from shared.tenancy import scoped_get
     model = _doc_model(doc_type)
+    _lock_docs(doc_type, cleaned)
     invoices = {}
     for doc_id, amount in cleaned.items():
         inv = scoped_get(model, doc_id)
@@ -996,11 +1171,13 @@ def allocate(line_id, entries, user_id=None, note=""):
     # Per-invoice headroom: what it still owes, plus what this same line had
     # already put on it (that amount is being replaced, not added to).
     settled_map = allocated_by_doc(doc_type, list(cleaned.keys()))
+    credited_map = credited_by_doc(doc_type, list(cleaned.keys()))
     for doc_id, amount in cleaned.items():
         inv = invoices[doc_id]
         settled = settled_map.get(doc_id, Decimal("0"))
+        credited = credited_map.get(doc_id, Decimal("0"))
         mine = _q(existing[doc_id].amount) if doc_id in existing else Decimal("0")
-        headroom = _q(_q(inv.total_amount) - settled + mine)
+        headroom = _q(_q(inv.total_amount) - settled - credited + mine)
         if amount > headroom + TOLERANCE:
             raise AllocationError(
                 f"{inv.invoice_number} only has {headroom:,.2f} outstanding — "
@@ -1048,14 +1225,15 @@ def allocate(line_id, entries, user_id=None, note=""):
     return feed_row(line_id)
 
 
-def stale_allocations():
+def stale_allocations(stale=None):
     """Assignments that no longer hold, with the reason each one broke.
 
     Read-only: nothing is deleted. The row stays so the history of what was
     once matched survives an accidental voucher edit, and ``reconcile()`` only
     has to refresh the invoices those rows used to settle.
     """
-    _live, stale = classify_allocations(PaymentAllocation.query.all())
+    if stale is None:
+        _live, stale = classify_allocations(PaymentAllocation.query.all())
     if not stale:
         return []
 
@@ -1235,6 +1413,7 @@ def force_close(line_id, amount=None, reason="", user_id=None):
     required — this is a human overriding the matching rule, and the feed shows
     who said so and why. Like every other write here it touches no ledger.
     """
+    _lock_line(line_id)
     row = feed_row(line_id)
     if row is None:
         raise AllocationError(
@@ -1275,6 +1454,7 @@ def force_close(line_id, amount=None, reason="", user_id=None):
 
 def release_force(line_id):
     """Undo a forced close: the money goes back to the unassigned queue."""
+    _lock_line(line_id)
     alloc = PaymentAllocation.query.filter_by(
         voucher_line_id=int(line_id), doc_type=NOT_APPLICABLE).first()
     if alloc is None:
@@ -1291,6 +1471,12 @@ def unallocate(alloc_id):
     alloc = scoped_get(PaymentAllocation, alloc_id)
     if alloc is None:
         raise AllocationError("That assignment no longer exists.")
+    # Same lock as assigning: a removal and a re-split of one receipt at the
+    # same moment must not interleave.
+    _lock_line(alloc.voucher_line_id)
+    alloc = scoped_get(PaymentAllocation, alloc_id, for_update=True)
+    if alloc is None:
+        raise AllocationError("That assignment no longer exists.")
     doc_type, doc_id, line_id = alloc.doc_type, alloc.doc_id, alloc.voucher_line_id
     db.session.delete(alloc)
     db.session.flush()
@@ -1305,20 +1491,130 @@ def unallocate(alloc_id):
 def auto_split(line_id, as_of=None):
     """Oldest-first proposal for a receipt: fill each open invoice in turn.
 
+    A complete split for the line, ready to save as it is: the amount for
+    every invoice it should settle (replacing what the line already has on
+    it), and a zero for any invoice it currently settles that the proposal
+    leaves out. Money force-closed on the line is not offered again.
     Returned, never saved — the user confirms (and may edit) the split.
     """
     row = feed_row(line_id)
     if row is None:
         return []
-    remaining = _q(row["unassigned"])
+    remaining = _q(_q(row["amount"]) - _q(row["forced"]))
     out = []
     for inv in open_invoices(row["party_type"], row["party_id"], line_id, as_of):
-        if remaining <= 0:
-            break
-        take = min(remaining, _q(inv["assignable"]))
-        if take <= 0:
-            continue
-        out.append({"doc_id": inv["id"], "number": inv["number"],
-                    "amount": _f(take)})
+        take = min(remaining, _q(inv["assignable"])) if remaining > 0 else Decimal("0")
+        if take > 0 or inv["assigned_here"] > 0:
+            out.append({"doc_id": inv["id"], "number": inv["number"],
+                        "amount": _f(take)})
         remaining = _q(remaining - take)
     return out
+
+
+def auto_match(party_type=None, party_id=None, user_id=None):
+    """Assign every open receipt/payment to its party's invoices, oldest
+    invoice first, in one go.
+
+    The matching a person would do by hand for a party who pays without
+    saying which invoice: the oldest money settles the oldest debt. Only what
+    is still loose is used — an existing split stays as it is, a forced close
+    stays closed, a line under review is skipped (its split has to be re-cut
+    by a person), and whole-ledger payers, who have no invoices, are left to
+    be closed with a reason. Writes assignment rows only; like everything
+    here it posts nothing.
+
+    Returns ``{"lines": receipts/payments used (``receipts`` + ``payments``),
+    "invoices": invoices touched, "amount": total assigned}``.
+    """
+    from collections import defaultdict
+    from shared.concurrency import serialize
+    from shared.tenancy import current_company_id
+    serialize("payment-match", current_company_id())
+
+    def candidates():
+        rows = feed_rows(assign_states=("unassigned", "partial"),
+                         party_type=party_type, party_id=party_id)
+        return [r for r in rows if not is_ledger_party(r["party_id"])]
+
+    # Lock what will be touched — the lines, then the invoices, the order
+    # allocate() takes them in — and read everything again under the locks.
+    ids = sorted({r["line_id"] for r in candidates()})
+    for i in range(0, len(ids), 500):
+        (AccountingVoucherLine.query.filter(AccountingVoucherLine.id.in_(ids[i:i + 500]))
+         .order_by(AccountingVoucherLine.id).with_for_update(key_share=True).all())
+    rows = candidates()
+    rows.sort(key=lambda r: (_as_date(r["date"]) or date.min, r["line_id"]))
+
+    queues = defaultdict(list)      # (party_type, party_id) -> [[doc_type, inv, left]]
+    for doc_type, kind in ((SALES, "customer"), (PURCHASE, "supplier")):
+        if party_type and kind != party_type:
+            continue
+        wanted = {r["party_id"] for r in rows if r["party_type"] == kind}
+        if not wanted:
+            continue
+        model = _doc_model(doc_type)
+        col = model.customer_id if doc_type == SALES else model.supplier_id
+        invs = (_approved_filter(doc_type, model.query).filter(col.in_(wanted))
+                .order_by(model.invoice_date.asc(), model.id.asc()).all())
+        _lock_docs(doc_type, [i.id for i in invs])
+        settled = allocated_by_doc(doc_type, [i.id for i in invs])
+        credited = credited_by_doc(doc_type, [i.id for i in invs])
+        for inv in invs:
+            left = _q(_q(inv.total_amount) - settled.get(inv.id, Decimal("0"))
+                      - credited.get(inv.id, Decimal("0")))
+            if left > TOLERANCE:
+                queues[(kind, _party_id_of(doc_type, inv))].append([doc_type, inv, left])
+
+    existing = {}
+    line_ids = [r["line_id"] for r in rows]
+    for i in range(0, len(line_ids), 500):
+        for a in PaymentAllocation.query.filter(
+                PaymentAllocation.voucher_line_id.in_(line_ids[i:i + 500])).all():
+            existing[(int(a.voucher_line_id), a.doc_type, int(a.doc_id))] = a
+
+    used_lines, touched, total = {}, {}, Decimal("0")
+    for r in rows:
+        queue = queues.get((r["party_type"], r["party_id"]))
+        loose = _q(r["unassigned"])
+        while queue and loose > TOLERANCE:
+            doc_type, inv, left = queue[0]
+            take = min(loose, left)
+            key = (int(r["line_id"]), doc_type, int(inv.id))
+            alloc = existing.get(key)
+            if alloc is None:
+                alloc = PaymentAllocation(
+                    voucher_id=r["voucher_id"], voucher_line_id=r["line_id"],
+                    doc_type=doc_type, doc_id=inv.id, party_type=r["party_type"],
+                    party_id=r["party_id"], amount=Decimal("0"), created_by=user_id,
+                    note="Matched oldest first")
+                db.session.add(alloc)
+                existing[key] = alloc
+            alloc.amount = _q(_q(alloc.amount) + take)
+            loose = _q(loose - take)
+            total += take
+            used_lines[r["line_id"]] = r["flow"]
+            touched[(doc_type, inv.id)] = inv
+            queue[0][2] = _q(left - take)
+            if queue[0][2] <= TOLERANCE:
+                queue.pop(0)
+    db.session.flush()
+
+    # The invoices' cached paid/status columns, in one pass rather than one
+    # query per invoice.
+    for doc_type in (SALES, PURCHASE):
+        invs = [inv for (dt, _i), inv in touched.items() if dt == doc_type]
+        if not invs:
+            continue
+        ids = [i.id for i in invs]
+        settled = allocated_by_doc(doc_type, ids)
+        credited = credited_by_doc(doc_type, ids)
+        for inv in invs:
+            got = settled.get(inv.id, Decimal("0"))
+            inv.paid_amount = _f(got)
+            inv.payment_status = pay_state(_q(inv.total_amount),
+                                           got + credited.get(inv.id, Decimal("0")))
+    db.session.commit()
+    flows = list(used_lines.values())
+    return {"lines": len(used_lines), "receipts": flows.count("receipt"),
+            "payments": flows.count("payment"), "invoices": len(touched),
+            "amount": _f(total)}

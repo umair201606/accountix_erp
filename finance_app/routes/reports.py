@@ -1,5 +1,6 @@
 from datetime import datetime, date, timedelta
 from shared.clock import local_today
+from shared.concurrency import consistent_snapshot
 from decimal import Decimal, InvalidOperation
 from flask import Blueprint, render_template, request, jsonify, Response, send_file, redirect, url_for, flash
 from flask_login import login_required
@@ -603,6 +604,7 @@ def _get_ledger_sections(account_ids, from_date, to_date, label_ids=None):
 
 @finance_bp.route("/ledger")
 @login_required
+@consistent_snapshot
 def ledger():
     all_accounts = ChartOfAccount.query.filter_by(is_active=True).order_by(ChartOfAccount.code).all()
     child_ids = {r[0] for r in db.session.query(ChartOfAccount.parent_id).filter(
@@ -782,6 +784,7 @@ def ledger():
 
 @finance_bp.route("/trial-balance")
 @login_required
+@consistent_snapshot
 def trial_balance():
     from_date, to_date, periods, selected_period_id, filter_mode, from_str, to_str, comp_mode, comp_periods, comp_period_ids_str = _resolve_period()
     labels, label_ids_str, label_ids = _resolve_labels()
@@ -1008,6 +1011,7 @@ def trial_balance():
 
 @finance_bp.route("/profit-loss")
 @login_required
+@consistent_snapshot
 def profit_loss():
     from_date, to_date, periods, selected_period_id, filter_mode, from_str, to_str, comp_mode, comp_periods, comp_period_ids_str = _resolve_period()
     labels, label_ids_str, label_ids = _resolve_labels()
@@ -1185,6 +1189,7 @@ def _merge_multi_period(base_items, comp_items_list, code_key="code", amount_key
 
 @finance_bp.route("/label-pl")
 @login_required
+@consistent_snapshot
 def label_pl():
     """Profit & loss by project label — one column per label.
 
@@ -1259,6 +1264,7 @@ def label_pl():
 
 @finance_bp.route("/balance-sheet")
 @login_required
+@consistent_snapshot
 def balance_sheet():
     from_date, to_date, periods, selected_period_id, filter_mode, from_str, to_str, comp_mode, comp_periods, comp_period_ids_str = _resolve_period()
     labels, label_ids_str, label_ids = _resolve_labels()
@@ -1664,6 +1670,7 @@ def _socie_period_specs(from_date, to_date, comp_periods):
 
 @finance_bp.route("/socie")
 @login_required
+@consistent_snapshot
 def socie():
     from_date, to_date, periods, selected_period_id, filter_mode, from_str, to_str, comp_mode, comp_periods, comp_period_ids_str = _resolve_period()
     labels, label_ids_str, label_ids = _resolve_labels()
@@ -1800,6 +1807,7 @@ def _cash_flow_direct(from_date, to_date, label_ids=None):
 
 @finance_bp.route("/cash-flow")
 @login_required
+@consistent_snapshot
 def cash_flow():
     """Cash flow statement — indirect or direct method per ReportSettings."""
     from_date, to_date, periods, selected_period_id, filter_mode, from_str, to_str, comp_mode, comp_periods, comp_period_ids_str = _resolve_period()
