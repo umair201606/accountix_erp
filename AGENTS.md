@@ -17,6 +17,31 @@ E2E tests must cover all app modules:
 - **Inventory**: Login, Dashboard, Products, Suppliers, Customers, Purchase Invoice (form, add/clear items, pill toggles, calculations, global inputs), Purchase Return, Logout
 - **HR**: Login, Hub, Dashboard, Attendance, Leave, ESS, Profile, Logout
 
+## Session Summary (20 Oct 2026) — Parallel Agent Work Merged, Branches Reconciled, Pushed
+
+### Branches
+- Six local branches audited against `main`. Five were already ancestors (`costing-carried-layer-value`, `feat/portal-landing-accountix`, `fix/invoice-a4-layout`, `unify-settings-and-app-shell`, `v3-invoicing-standard`) — nothing to merge
+- `fix/fixed-assets-gl-and-report-date-boundary` carried three July commits (closing-day report filters, fixed-assets GL wiring, responsive hub). All three are already in `main` through later report/costing/fixed-asset/hub rewrites — content verified (`_eod` boundaries, disposal gain/loss account, FA-ACQ/FA-CAP/FA-DEP, `live_depreciation_query`, 4→2→1 hub grid). Merged with `-s ours` so the older file versions could not overwrite the newer work; no tree change
+- A detached Claude worktree in Temp held four untracked E2E files, byte-identical to the copies committed here
+
+### Uncommitted work on `main` (committed as `be42ed1`)
+- **Account security** (`shared/account_security.py`): password policy (8+, common list), sign-in throttle derived from the audit log (serverless-safe), session fingerprint, invitation moves; a company may change a login (email/password/active) only when it reaches no other company; company admins cannot reach the super-admin account
+- **CSRF / headers** (`shared/csrf_guard.py`): `SameSite=Lax` plus an Origin/Referer guard on every write and hardening headers; `TRUSTED_ORIGINS` for extra domains
+- **Section rights** (`shared/rights_guard.py`): Settings → Rights is enforced at the door of every covered module route (view/create/edit/approve/delete); `test_rights_enforced.py` fails if a route is neither guarded nor explicitly open. Unconfigured people keep full access; admins pass
+- **Per company**: module access on the membership (Alembic **0014**), manager/designation/department on the membership (Alembic **0015**, copied from the user rows; manager only when an active member of that company). `User.manager_id/designation/department` read/write the active company, fall back to the account copy; the account copy follows only a single-company login
+- **Master data** (`shared/master_data.py`): one set of validations for customers, suppliers, products and units across forms, Excel imports and batch editors; import rows no longer travel in the session cookie (4 KB truncation)
+- Also: FBR failed-submission retry under a row lock, COA delete guard, upload type sniffing, HR authorization fixes, dead duplicate `shared/routes/auth.py` removed
+
+### Fixes made during the merge
+- `move_invitations` compared the stored address case-sensitively (mixed-case user emails left their invitations behind) and used `db` without importing it — now `lower(email)` and the import
+- `test_hr_editor_still_saves_employment_details_of_a_shared_login` asserted the account copy for someone in three companies; now checks the active company's membership and that the account copy stays untouched
+- The 0015 migration test used `db.engine` outside an app context; wrapped in `flask_app.app_context()`
+
+### Verification
+- Unit **472 passed**
+- Full E2E in six foreground chunks: **1,138 passed, 2 skipped** (Postgres-only), plus the concurrency wrapper (21 inside)
+- Working tree clean; `main` = `origin/main` at `cfcdc69`
+
 ## Session Summary (19 Oct 2026) — Invoice Tracking Re-read: Returns, Bulk Matching, Paging
 
 Invoicing → Invoice Tracking (payment & receipt feed, assign workspace, sales / purchase tracking, invoice history) and the Invoice Register, read end to end and run against a migrated copy of `instance/erp_dev.db` (Samba: 1,907 receipts/payments, 2,760 SI, 794 PI, 102 returns).
