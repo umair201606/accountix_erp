@@ -141,7 +141,11 @@
           <span>{{ c.plan_name|default('free') }}</span>
           {% if not c.is_active %}<span class="badge badge-off">suspended</span>{% endif %}
         </div>
+        {% if c.is_active %}
         <a class="btn btn-go btn-sm enter" href="{{ url_for('company_switch', company_id=c.id, next='/dashboard/') }}">Open books &rarr;</a>
+        {% else %}
+        <div class="meta">Suspended by the platform administrator — its books cannot be opened.</div>
+        {% endif %}
       </div>
       {% endfor %}
     </div>
@@ -162,8 +166,9 @@
         <div class="meta">
           <span class="badge badge-{{ role_name(m.role_id) }}">{{ role_name(m.role_id) }}</span>
           <span>{{ m.status }}</span>
+          {% if not c.is_active %}<span class="badge badge-off">suspended</span>{% endif %}
         </div>
-        {% if m.status == 'active' %}
+        {% if m.status == 'active' and c.is_active %}
         <a class="btn btn-go btn-sm enter" href="{{ url_for('company_switch', company_id=c.id, next='/dashboard/') }}">Open books &rarr;</a>
         {% endif %}
       </div>

@@ -782,6 +782,11 @@ def payroll_preview_json():
 @login_required
 def download_payroll_template():
     """Download an Excel template for bulk payroll data upload."""
+    # Pre-filled with every salaried employee's code and name, and it was
+    # open to anyone signed in; only the people who upload it need it.
+    if not current_user.is_admin():
+        flash("Access denied.", "danger")
+        return redirect(url_for("dashboard"))
     try:
         import openpyxl
         from openpyxl.styles import Font, PatternFill, Alignment, Border, Side

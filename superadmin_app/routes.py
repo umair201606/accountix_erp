@@ -21,6 +21,11 @@ from shared.permissions import MODULES
 
 superadmin_bp = Blueprint("superadmin", __name__, url_prefix="/superadmin")
 
+# A signed-out visit to a console page goes to the console's own door. The
+# customer sign-in refuses super admins, so sending them there was a dead end.
+from shared.extensions import login_manager as _login_manager  # noqa: E402
+_login_manager.blueprint_login_views["superadmin"] = "superadmin.login"
+
 
 @superadmin_bp.app_context_processor
 def _inject_pending_count():
@@ -50,13 +55,24 @@ def login():
     if current_user.is_authenticated and current_user.is_super_admin:
         return redirect(url_for("superadmin.index"))
     if request.method == "POST":
+        from shared import account_security as acs
         login_id = (request.form.get("login") or "").strip()
         password = request.form.get("password", "")
         user = (User.query.filter(
             db.func.lower(User.login_id) == login_id.lower()).first()
             or User.query.filter_by(email=login_id.lower()).first())
+        if acs.sign_in_throttled(login_id, user):
+            acs.record_failed_sign_in(
+                f"Console sign-in throttled for '{login_id[:80]}'", login_id,
+                user, company_id=None)
+            flash(acs.THROTTLED_MESSAGE, "error")
+            return render_template("superadmin/login.html"), 429
+        if user is None:
+            acs.spend_password_check(password)
         if (user and user.check_password(password)
                 and user.is_active and user.is_super_admin):
+            from flask import session
+            session.clear()   # nothing from before sign-in carries over
             login_user(user)
             user.last_login = datetime.utcnow()
             db.session.commit()
@@ -65,10 +81,13 @@ def login():
                        "entered the console", company_id=None, user_id=user.id,
                        user_name=user.full_name or user.email)
             flash(f"Welcome back, {user.full_name or user.email}.", "success")
+            from shared.security import safe_local_url
+            nxt = safe_local_url(request.args.get("next"))
+            if nxt and nxt.startswith("/superadmin"):
+                return redirect(nxt)
             return redirect(url_for("superadmin.index"))
-        from shared.audit import record_now
-        record_now("login_failed", f"Failed console sign-in for '{login_id[:80]}'",
-                   company_id=None, user_id=user.id if user else None)
+        acs.record_failed_sign_in(f"Failed console sign-in for '{login_id[:80]}'",
+                                  login_id, user, company_id=None)
         flash("Those credentials do not open the super admin console.",
               "error")
     return render_template("superadmin/login.html")
@@ -146,7 +165,17 @@ def companies():
         admin = User.query.filter_by(email=email).first()
         created_user = False
         if admin is None:
-            password = request.form.get("password", "").strip() or _random_password()
+            from shared.account_security import password_problem
+            typed = request.form.get("password", "").strip()
+            problem = password_problem(typed) if typed else None
+            if problem or "@" not in email:
+                flash(problem or "Enter a valid admin email.", "error")
+                return redirect(url_for("superadmin.companies"))
+            if User.query.filter(db.func.lower(User.login_id) == email).first():
+                flash(f"The login id {email} is already taken by another "
+                      f"account.", "error")
+                return redirect(url_for("superadmin.companies"))
+            password = typed or _random_password(12)
             admin = User(
                 employee_code=_next_employee_code(),
                 email=email,
@@ -361,13 +390,25 @@ def requests():
 def request_action(request_id, action):
     """Approve, block or unblock a registration request."""
     _require_super_admin()
-    req = RegistrationRequest.query.get(request_id)
+    # Locked: two clicks on Approve (or two super admins) must not both
+    # create the account — the second waits, then sees it approved.
+    req = (RegistrationRequest.query.filter_by(id=request_id)
+           .with_for_update().populate_existing().first())
     if req is None:
         abort(404)
 
     if action == "approve":
         if req.status == RegistrationRequest.APPROVED:
             flash("This request was already approved.", "info")
+            return redirect(url_for("superadmin.requests"))
+        taken = User.query.filter(db.or_(
+            db.func.lower(User.email) == req.email.lower(),
+            db.func.lower(User.login_id) == req.email.lower())).first()
+        if taken is not None:
+            # Made by hand in Manage Users meanwhile, or the email became
+            # someone's User ID: the INSERT would hit the unique key.
+            flash(f"An account already signs in as {req.email} — the request "
+                  f"was not turned into a second one.", "error")
             return redirect(url_for("superadmin.requests"))
         # Create the user account from the request.
         emp_role = Role.query.filter_by(name=Role.EMPLOYEE).first()
@@ -521,8 +562,13 @@ def users():
         if not email or not password:
             flash("Email and password are required.", "error")
             return redirect(url_for("superadmin.users"))
-        if len(password) < 4:
-            flash("Password must be at least 4 characters.", "error")
+        from shared.account_security import password_problem
+        problem = password_problem(password)
+        if problem:
+            flash(problem, "error")
+            return redirect(url_for("superadmin.users"))
+        if "@" not in email or any(ch.isspace() for ch in email):
+            flash("Enter a valid email address.", "error")
             return redirect(url_for("superadmin.users"))
         if User.query.filter_by(email=email).first():
             flash(f"A user with {email} already exists.", "error")
@@ -530,7 +576,7 @@ def users():
         # login_id is globally unique and may have diverged from email on an
         # older account (Settings lets the two differ) — an email-only check
         # would pass and the INSERT would 500 on the unique constraint.
-        if User.query.filter_by(login_id=email).first():
+        if User.query.filter(db.func.lower(User.login_id) == email).first():
             flash(f"The login id {email} is already taken by another "
                   f"account.", "error")
             return redirect(url_for("superadmin.users"))
@@ -569,9 +615,11 @@ def user_detail(user_id):
     if request.method == "POST":
         action = request.form.get("action", "profile")
         if action == "password":
+            from shared.account_security import password_problem
             pw = request.form.get("new_password", "").strip()
-            if len(pw) < 4:
-                flash("Password must be at least 4 characters.", "error")
+            problem = password_problem(pw)
+            if problem:
+                flash(problem, "error")
             else:
                 user.set_password(pw)
                 db.session.commit()

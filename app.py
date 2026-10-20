@@ -241,11 +241,30 @@ def _create_app():
                 flash("Name, email and password are required.", "error")
                 return render_template("auth/signup.html",
                                        form_data=request.form, submitted=False)
-            if len(password) < 4:
-                flash("Password must be at least 4 characters.", "error")
+            from shared.account_security import password_problem
+            problem = password_problem(password)
+            if problem:
+                flash(problem, "error")
                 return render_template("auth/signup.html",
                                        form_data=request.form, submitted=False)
-            if User.query.filter_by(email=email).first():
+            if "@" not in email or any(ch.isspace() for ch in email):
+                flash("Enter a valid email address.", "error")
+                return render_template("auth/signup.html",
+                                       form_data=request.form, submitted=False)
+            # A blocked request stays blocked: filing a fresh one with the
+            # same email or phone used to put it straight back in the queue.
+            if RegistrationRequest.query.filter(
+                    RegistrationRequest.status == RegistrationRequest.BLOCKED,
+                    db.or_(RegistrationRequest.email == email,
+                           db.and_(RegistrationRequest.phone.isnot(None),
+                                   RegistrationRequest.phone == (phone or None)))
+                    ).first():
+                flash("A request with these details has already been reviewed. "
+                      "Contact the platform administrator.", "error")
+                return render_template("auth/signup.html",
+                                       form_data=request.form, submitted=False)
+            if User.query.filter(db.or_(User.email == email,
+                                        db.func.lower(User.login_id) == email)).first():
                 flash("An account with this email already exists. "
                       "Sign in or use a different email.", "error")
                 return render_template("auth/signup.html",
@@ -313,12 +332,23 @@ def _create_app():
         from flask import session as _session, flash
         from shared.models.company import CompanyMembership
         from shared.security import safe_local_url
+        # A plain link, so another website could send the browser here and
+        # quietly change which company the user's open tabs save into. The
+        # browser says where a navigation came from: refuse other sites.
+        if request.headers.get("Sec-Fetch-Site") == "cross-site":
+            flash("Choose the company from inside the app.", "error")
+            return redirect(url_for("dashboard.hub"))
+        from shared.models.company import Company
         m = CompanyMembership.query.filter_by(
             company_id=company_id, user_id=current_user.id,
             status=CompanyMembership.ACTIVE).first()
         if m is None:
             flash("You don't have access to that company.", "error")
             return redirect(url_for("dashboard.hub"))
+        target = Company.query.get(company_id)
+        if target is None or not target.is_active:
+            flash("That company is suspended — its books cannot be opened.", "error")
+            return redirect(url_for("portal.index"))
         _session["company_id"] = company_id
         nxt = safe_local_url(request.args.get("next"))
         if nxt:
@@ -355,16 +385,25 @@ def _create_app():
             cid = int(cid) if cid is not None else None
         except (TypeError, ValueError):
             cid = None
+        # Only a company still active: a company the super admin suspended
+        # used to keep working for everyone already inside it.
+        from shared.models.company import Company
         if cid is not None:
-            m = CompanyMembership.query.filter_by(
-                company_id=cid, user_id=current_user.id,
-                status=CompanyMembership.ACTIVE).first()
+            m = (CompanyMembership.query
+                 .join(Company, Company.id == CompanyMembership.company_id)
+                 .filter(CompanyMembership.company_id == cid,
+                         CompanyMembership.user_id == current_user.id,
+                         CompanyMembership.status == CompanyMembership.ACTIVE,
+                         Company.is_active.isnot(False))
+                 .first())
             if m is not None:
                 set_current_company(cid)
                 return
         m = (CompanyMembership.query
-             .filter_by(user_id=current_user.id,
-                        status=CompanyMembership.ACTIVE)
+             .join(Company, Company.id == CompanyMembership.company_id)
+             .filter(CompanyMembership.user_id == current_user.id,
+                     CompanyMembership.status == CompanyMembership.ACTIVE,
+                     Company.is_active.isnot(False))
              .order_by(CompanyMembership.joined_at).first())
         if m is not None:
             _session["company_id"] = m.company_id
@@ -375,8 +414,15 @@ def _create_app():
     # Installed here, not with the blueprints: before_request handlers run in
     # registration order, and entitlement is a property of the active
     # company, so this has to come after _set_company_context has chosen one.
+    # A write another website started is refused before anything else looks
+    # at it; then module entitlement, then the user's section rights.
+    from shared.csrf_guard import install_origin_guard, install_security_headers
+    install_origin_guard(app)  # writes started by another website are refused
+    install_security_headers(app)  # no framing by other sites, no type sniffing
     from shared.module_guard import install_module_guard
     install_module_guard(app)
+    from shared.rights_guard import install_rights_guard
+    install_rights_guard(app)  # Settings → Rights: section view/create/edit/approve/delete
 
     def _friendly_error_page(code, title, message):
         return f"""<!doctype html><html><head><meta charset='utf-8'>

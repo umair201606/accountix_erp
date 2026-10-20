@@ -17,7 +17,7 @@
       </div>
       <div class="fgroup">
         <label class="lbl">Role</label>
-        <input type="text" class="inp" value="{{ current_user.get_role_name()|title }}" disabled
+        <input type="text" class="inp" value="{{ (current_user.role_in(current_user.active_company_id) or current_user.get_role_name())|title }}" disabled
                style="background:var(--bg-top);color:var(--muted);">
         <div class="help">Roles and module access are set by an administrator.</div>
       </div>
@@ -28,7 +28,7 @@
       <div class="fgrid">
         <div class="fgroup">
           <label class="lbl">New Password</label>
-          <input type="password" name="new_password" class="inp" autocomplete="new-password">
+          <input type="password" name="new_password" class="inp" autocomplete="new-password" minlength="8">
         </div>
         <div class="fgroup">
           <label class="lbl">Confirm New Password</label>
@@ -36,6 +36,13 @@
         </div>
       </div>
       <div class="help">Leave both blank to keep your current password.</div>
+      <div class="fgrid" style="margin-top:12px;">
+        <div class="fgroup">
+          <label class="lbl">Current Password</label>
+          <input type="password" name="current_password" class="inp" autocomplete="current-password">
+          <div class="help">Needed to change your User ID, email or password.</div>
+        </div>
+      </div>
     </div>
 
     <div class="set-actions">

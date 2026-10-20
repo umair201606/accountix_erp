@@ -364,16 +364,22 @@ def scoped_get_404(model, pk, for_update=False):
 
 
 def get_member(uid):
-    """A user visible inside the current company: an active member of it
-    (or a super admin). Use for every user-id from the URL — replaces bare
+    """A user visible inside the current company: an active member of it.
+    Use for every user-id from the URL — replaces bare
     ``User.query.get(uid)`` in HR/team flows.
+
+    A super admin used to be returned whether or not they were a member, so
+    any company admin could open the platform account in HR's user editor
+    and set its email and password. Now only their own id resolves for them.
     """
+    from flask_login import current_user
     from shared.models.base import User
     from shared.models.company import CompanyMembership
     u = User.query.get(uid)
     if u is None:
         return None
-    if getattr(u, "is_super_admin", False):
+    if getattr(u, "is_super_admin", False) and getattr(
+            current_user, "id", None) == u.id:
         return u
     cid = current_company_id()
     if cid is None:
@@ -381,3 +387,63 @@ def get_member(uid):
     m = CompanyMembership.query.filter_by(
         company_id=cid, user_id=uid, status=CompanyMembership.ACTIVE).first()
     return u if m else None
+
+
+def login_change_refusal(user):
+    """Why the active company may not change this person's login (email,
+    password, whether it can sign in), or None when it may.
+
+    A login is one account across every company it belongs to. A company
+    admin resetting the password of someone who also works elsewhere could
+    sign in as them and open those other companies — anyone can make a
+    company from the portal and invite the person they want. So a company
+    manages a login only when it reaches nothing else: not a super admin,
+    not this company's owner, and no membership (active, invited or
+    blocked) in another company.
+    """
+    from flask_login import current_user
+    from shared.models.company import Company, CompanyMembership
+    if user is None:
+        return "That person is not a member of this company."
+    name = user.full_name or user.email
+    if getattr(user, "is_super_admin", False):
+        return f"{name} is a platform administrator; that login is managed from the console."
+    cid = current_company_id()
+    if user.id == getattr(current_user, "id", None):
+        return None
+    if cid is not None:
+        company = Company.query.get(cid)
+        if company is not None and company.created_by == user.id:
+            return (f"{name} owns this company; only they can change their "
+                    f"own login.")
+    elsewhere = (CompanyMembership.query
+                 .filter(CompanyMembership.user_id == user.id,
+                         CompanyMembership.company_id != cid,
+                         CompanyMembership.status != CompanyMembership.REMOVED)
+                 .first())
+    if elsewhere is not None:
+        return (f"{name} also uses this login in another company, so only "
+                f"they can change it.")
+    return None
+
+
+def logins_managed_elsewhere(users):
+    """Ids of ``users`` whose login this company may not change — the bulk
+    form of ``login_change_refusal`` for list pages (one query)."""
+    from flask_login import current_user
+    from shared.models.company import Company, CompanyMembership
+    ids = [u.id for u in users]
+    if not ids:
+        return set()
+    cid = current_company_id()
+    out = {u.id for u in users if getattr(u, "is_super_admin", False)}
+    company = Company.query.get(cid) if cid is not None else None
+    if company is not None and company.created_by:
+        out.add(company.created_by)
+    out |= {uid for (uid,) in db.session.query(CompanyMembership.user_id)
+            .filter(CompanyMembership.user_id.in_(ids),
+                    CompanyMembership.company_id != cid,
+                    CompanyMembership.status != CompanyMembership.REMOVED)
+            .distinct()}
+    out.discard(getattr(current_user, "id", None))
+    return out

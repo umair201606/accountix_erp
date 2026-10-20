@@ -54,6 +54,8 @@ MODULES = [
         ("bank_receipt_vouchers", "Bank Receipt Vouchers (BRV)"),
         ("journal_vouchers", "Journal Vouchers (JV)"),
         ("chart_of_accounts", "Chart of Accounts"),
+        # "approve" completes or reopens a statement; nothing here posts.
+        ("bank_reconciliation", "Bank Reconciliation"),
     ]),
     ("fbr", "FBR Digital Invoicing", "has_fbr_access", [
         ("fbr_dashboard", "Dashboard"),

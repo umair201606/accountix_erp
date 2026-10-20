@@ -1,8 +1,7 @@
-import json
 from io import BytesIO
-from flask import Blueprint, render_template, redirect, url_for, flash, request, session, send_file
+from types import SimpleNamespace
+from flask import Blueprint, render_template, redirect, url_for, flash, request, send_file
 from flask_login import login_required, current_user
-from sqlalchemy import or_
 from ..extensions import db
 from shared.tenancy import scoped_get_404
 from ..models.product import InvProduct
@@ -11,6 +10,7 @@ from ..models.unit import InvUnit
 from ..models.stock_movement import InvStockMovement
 from shared.ledger_utils import create_entity_account
 from shared.permissions import deny_page
+from shared import master_data as md
 
 inv_prod_bp = Blueprint("inv_products", __name__, url_prefix="/inventory/products")
 
@@ -30,48 +30,73 @@ def list_products():
     return render_template("products/list_inv.html", products=products, categories=categories)
 
 
+def _units_for(product=None):
+    """Unit rows for the form's select: the active units, plus the product's
+    own unit if it was switched off since (or the select would silently move
+    the product to the first unit in the list on its next save)."""
+    units = InvUnit.query.filter_by(is_active=True).order_by(InvUnit.name).all()
+    if product is not None and product.unit and product.unit not in {
+            u.abbreviation for u in units}:
+        own = InvUnit.query.filter_by(abbreviation=product.unit).first()
+        units.append(own or SimpleNamespace(name=product.unit,
+                                            abbreviation=product.unit))
+    return units
+
+
+PRODUCT_FORM_FIELDS = ("sku", "name", "description", "category_id", "unit_price",
+                       "cost_price", "reorder_level", "current_stock", "unit",
+                       "hs_code", "weight", "opening_date")
+
+
+def _form_page(product=None, draft=None, cost_locked=False):
+    categories = InvCategory.query.filter_by(is_active=True).all()
+    return render_template("products/form_inv.html", product=product, draft=draft,
+                           categories=categories, units=_units_for(product),
+                           cost_locked=cost_locked)
+
+
 @inv_prod_bp.route("/create", methods=["GET", "POST"])
 @login_required
 def create_product():
     if deny_page("products", "create"):
         return redirect(url_for("inv_products.list_products"))
     if request.method == "POST":
-        prod = InvProduct(
-            sku=request.form["sku"],
-            name=request.form["name"],
-            description=request.form.get("description", ""),
-            category_id=request.form.get("category_id", type=int) or None,
-            unit_price=request.form.get("unit_price", 0, type=float),
-            cost_price=request.form.get("cost_price", 0, type=float),
-            reorder_level=request.form.get("reorder_level", 0, type=int),
-            current_stock=0,
-            unit=request.form.get("unit", "pcs"),
-            hs_code=request.form.get("hs_code", "").strip(),
-            weight=request.form.get("weight", 0, type=float),
-        )
+        raw = {f: request.form.get(f, "") for f in PRODUCT_FORM_FIELDS}
+        values, errors = md.clean_product(raw, choices=md.unit_choices())
+        when = None
+        if not errors and values["current_stock"] > 0:
+            from shared.posting_helpers import DocumentDateError, parse_doc_date
+            try:
+                when = parse_doc_date(raw["opening_date"])
+            except DocumentDateError as e:
+                errors.append(str(e))
+            else:
+                refusal = md.opening_date_refusal(when)
+                if refusal:
+                    errors.append(refusal)
+        if errors:
+            # Shown again with what was typed. A duplicate SKU used to reach
+            # the database's unique key and come back as a server error.
+            db.session.rollback()
+            flash(" ".join(errors), "error")
+            return _form_page(draft=raw)
+        opening_qty = values.pop("current_stock")
+        values.pop("category_name", None)
+        prod = InvProduct(**values, current_stock=0)
         db.session.add(prod)
         db.session.flush()
         create_entity_account("product", prod.id, f"{prod.name} ({prod.sku})")
         # Opening stock is a real receipt: a cost layer at the opening cost and
         # Dr Inventory / Cr Opening Balance Equity on the opening date — not
         # just a number in the stock column the ledgers never saw.
-        opening_qty = request.form.get("current_stock", 0, type=float) or 0
-        if opening_qty < 0:
-            db.session.rollback()
-            flash("Opening stock cannot be negative.", "error")
-            return redirect(url_for("inv_products.create_product"))
         if opening_qty > 0:
             from shared.stock_entry import post_opening_stock
-            from shared.posting_helpers import parse_doc_date
             post_opening_stock(prod, opening_qty, prod.cost_price or 0,
-                               when=parse_doc_date(request.form.get("opening_date")),
-                               created_by=current_user.id)
+                               when=when, created_by=current_user.id)
         db.session.commit()
         flash(f"Product created — ledger account '{prod.name} ({prod.sku})' added under Inventory", "success")
         return redirect(url_for("inv_products.list_products"))
-    categories = InvCategory.query.filter_by(is_active=True).all()
-    units = InvUnit.query.filter_by(is_active=True).order_by(InvUnit.name).all()
-    return render_template("products/form_inv.html", product=None, categories=categories, units=units)
+    return _form_page()
 
 
 @inv_prod_bp.route("/edit/<int:id>", methods=["GET", "POST"])
@@ -80,33 +105,32 @@ def edit_product(id):
     if deny_page("products", "edit"):
         return redirect(url_for("inv_products.list_products"))
     prod = scoped_get_404(InvProduct, id, for_update=request.method == "POST")
+    from shared.models.stock_ledger import StockLedger
+    # Once stock has moved, the costing engine keeps the cost at the current
+    # valuation; the form's copy (read when the page opened) would overwrite
+    # it with a stale one.
+    cost_locked = StockLedger.query.filter_by(product_id=prod.id).first() is not None
     if request.method == "POST":
-        prod.sku = request.form["sku"]
-        prod.name = request.form["name"]
-        prod.description = request.form.get("description", "")
-        prod.category_id = request.form.get("category_id", type=int) or None
-        prod.unit_price = request.form.get("unit_price", 0, type=float)
-        from shared.models.stock_ledger import StockLedger
-        if StockLedger.query.filter_by(product_id=prod.id).first() is None:
-            # Once stock has moved, the costing engine keeps this figure at the
-            # current valuation cost; the form's copy (read when the page
-            # opened) would overwrite it with a stale one.
-            prod.cost_price = request.form.get("cost_price", 0, type=float)
-        prod.reorder_level = request.form.get("reorder_level", 0, type=int)
-        prod.unit = request.form.get("unit", "pcs")
-        prod.hs_code = request.form.get("hs_code", "").strip()
-        prod.weight = request.form.get("weight", 0, type=float)
-        prod.is_active = request.form.get("is_active") == "on"
+        raw = {f: request.form.get(f, "") for f in PRODUCT_FORM_FIELDS}
+        raw["is_active"] = request.form.get("is_active") == "on"
+        if cost_locked:
+            raw["cost_price"] = prod.cost_price or 0
+        values, errors = md.clean_product(raw, choices=md.unit_choices(prod.unit),
+                                          exclude_id=prod.id, opening=False)
+        if errors:
+            flash(" ".join(errors), "error")
+            return _form_page(product=prod, draft=raw, cost_locked=cost_locked)
+        values.pop("category_name", None)
+        if cost_locked:
+            values.pop("cost_price")
+        for field, value in values.items():
+            setattr(prod, field, value)
+        prod.is_active = raw["is_active"]
         create_entity_account("product", prod.id, f"{prod.name} ({prod.sku})")
         db.session.commit()
         flash("Product updated", "success")
         return redirect(url_for("inv_products.list_products"))
-    categories = InvCategory.query.filter_by(is_active=True).all()
-    units = InvUnit.query.filter_by(is_active=True).order_by(InvUnit.name).all()
-    from shared.models.stock_ledger import StockLedger
-    cost_locked = StockLedger.query.filter_by(product_id=prod.id).first() is not None
-    return render_template("products/form_inv.html", product=prod, categories=categories,
-                           units=units, cost_locked=cost_locked)
+    return _form_page(product=prod, cost_locked=cost_locked)
 
 
 @inv_prod_bp.route("/delete/<int:id>", methods=["POST"])
@@ -139,11 +163,15 @@ def adjust_stock(id):
         return redirect(url_for("inv_products.list_products"))
     prod = scoped_get_404(InvProduct, id)
     if request.method == "POST":
-        qty = request.form.get("quantity", 0, type=float) or 0
         note = request.form.get("notes", "")
+        try:
+            qty = float(md.number(request.form.get("quantity"), "Quantity", minimum=None))
+        except md.Invalid as e:
+            qty = None
+            flash(str(e), "error")
         if qty == 0:
             flash("Quantity must be non-zero", "error")
-        else:
+        elif qty is not None:
             # Was: current_stock += qty and nothing else — no cost, no
             # journal, so the inventory account never followed. Now an
             # approved Stock Adjustment voucher (reviewable, reversible).
@@ -173,11 +201,8 @@ def check_duplicate():
     exclude = request.args.get("exclude", type=int)
     if field not in ("name", "sku") or not value:
         return {"exists": False}
-    q = InvProduct.query.filter(getattr(InvProduct, field) == value)
-    if exclude:
-        q = q.filter(InvProduct.id != exclude)
-    exists = q.first() is not None
-    return {"exists": exists}
+    # Same rule the save applies: case and spacing do not make a new one.
+    return {"exists": md.taken(InvProduct, getattr(InvProduct, field), value, exclude)}
 
 
 @inv_prod_bp.route("/template")
@@ -191,19 +216,15 @@ def download_template():
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "Products"
-    ws.append(["SKU", "Name", "Description", "Category", "Unit Price", "Cost Price", "Reorder Level", "Current Stock", "Unit"])
-    ws.append(["SKU-001", "Sample Product A", "Description for product A", "Category Name", "100", "70", "10", "50", "pcs"])
-    ws.append(["SKU-002", "Sample Product B", "Description for product B", "Category Name", "250", "180", "5", "20", "kg"])
-    ws.append(["SKU-003", "Sample Product C", "Description for product C", "Category Name", "50", "30", "20", "100", "m"])
-    ws.column_dimensions["A"].width = 14
-    ws.column_dimensions["B"].width = 22
-    ws.column_dimensions["C"].width = 28
-    ws.column_dimensions["D"].width = 16
-    ws.column_dimensions["E"].width = 12
-    ws.column_dimensions["F"].width = 12
-    ws.column_dimensions["G"].width = 14
-    ws.column_dimensions["H"].width = 14
-    ws.column_dimensions["I"].width = 10
+    # Column order is what the import reads (md.PRODUCT_COLUMNS); HS Code was
+    # read from the tenth column but missing from the heading.
+    ws.append(["SKU", "Name", "Description", "Category", "Unit Price", "Cost Price",
+               "Reorder Level", "Opening Stock", "Unit", "HS Code"])
+    ws.append(["SKU-001", "Sample Product A", "Description for product A", "Category Name", "100", "70", "10", "50", "pcs", "8541.4000"])
+    ws.append(["SKU-002", "Sample Product B", "Description for product B", "Category Name", "250", "180", "5", "20.5", "kg", ""])
+    ws.append(["SKU-003", "Sample Product C", "Description for product C", "Category Name", "50", "30", "20", "100", "m", ""])
+    for col, width in zip("ABCDEFGHIJ", (14, 22, 28, 16, 12, 12, 14, 14, 10, 12)):
+        ws.column_dimensions[col].width = width
     out = BytesIO()
     wb.save(out)
     out.seek(0)
@@ -211,212 +232,97 @@ def download_template():
                      mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
 
+def _batch_cleaner():
+    """One validator for a whole sheet or batch: units and categories read
+    once, not per row."""
+    choices = md.unit_choices()
+    categories = md.category_index()
+
+    def clean(raw):
+        return md.clean_product(raw, choices=choices, categories=categories,
+                                upper_sku=True)
+    return clean
+
+
+def _review(rows, created=0, opening_date="", date_error=None):
+    from shared.clock import local_today
+    units = InvUnit.query.filter_by(is_active=True).order_by(InvUnit.name).all()
+    return render_template("products/batch_editor.html", rows=rows, units=units,
+                           flagged=sum(1 for r in rows if r.get("row_errors")),
+                           created=created, date_error=date_error,
+                           opening_date=opening_date or local_today().isoformat())
+
+
 @inv_prod_bp.route("/upload-excel", methods=["POST"])
 @login_required
 def upload_excel():
     file = request.files.get("file")
-    if not file:
+    if not file or not file.filename:
         flash("No file selected.", "error")
         return redirect(url_for("inv_products.list_products"))
-
     try:
-        import openpyxl
-        wb = openpyxl.load_workbook(BytesIO(file.read()), data_only=True)
-        ws = wb.active
-        if not ws:
-            flash("Excel file is empty.", "error")
-            return redirect(url_for("inv_products.list_products"))
-
-        rows = []
-        errors = []
-        seen_skus = set()
-        seen_names = set()
-
-        for i, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
-            sku = (str(row[0] or "").strip()).upper() if row[0] is not None else ""
-            name = (str(row[1] or "").strip()) if len(row) > 1 and row[1] is not None else ""
-            desc = (str(row[2] or "").strip()) if len(row) > 2 and row[2] is not None else ""
-            cat_name = (str(row[3] or "").strip()) if len(row) > 3 and row[3] is not None else ""
-            unit_price = 0.0
-            cost_price = 0.0
-            reorder = 0
-            stock = 0
-            unit = "pcs"
-
-            try:
-                if len(row) > 4 and row[4] is not None:
-                    unit_price = float(str(row[4]).replace(",", ""))
-            except (ValueError, TypeError):
-                errors.append(f"Row {i}: Invalid Unit Price.")
-
-            try:
-                if len(row) > 5 and row[5] is not None:
-                    cost_price = float(str(row[5]).replace(",", ""))
-            except (ValueError, TypeError):
-                errors.append(f"Row {i}: Invalid Cost Price.")
-
-            try:
-                if len(row) > 6 and row[6] is not None:
-                    reorder = int(float(str(row[6]).replace(",", "")))
-            except (ValueError, TypeError):
-                errors.append(f"Row {i}: Invalid Reorder Level.")
-
-            try:
-                if len(row) > 7 and row[7] is not None:
-                    stock = int(float(str(row[7]).replace(",", "")))
-            except (ValueError, TypeError):
-                errors.append(f"Row {i}: Invalid Current Stock.")
-
-            if len(row) > 8 and row[8] is not None:
-                unit = (str(row[8]).strip())
-
-            hs_code = (str(row[9]).strip()) if len(row) > 9 and row[9] is not None else ""
-
-            if not sku and not name:
-                continue
-            if not sku:
-                errors.append(f"Row {i}: SKU is required.")
-                continue
-            if not name:
-                errors.append(f"Row {i}: Name is required.")
-                continue
-
-            if sku in seen_skus:
-                errors.append(f"Row {i}: Duplicate SKU '{sku}' in spreadsheet.")
-                continue
-            if name in seen_names:
-                errors.append(f"Row {i}: Duplicate name '{name}' in spreadsheet.")
-                continue
-
-            existing = InvProduct.query.filter(
-                or_(InvProduct.sku == sku, InvProduct.name == name)
-            ).first()
-            if existing:
-                errors.append(f"Row {i}: '{name}' ({sku}) already exists in database.")
-                continue
-
-            seen_skus.add(sku)
-            seen_names.add(name)
-            rows.append({
-                "sku": sku,
-                "name": name,
-                "description": desc,
-                "category_name": cat_name,
-                "unit_price": unit_price,
-                "cost_price": cost_price,
-                "reorder_level": reorder,
-                "current_stock": stock,
-                "unit": unit,
-                "hs_code": hs_code,
-            })
-
-        if not rows:
-            flash("No valid rows found to import." + (" " + "; ".join(errors) if errors else ""), "error")
-            return redirect(url_for("inv_products.list_products"))
-
-        session["batch_products"] = rows
-        flash(f"Parsed {len(rows)} product(s) from Excel." + (" Warnings: " + "; ".join(errors) if errors else ""), "success" if not errors else "warning")
-        return redirect(url_for("inv_products.batch_editor"))
-
-    except Exception as e:
-        flash(f"Failed to parse Excel file: {e}", "error")
+        rows = md.import_rows(md.read_sheet(file), md.PRODUCT_COLUMNS,
+                              _batch_cleaner(), name_fields=("sku", "name"))
+    except md.Invalid as e:
+        flash(str(e), "error")
         return redirect(url_for("inv_products.list_products"))
+    if not rows:
+        flash("The sheet has no products under its heading row.", "error")
+        return redirect(url_for("inv_products.list_products"))
+    # The review screen is this response — the rows no longer ride in the
+    # session cookie, which the browser drops past 4 KB.
+    return _review(rows)
 
 
 @inv_prod_bp.route("/batch", methods=["GET", "POST"])
 @login_required
 def batch_editor():
     if request.method == "POST":
-        raw = request.form.get("data", "[]")
         try:
-            rows = json.loads(raw)
-        except (json.JSONDecodeError, TypeError):
-            flash("Invalid data submitted.", "error")
+            rows = md.submitted_rows(request.form.get("data"))
+        except md.Invalid as e:
+            flash(str(e), "error")
             return redirect(url_for("inv_products.list_products"))
-
-        created = 0
-        errors = []
-        for r in rows:
-            sku = r.get("sku", "").strip().upper()
-            name = r.get("name", "").strip()
-            desc = r.get("description", "").strip()
-            cat_name = r.get("category_name", "").strip()
-            unit_price = r.get("unit_price", 0)
-            cost_price = r.get("cost_price", 0)
-            reorder = r.get("reorder_level", 0)
-            stock = r.get("current_stock", 0)
-            unit = r.get("unit", "pcs").strip()
-            hs_code = r.get("hs_code", "").strip()
-            row_marked = r.get("_delete", False)
-
-            if row_marked:
-                continue
-            if not sku or not name:
-                errors.append(f"'{name or '(empty)'}' — SKU and name are required.")
-                continue
-
-            if InvProduct.query.filter_by(sku=sku).first():
-                errors.append(f"'{sku}' — SKU already exists.")
-                continue
-            if InvProduct.query.filter_by(name=name).first():
-                errors.append(f"'{name}' — name already exists.")
-                continue
-
-            category_id = None
-            if cat_name:
-                cat = InvCategory.query.filter_by(name=cat_name).first()
-                if cat:
-                    category_id = cat.id
-                else:
-                    errors.append(f"'{name}' — category '{cat_name}' not found.")
-                    continue
-
+        opening_date = request.form.get("opening_date", "")
+        # Opening stock is dated once for the whole import (the go-live
+        # date); a closed period refuses it here, with the rows kept, rather
+        # than half-way through the save.
+        when = None
+        if any(_has_stock(r) for r in rows):
+            from shared.posting_helpers import DocumentDateError, parse_doc_date
             try:
-                unit_price = float(unit_price)
-            except (ValueError, TypeError):
-                unit_price = 0
-            try:
-                cost_price = float(cost_price)
-            except (ValueError, TypeError):
-                cost_price = 0
-            try:
-                reorder = int(reorder)
-            except (ValueError, TypeError):
-                reorder = 0
-            try:
-                stock = int(stock)
-            except (ValueError, TypeError):
-                stock = 0
+                when = parse_doc_date(opening_date)
+            except DocumentDateError as e:
+                return _review(rows, opening_date=opening_date, date_error=str(e))
+            refusal = md.opening_date_refusal(when)
+            if refusal:
+                db.session.rollback()
+                return _review(rows, opening_date=opening_date, date_error=refusal)
 
-            prod = InvProduct(
-                sku=sku,
-                name=name,
-                description=desc or None,
-                category_id=category_id,
-                unit_price=unit_price,
-                cost_price=cost_price,
-                reorder_level=reorder,
-                current_stock=0,
-                unit=unit,
-                hs_code=hs_code,
-            )
+        def create(values):
+            qty = values.pop("current_stock")
+            values.pop("category_name", None)
+            prod = InvProduct(**values, current_stock=0)
             db.session.add(prod)
             db.session.flush()
             create_entity_account("product", prod.id, f"{prod.name} ({prod.sku})")
-            if stock > 0:
+            if qty > 0:
                 from shared.stock_entry import post_opening_stock
-                post_opening_stock(prod, stock, cost_price,
+                post_opening_stock(prod, qty, prod.cost_price or 0, when=when,
                                    created_by=current_user.id)
-            created += 1
 
+        created, failed = md.save_rows(rows, _batch_cleaner(), create,
+                                       name_fields=("sku", "name"))
         db.session.commit()
-        session.pop("batch_products", None)
-        msg = f"{created} product(s) created."
-        if errors:
-            msg += " Errors: " + "; ".join(errors)
-        flash(msg, "success" if not errors else "warning")
+        if failed:
+            return _review(failed, created=created, opening_date=opening_date)
+        flash(f"{created} product(s) created.", "success")
         return redirect(url_for("inv_products.list_products"))
+    return _review([])
 
-    rows = session.pop("batch_products", [])
-    units = InvUnit.query.filter_by(is_active=True).order_by(InvUnit.name).all()
-    return render_template("products/batch_editor.html", rows=rows, units=units)
+
+def _has_stock(raw):
+    try:
+        return md.number(raw.get("current_stock"), "Opening stock") > 0
+    except md.Invalid:
+        return False

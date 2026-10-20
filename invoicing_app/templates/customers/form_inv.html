@@ -2,31 +2,32 @@
 {% block title %}{{ 'Edit' if customer else 'New' }} Customer{% endblock %}
 {% block page_title %}{{ 'Edit' if customer else 'New' }} Customer{% endblock %}
 {% block content %}
+{% set f = draft or customer %}
 <div class="card" style="max-width:800px;">
   <form method="POST" class="form">
     <h4 style="margin-bottom:16px;color:var(--accent);border-bottom:2px solid var(--border);padding-bottom:8px;">&#128100; Company Information</h4>
     <div class="form-row">
       <div class="form-group">
         <label>Customer Name *</label>
-        <input type="text" name="name" class="form-control focus-ring" required value="{{ customer.name if customer else '' }}">
+        <input type="text" name="name" class="form-control focus-ring" required value="{{ f.name or '' if f else '' }}">
         <small style="display:block;margin-top:4px;color:var(--success);font-weight:500;">&#9432; This name will appear in ledgers — a 4th-level ledger account is created automatically under Trade Debtors.</small>
       </div>
       <div class="form-group">
         <label>Website</label>
-        <input type="text" name="website" class="form-control focus-ring" value="{{ customer.website if customer else '' }}">
+        <input type="text" name="website" class="form-control focus-ring" value="{{ f.website or '' if f else '' }}">
       </div>
     </div>
     <div class="form-row">
       <div class="form-group">
         <label>Tax ID / NTN</label>
-        <input type="text" name="tax_id" class="form-control focus-ring" value="{{ customer.tax_id if customer else '' }}">
+        <input type="text" name="tax_id" class="form-control focus-ring" value="{{ f.tax_id or '' if f else '' }}">
       </div>
       <div class="form-group">
         <label>Payment Terms</label>
         <select name="payment_terms" class="form-control focus-ring">
           <option value="">Select Terms</option>
           {% for t in ['Due on Receipt', 'Net 15', 'Net 30', 'Net 45', 'Net 60'] %}
-          <option value="{{ t }}" {{ 'selected' if customer and customer.payment_terms == t else '' }}>{{ t }}</option>
+          <option value="{{ t }}" {{ 'selected' if f and f.payment_terms == t else '' }}>{{ t }}</option>
           {% endfor %}
         </select>
       </div>
@@ -36,44 +37,44 @@
     <div class="form-row">
       <div class="form-group">
         <label>Contact Person</label>
-        <input type="text" name="contact_person" class="form-control focus-ring" value="{{ customer.contact_person if customer else '' }}">
+        <input type="text" name="contact_person" class="form-control focus-ring" value="{{ f.contact_person or '' if f else '' }}">
       </div>
       <div class="form-group">
         <label>Phone</label>
-        <input type="text" name="phone" class="form-control focus-ring" value="{{ customer.phone if customer else '' }}">
+        <input type="text" name="phone" class="form-control focus-ring" value="{{ f.phone or '' if f else '' }}">
       </div>
     </div>
     <div class="form-row">
       <div class="form-group">
         <label>Mobile</label>
-        <input type="text" name="mobile" class="form-control focus-ring" value="{{ customer.mobile if customer else '' }}">
+        <input type="text" name="mobile" class="form-control focus-ring" value="{{ f.mobile or '' if f else '' }}">
       </div>
       <div class="form-group">
         <label>Email</label>
-        <input type="email" name="email" class="form-control focus-ring" value="{{ customer.email if customer else '' }}">
+        <input type="email" name="email" class="form-control focus-ring" value="{{ f.email or '' if f else '' }}">
       </div>
     </div>
     <div class="form-row">
       <div class="form-group">
         <label>City</label>
-        <input type="text" name="city" class="form-control focus-ring" value="{{ customer.city if customer else '' }}">
+        <input type="text" name="city" class="form-control focus-ring" value="{{ f.city or '' if f else '' }}">
       </div>
       <div class="form-group">
         <label>Credit Limit</label>
-        <input type="number" step="0.01" name="credit_limit" class="form-control focus-ring" value="{{ customer.credit_limit if customer else '0' }}">
+        <input type="number" step="0.01" name="credit_limit" class="form-control focus-ring" value="{{ f.credit_limit or '0' if f else '0' }}">
       </div>
     </div>
     <div class="form-group">
       <label>Address</label>
-      <textarea name="address" class="form-control focus-ring" rows="2">{{ customer.address if customer else '' }}</textarea>
+      <textarea name="address" class="form-control focus-ring" rows="2">{{ f.address or '' if f else '' }}</textarea>
     </div>
     <div class="form-group">
       <label>Notes</label>
-      <textarea name="notes" class="form-control focus-ring" rows="2">{{ customer.notes if customer else '' }}</textarea>
+      <textarea name="notes" class="form-control focus-ring" rows="2">{{ f.notes or '' if f else '' }}</textarea>
     </div>
     {% if customer %}
     <div class="form-group">
-      <label><input type="checkbox" name="is_active" {% if customer.is_active %}checked{% endif %}> Active</label>
+      <label><input type="checkbox" name="is_active" {% if f.is_active %}checked{% endif %}> Active</label>
     </div>
     {% endif %}
     <div class="form-actions">

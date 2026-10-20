@@ -84,7 +84,7 @@ def calendar():
                     CompanyMembership.user_id == User.id,
                     CompanyMembership.company_id == cid,
                     CompanyMembership.status == CompanyMembership.ACTIVE))
-                    .filter(User.manager_id == current_user.manager_id).all())
+                    .filter(CompanyMembership.manager_id == current_user.manager_id).all())
             else:
                 team = []
             team_ids = [u.id for u in team] + [current_user.id]
@@ -180,7 +180,7 @@ def apply():
         db.session.add(lr)
         db.session.flush()
         workflow = ApprovalWorkflow.query.filter_by(leave_type_id=leave_type_id, is_active=True).first()
-        approver = leave_flow.approver_for(current_user)
+        approver = leave_flow.approver_for(current_user, right=("leaves", "approve"))
         if (workflow and workflow.auto_approve) or approver is None:
             # Auto-approved type, or nobody else to decide (the company's
             # only admin applying).

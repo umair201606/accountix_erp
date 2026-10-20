@@ -4,6 +4,8 @@ These are GLOBAL tables — they must never declare ``company_id``.
 """
 from datetime import datetime
 
+from sqlalchemy import event
+
 from shared.extensions import db
 
 
@@ -124,6 +126,20 @@ class CompanyMembership(db.Model):
     # Last day of employment in this company: payroll pays up to it and
     # stops after it. Per company — the user row is shared by every company.
     date_of_leaving = db.Column(db.Date, nullable=True)
+    # Which modules this person may open in THIS company, as JSON
+    # {"hr": true, ...}. NULL until an admin first saves their rights here;
+    # until then the flags on the user row apply (what every company saw
+    # before), so nothing changes for existing members.
+    module_flags = db.Column(db.Text, nullable=True)
+    # Employment in THIS company. They used to live only on the user row,
+    # which every company the person belongs to shares: one company's HR
+    # setting someone's manager made that person their manager — leave,
+    # loan and timesheet approver — in every company. Read through
+    # User.manager_id / designation / department, which pick the active
+    # company's membership (Alembic 0015 copied the old values here).
+    manager_id = db.Column(db.Integer, nullable=True, index=True)
+    designation = db.Column(db.String(100), nullable=True)
+    department = db.Column(db.String(100), nullable=True)
 
     __table_args__ = (
         db.UniqueConstraint("company_id", "user_id",
@@ -136,6 +152,22 @@ class CompanyMembership(db.Model):
         from shared.models.base import Role
         r = Role.query.get(self.role_id) if self.role_id else None
         return r.name if r else ""
+
+    def module_flag(self, module_key):
+        """This company's setting for one module, or None when never set."""
+        import json
+        if not self.module_flags:
+            return None
+        try:
+            value = json.loads(self.module_flags).get(module_key)
+        except (ValueError, AttributeError):
+            return None
+        return None if value is None else bool(value)
+
+    def set_module_flags(self, flags):
+        import json
+        self.module_flags = json.dumps({k: bool(v) for k, v in flags.items()},
+                                       sort_keys=True)
 
 
 class CompanyInvitation(db.Model):
@@ -283,3 +315,27 @@ class RegistrationRequest(db.Model):
     def check_password(self, password):
         from werkzeug.security import check_password_hash
         return check_password_hash(self.password_hash, password)
+
+
+@event.listens_for(CompanyMembership, "before_insert")
+def _first_membership_takes_the_account_details(mapper, connection, target):
+    """A person's first company starts from the details on their account
+    (set when the account was made, before any company existed). A second
+    company starts blank: its HR decides who their manager is there."""
+    if target.user_id is None:
+        return
+    if (target.manager_id is not None or target.designation is not None
+            or target.department is not None):
+        return
+    from sqlalchemy import text
+    others = connection.execute(text(
+        "SELECT COUNT(*) FROM company_memberships "
+        "WHERE user_id = :uid AND status != 'removed'"),
+        {"uid": target.user_id}).scalar()
+    if others:
+        return
+    row = connection.execute(text(
+        "SELECT manager_id, designation, department FROM users WHERE id = :uid"),
+        {"uid": target.user_id}).first()
+    if row is not None:
+        target.manager_id, target.designation, target.department = row

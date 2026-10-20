@@ -3,7 +3,11 @@
 {% block page_title %}Batch Import Suppliers{% endblock %}
 {% block extra_css %}
 <style>
-  .be-wrap{overflow-x:auto}
+  .be-wrap{overflow-x:auto;max-width:100%;-webkit-overflow-scrolling:touch}
+  .be-note{font-size:13px;padding:8px 12px;border-radius:5px;margin-bottom:10px;border:1px solid var(--border);overflow-wrap:anywhere}
+  .be-note.err{border-color:var(--danger);color:var(--danger)}
+  .be-note.ok{border-color:var(--success);color:var(--success)}
+  .be-rowerr{font-size:11px;color:var(--danger);margin-top:3px;line-height:1.35;min-width:160px;white-space:normal}
   .be-tbl{width:100%;border-collapse:collapse;font-size:13px}
   .be-tbl th{background:var(--bg-top);padding:8px 10px;text-align:left;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:var(--accent);border-bottom:2px solid var(--border);white-space:nowrap}
   .be-tbl td{padding:4px;border-bottom:1px solid var(--border-soft);vertical-align:top}
@@ -27,6 +31,9 @@
   <div class="card-h">Review &amp; Edit Suppliers</div>
   <div class="card-b">
     <p class="be-summary">Review the suppliers below before saving. Editable — change values or delete rows as needed. A ledger account is auto-created for each supplier under Trade Creditors.</p>
+
+    {% if created %}<div class="be-note ok">{{ created }} supplier(s) saved. The rows below were not — fix them and press Save All again.</div>{% endif %}
+    {% if flagged %}<div class="be-note err">{{ flagged }} row(s) need attention — the reason is under each one. Rows that still have a problem are kept here when you save; the rest are created.</div>{% endif %}
 
     <form id="batchForm" method="POST" action="{{ url_for('inv_suppliers.batch_editor') }}">
       <input type="hidden" name="data" id="dataInput" value="">
@@ -53,7 +60,7 @@
             {% for r in rows %}
             <tr>
               <td style="text-align:center;color:var(--accent);font-size:11px;" class="be-idx">{{ loop.index }}</td>
-              <td><input type="text" class="be-inp be-name" value="{{ r.name }}"><div class="be-msg"></div></td>
+              <td><input type="text" class="be-inp be-name" value="{{ r.name }}"><div class="be-msg"></div>{% if r.row_errors %}<div class="be-rowerr">{% if r.row_line %}Row {{ r.row_line }}: {% endif %}{{ r.row_errors|join(' ') }}</div>{% endif %}</td>
               <td><input type="text" class="be-inp be-contact" value="{{ r.contact_person }}"></td>
               <td><input type="text" class="be-inp be-email" value="{{ r.email }}"></td>
               <td><input type="text" class="be-inp be-phone" value="{{ r.phone }}"></td>
@@ -63,9 +70,11 @@
               <td>
                 <select class="be-inp be-terms" style="padding:5px 6px;">
                   <option value="">Select</option>
-                  {% for t in ['Due on Receipt', 'Net 15', 'Net 30', 'Net 45', 'Net 60'] %}
+                  {% set terms = ['Due on Receipt', 'Net 15', 'Net 30', 'Net 45', 'Net 60'] %}
+                  {% for t in terms %}
                   <option value="{{ t }}" {% if r.payment_terms == t %}selected{% endif %}>{{ t }}</option>
                   {% endfor %}
+                  {% if r.payment_terms and r.payment_terms not in terms %}<option value="{{ r.payment_terms }}" selected>{{ r.payment_terms }}</option>{% endif %}
                 </select>
               </td>
               <td><input type="text" class="be-inp be-website" value="{{ r.website }}"></td>

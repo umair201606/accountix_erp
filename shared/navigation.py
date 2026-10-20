@@ -416,10 +416,14 @@ def _is_active(item, endpoint, ctx):
 
 
 def _resolve(items, user, ctx, endpoint):
+    from shared.rights_guard import allowed
     out = []
     for item in items or []:
         gate = item.get("gate")
         if gate and not gate(user, ctx):
+            continue
+        # Settings → Rights: a page the person may not open is not offered.
+        if not allowed(item["endpoint"]):
             continue
         label = item["label"]
         out.append({

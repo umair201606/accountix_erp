@@ -72,17 +72,24 @@ def _drop_tracking_for_voucher(voucher_id):
 @acct_bp.route("/dashboard")
 @login_required
 def dashboard():
-    total = AccountingVoucher.query.count()
-    unapproved = AccountingVoucher.query.filter_by(status="unapproved").count()
-    approved = AccountingVoucher.query.filter_by(status="approved").count()
+    # Settings → Rights: only the voucher types this person may view are
+    # counted and listed, and a type's card opens a new one only with create.
+    from shared.rights_guard import can, viewable_voucher_types
+    types = viewable_voucher_types()
+    base = AccountingVoucher.query.filter(AccountingVoucher.voucher_type.in_(types))
+    total = base.count()
+    unapproved = base.filter_by(status="unapproved").count()
+    approved = base.filter_by(status="approved").count()
     by_type = {}
     for vt in VOUCHER_LABELS:
-        by_type[vt] = AccountingVoucher.query.filter_by(voucher_type=vt).count()
-    recent = AccountingVoucher.query.order_by(AccountingVoucher.id.desc()).limit(10).all()
+        if vt in types:
+            by_type[vt] = AccountingVoucher.query.filter_by(voucher_type=vt).count()
+    recent = base.order_by(AccountingVoucher.id.desc()).limit(10).all()
+    creatable = [vt for vt in VOUCHER_LABELS if can(VOUCHER_SECTION[vt], "create")]
     return render_template("accounting/dashboard.html",
                            stats={"total": total, "unapproved": unapproved,
                                   "approved": approved, "by_type": by_type},
-                           recent=recent)
+                           recent=recent, viewable=types, creatable=creatable)
 @acct_bp.route("/vouchers", methods=["GET", "POST"])
 @acct_bp.route("/vouchers/<int:id>", methods=["GET", "POST"])
 @login_required
@@ -465,6 +472,9 @@ def voucher_list():
 
     # Exclude auto-generated reversal vouchers (no UI to create/manage them)
     q = q.filter(~AccountingVoucher.voucher_number.like("%-REV"))
+    # Settings → Rights: only the types this person may view.
+    from shared.rights_guard import viewable_voucher_types
+    q = q.filter(AccountingVoucher.voucher_type.in_(viewable_voucher_types()))
 
     if vtype:
         q = q.filter_by(voucher_type=vtype)
@@ -652,6 +662,9 @@ def _voucher_register_query(vtype, status, from_date, to_date):
     # vouchers anyone raised, and counting them doubles every reversed entry.
     query = AccountingVoucher.query.filter(
         ~AccountingVoucher.voucher_number.like("%-REV"))
+    # Settings → Rights: only the types this person may view.
+    from shared.rights_guard import viewable_voucher_types
+    query = query.filter(AccountingVoucher.voucher_type.in_(viewable_voucher_types()))
     if vtype:
         query = query.filter_by(voucher_type=vtype)
     if status:

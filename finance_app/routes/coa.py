@@ -20,6 +20,53 @@ def _has_lines(acct_id):
     return db.session.query(JournalLine.id).filter_by(account_id=acct_id).first() is not None
 
 
+# Plain names for the records that can point at an account, for the refusal.
+_USED_BY_LABELS = {
+    "fa_categories": "fixed asset categories",
+    "fixed_assets": "fixed assets",
+    "additional_charges": "invoice charges",
+    "inv_invoices": "sales invoices",
+    "inv_purchase_invoices": "purchase invoices",
+    "inv_purchase_orders": "purchase orders",
+    "inv_sales_orders": "sales orders",
+    "inv_sales_returns": "sales returns",
+    "accounting_vouchers": "accounting vouchers",
+    "accounting_voucher_lines": "accounting vouchers",
+    "consumption_vouchers": "consumption vouchers",
+    "scrap_vouchers": "scrap vouchers",
+    "bank_reconciliations": "bank reconciliations",
+    "exec_account_selections": "executive report selections",
+    "inventory_settings": "inventory settings",
+    "invoice_settings": "invoice settings",
+    "charge_ledger_defaults": "charge posting settings",
+    "category_revenue_accounts": "category revenue settings",
+    "tax_rate_accounts": "tax rate settings",
+}
+
+
+def _used_by(acct_id):
+    """What still points at the account besides its own journal lines: every
+    foreign key to chart_of_accounts.id, found from the models so a reference
+    added later is covered too. Deleting the account used to leave these
+    pointing at nothing (SQLite) or fail as a server conflict (Postgres)."""
+    from sqlalchemy import func, select
+    uses = []
+    for table in db.Model.metadata.sorted_tables:
+        if table.name in ("chart_of_accounts", "journal_lines", "journal_entries"):
+            continue
+        for col in table.columns:
+            if not any(fk.column.table.name == "chart_of_accounts"
+                       and fk.column.name == "id" for fk in col.foreign_keys):
+                continue
+            hit = db.session.execute(
+                select(func.count()).select_from(table).where(col == acct_id)).scalar()
+            if hit:
+                label = _USED_BY_LABELS.get(table.name, table.name.replace("_", " "))
+                if label not in uses:
+                    uses.append(label)
+    return uses
+
+
 def _tree():
     """Accounts as a flat list with depth info for template rendering."""
     all_accts = ChartOfAccount.query.order_by(ChartOfAccount.code).all()
@@ -70,6 +117,10 @@ def add_account():
         if pl and pl not in PL_SECTIONS:
             pl = None
         level = parent.level + 1
+        # Two people adding under the same parent drew the same next code;
+        # the second save failed on the unique code.
+        from shared.concurrency import serialize
+        serialize("coa-child", parent.id)
         acct = ChartOfAccount(code=next_child_code(parent), name=name,
                               type=parent.type, parent_id=parent.id,
                               level=level, description=desc,
@@ -122,6 +173,11 @@ def delete_account(id):
             flash(f"\"{acct.name}\" is a fixed account and cannot be deleted.", "error")
         else:
             flash(f"\"{acct.name}\" has child accounts. Delete children first.", "error")
+        return redirect(url_for("coa.list_accounts"))
+    uses = _used_by(acct.id)
+    if uses:
+        flash(f"\"{acct.name}\" is still used by {', '.join(uses)}. Choose another "
+              f"account there first, or untick Active to retire it.", "error")
         return redirect(url_for("coa.list_accounts"))
     if _has_lines(acct.id):
         # Never delete history — deactivate instead, as the COA guide requires.

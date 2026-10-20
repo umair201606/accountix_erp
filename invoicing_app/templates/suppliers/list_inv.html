@@ -6,8 +6,8 @@
   <div style="display:flex;gap:8px;flex-wrap:wrap;">
     <a href="{{ url_for('inv_suppliers.create_supplier') }}" class="btn btn-primary">+ New Supplier</a>
     <a href="{{ url_for('inv_suppliers.download_template') }}" class="btn btn-outline btn-sm">Download Template</a>
-    <form method="POST" action="{{ url_for('inv_suppliers.upload_excel') }}" enctype="multipart/form-data" style="display:flex;gap:6px;align-items:center;">
-      <input type="file" name="file" accept=".xlsx,.xls" required class="form-control" style="width:auto;padding:4px 8px;font-size:12px;">
+    <form method="POST" action="{{ url_for('inv_suppliers.upload_excel') }}" enctype="multipart/form-data" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;max-width:100%;">
+      <input type="file" name="file" accept=".xlsx" required class="form-control" style="width:auto;padding:4px 8px;font-size:12px;">
       <button type="submit" class="btn btn-outline btn-sm">Import Excel</button>
     </form>
   </div>

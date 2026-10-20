@@ -65,9 +65,15 @@ class User(UserMixin, db.Model):
     password_hash = db.Column(db.String(256), nullable=False)
     full_name = db.Column(db.String(100), nullable=False)
     role_id = db.Column(db.Integer, db.ForeignKey("roles.id"), nullable=False)
-    manager_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
-    designation = db.Column(db.String(100))
-    department = db.Column(db.String(100))
+    # Account-wide copies of the employment details. Each company keeps its
+    # own on the membership (CompanyMembership.manager_id / designation /
+    # department); ``manager_id``, ``designation`` and ``department`` below
+    # read and write the ACTIVE company's, and fall back to these only
+    # outside a company or for someone not a member of it.
+    home_manager_id = db.Column("manager_id", db.Integer, db.ForeignKey("users.id"),
+                                nullable=True)
+    home_designation = db.Column("designation", db.String(100))
+    home_department = db.Column("department", db.String(100))
     date_of_birth = db.Column(db.Date)
     date_of_joining = db.Column(db.Date, default=date.today)
     phone = db.Column(db.String(20))
@@ -96,9 +102,90 @@ class User(UserMixin, db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    manager = db.relationship("User", remote_side=[id], backref="direct_reports")
     memberships = db.relationship("CompanyMembership", backref="user",
                                   lazy="dynamic", cascade="all, delete-orphan")
+
+    # ── Employment in the active company ────────────────────────────────
+
+    def _employment(self, company_id=None):
+        """This person's membership row in the company (any status: a
+        leaver's payslip still shows the designation they left with), or
+        None outside a company / for a non-member. A found row is cached on
+        the instance (lists read three fields per person); a miss is not, so
+        a membership added later in the same session is picked up."""
+        from shared.tenancy import current_company_id
+        from shared.models.company import CompanyMembership
+        cid = company_id if company_id is not None else current_company_id()
+        if cid is None or self.id is None:
+            return None
+        cache = self.__dict__.setdefault("_employment_cache", {})
+        m = cache.get(cid)
+        if m is None:
+            m = (CompanyMembership.query
+                 .filter_by(company_id=cid, user_id=self.id).first())
+            if m is not None:
+                cache[cid] = m
+        return m
+
+    def _only_company(self, company_id):
+        """True when the person belongs to no other company (removed
+        memberships aside) — then the account-wide copy follows this one."""
+        from shared.models.company import CompanyMembership
+        return CompanyMembership.query.filter(
+            CompanyMembership.user_id == self.id,
+            CompanyMembership.company_id != company_id,
+            CompanyMembership.status != CompanyMembership.REMOVED).first() is None
+
+    def _get_employment(self, field):
+        m = self._employment()
+        if m is not None:
+            return getattr(m, field)
+        return getattr(self, "home_" + field)
+
+    def _set_employment(self, field, value):
+        m = self._employment()
+        if m is not None:
+            setattr(m, field, value)
+            if not self._only_company(m.company_id):
+                return
+        setattr(self, "home_" + field, value)
+
+    @property
+    def manager_id(self):
+        """Who this person reports to in the active company."""
+        return self._get_employment("manager_id")
+
+    @manager_id.setter
+    def manager_id(self, value):
+        self._set_employment("manager_id", value)
+
+    @property
+    def designation(self):
+        return self._get_employment("designation")
+
+    @designation.setter
+    def designation(self, value):
+        self._set_employment("designation", value)
+
+    @property
+    def department(self):
+        return self._get_employment("department")
+
+    @department.setter
+    def department(self, value):
+        self._set_employment("department", value)
+
+    @property
+    def manager(self):
+        mid = self.manager_id
+        return User.query.get(mid) if mid else None
+
+    def employment_in(self, company_id):
+        """(manager_id, designation, department) in a given company."""
+        m = self._employment(company_id)
+        if m is not None:
+            return m.manager_id, m.designation, m.department
+        return self.home_manager_id, self.home_designation, self.home_department
 
     # ── Membership helpers (multi-company) ───────────────────────────────
 
@@ -173,11 +260,8 @@ class User(UserMixin, db.Model):
     def reports_of(self):
         """Active members of the ACTIVE company who report to this user.
 
-        ``manager_id`` lives on the global users table, so a bare
-        ``User.query.filter_by(manager_id=...)`` would hand a manager the
-        names of staff from every company that shares that manager_id. The
-        membership join narrows it to this company. [] when no company is
-        active.
+        Who reports to whom is kept per company on the membership, so this
+        reads the active company's rows only. [] when no company is active.
         """
         from shared.tenancy import current_company_id
         from shared.models.company import CompanyMembership
@@ -188,7 +272,7 @@ class User(UserMixin, db.Model):
             CompanyMembership.user_id == User.id,
             CompanyMembership.company_id == cid,
             CompanyMembership.status == CompanyMembership.ACTIVE))
-            .filter(User.manager_id == self.id,
+            .filter(CompanyMembership.manager_id == self.id,
                     User.is_active == True).all())  # noqa: E712
 
     @property
@@ -201,6 +285,17 @@ class User(UserMixin, db.Model):
 
     def set_password(self, password):
         self.password_hash = generate_password_hash(password)
+        # The session carries a fingerprint of the hash (get_id): the person
+        # changing their own password stays signed in here, every other
+        # session of this login is signed out.
+        from shared.account_security import refresh_own_session
+        refresh_own_session(self)
+
+    def get_id(self):
+        """Session identity: the id plus a fingerprint of the password hash,
+        so a new password ends every other session of this login."""
+        from shared.account_security import session_fingerprint
+        return f"{self.id}:{session_fingerprint(self)}"
 
     def set_password_prehashed(self, password_hash):
         """Store an already-hashed password (e.g. migrating a request to a user)."""
@@ -232,21 +327,36 @@ class User(UserMixin, db.Model):
         Outside a company (portal, super admin console) there is no
         entitlement to apply, so the user flag alone decides.
         """
-        flags = {
-            "hr": self.has_hr_access,
-            "inventory": self.has_inventory_access,
-            "invoicing": self.has_invoicing_access,
-            "finance": self.has_finance_access,
-            "accounting": self.has_accounting_access,
-            "fbr": self.has_fbr_access,
-            "fixed_assets": self.has_fixed_assets_access,
-            "executive": self.has_executive_access,
-        }
         if not self._company_entitled(module_key):
             return False
         if self.is_admin():
             return True
-        return bool(flags.get(module_key))
+        return self.module_flag(module_key)
+
+    MODULE_FLAG_ATTRS = {
+        "hr": "has_hr_access",
+        "inventory": "has_inventory_access",
+        "invoicing": "has_invoicing_access",
+        "finance": "has_finance_access",
+        "accounting": "has_accounting_access",
+        "fbr": "has_fbr_access",
+        "fixed_assets": "has_fixed_assets_access",
+        "executive": "has_executive_access",
+    }
+
+    def module_flag(self, module_key, company_id=None):
+        """The person's own switch for a module (no admin bypass, no
+        entitlement): what the company set on their membership, else the
+        account-wide default on this row."""
+        from shared.tenancy import current_company_id
+        cid = company_id if company_id is not None else current_company_id()
+        if cid is not None:
+            m = self.membership_in(cid)
+            value = m.module_flag(module_key) if m is not None else None
+            if value is not None:
+                return value
+        attr = self.MODULE_FLAG_ATTRS.get(module_key)
+        return bool(getattr(self, attr, False)) if attr else False
 
     @staticmethod
     def _company_entitled(module_key):
@@ -308,4 +418,23 @@ class User(UserMixin, db.Model):
 
 @login_manager.user_loader
 def load_user(user_id):
-    return User.query.get(int(user_id))
+    """The signed-in user of a session, or None to sign it out.
+
+    A deactivated login is signed out on its next request (it used to keep
+    working until the browser closed), and so is a session minted before the
+    password last changed. A bare id (no fingerprint) is a session from
+    before fingerprints existed and is still accepted.
+    """
+    raw, _sep, mark = str(user_id).partition(":")
+    try:
+        user = User.query.get(int(raw))
+    except (TypeError, ValueError):
+        return None
+    if user is None or not user.is_active:
+        return None
+    if mark:
+        import hmac
+        from shared.account_security import session_fingerprint
+        if not hmac.compare_digest(mark, session_fingerprint(user)):
+            return None
+    return user

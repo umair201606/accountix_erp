@@ -2,7 +2,7 @@ from datetime import datetime
 from flask import Blueprint, render_template, redirect, url_for, request, flash, jsonify, abort
 from flask_login import login_user, logout_user, login_required, current_user
 from ..extensions import db, csrf
-from shared.tenancy import get_member
+from shared.tenancy import get_member, login_change_refusal
 from shared.security import safe_local_url
 from ..models.user import User, Role
 from ..models.communication import Notification, NotificationRecipient
@@ -17,15 +17,39 @@ def _require_admin():
     return True
 
 
-def _can_manage_users():
+def _can_manage_users(action="view"):
     """HR (managers with HR access) can view and add users; admin can do
-    everything including rights, edits and deletion."""
+    everything including rights, edits and deletion.
+
+    For HR staff the Employees section of their rights also applies
+    (view / create / edit / delete): an admin who took "edit" away from an
+    HR manager used to see it change nothing."""
     if current_user.is_admin():
         return True
-    if current_user.is_manager() and current_user.has_hr_access:
-        return True
+    if current_user.is_manager() and current_user.module_flag("hr"):
+        if current_user.can("employees", action):
+            return True
+        flash(f"You do not have the Employees {action} right. Ask an admin in Settings.",
+              "danger")
+        return False
     flash("Access denied.", "danger")
     return False
+
+
+def _manager_choice(uid, current):
+    """The manager picked on an employee form, or (None, error).
+
+    The manager (kept per company on the membership) decides who approves
+    their leave, timesheets and loans; any user id was stored as posted —
+    someone outside this company, or the person themselves."""
+    mid = request.form.get("manager_id", type=int) or None
+    if mid is None or mid == current:
+        return mid, None
+    if mid == uid:
+        return None, "A person cannot be their own manager."
+    if mid not in {m.id for m in _company_managers()}:
+        return None, "Pick the manager from this company's managers."
+    return mid, None
 
 
 @auth_bp.route("/login", methods=["GET", "POST"])
@@ -42,19 +66,33 @@ def login():
         password = request.form.get("password", "")
         user = (User.query.filter(db.func.lower(User.login_id) == login_id.lower()).first()
                 or User.query.filter_by(email=login_id.lower()).first())
+        from shared import account_security as acs
+        if acs.sign_in_throttled(login_id, user):
+            # Refused before the password is looked at, so guessing stops
+            # paying off; the attempt still counts.
+            acs.record_failed_sign_in(f"Sign-in throttled for '{login_id[:80]}'",
+                                      login_id, user)
+            flash(acs.THROTTLED_MESSAGE, "danger")
+            return render_template("login.html"), 429
+        if user is None:
+            acs.spend_password_check(password)
         if user and user.check_password(password):
             # Super Admin accounts have a separate private entry point. Keep
             # the response identical to a bad login so this form cannot be
             # used to discover which accounts are platform operators.
             if user.is_super_admin:
-                from shared.audit import record_now
-                record_now("login_failed", f"Sign-in refused for {login_id} "
-                           "(super admin must use the console)", user_id=user.id)
+                acs.record_failed_sign_in(f"Sign-in refused for {login_id} "
+                                          "(super admin must use the console)",
+                                          login_id, user)
                 flash("Invalid email or password.", "danger")
                 return render_template("login.html")
             if not user.is_active:
                 flash("Your account has been deactivated.", "danger")
                 return render_template("login.html")
+            # A fresh session for the signed-in user: nothing set before
+            # sign-in (a planted company choice, stale form data) carries over.
+            from flask import session
+            session.clear()
             login_user(user)
             user.last_login = datetime.utcnow()
             db.session.commit()
@@ -69,9 +107,8 @@ def login():
             return redirect(url_for("portal.index")
                             if should_redirect_to_portal()
                             else url_for("dashboard.hub"))
-        from shared.audit import record_now
-        record_now("login_failed", f"Failed sign-in for '{login_id[:80]}'",
-                   user_id=user.id if user else None)
+        acs.record_failed_sign_in(f"Failed sign-in for '{login_id[:80]}'",
+                                  login_id, user)
         flash("Invalid email or password.", "danger")
     return render_template("login.html")
 
@@ -79,9 +116,15 @@ def login():
 @auth_bp.route("/logout")
 @login_required
 def logout():
+    # A link on another site (an <img src=".../logout">) must not sign the
+    # user out; browsers say where a request came from in Sec-Fetch-Site.
+    if request.headers.get("Sec-Fetch-Site") == "cross-site":
+        return redirect(url_for("portal.index"))
+    from flask import session
     from shared.audit import record_now
     record_now("logout", f"{current_user.full_name or current_user.email} signed out")
     logout_user()
+    session.clear()   # the company choice and anything else of this session
     flash("You have been logged out.", "info")
     return redirect(url_for("auth.login"))
 
@@ -135,18 +178,26 @@ def mark_all_read():
 @auth_bp.route("/account-settings", methods=["POST"])
 @login_required
 def account_settings():
+    from shared import account_security as acs
     login_id = request.form.get("login_id", "").strip()
     email = request.form.get("email", "").strip().lower()
     if not login_id or not email:
         flash("User ID and email are both required.", "danger")
         return redirect(url_for("auth.profile"))
-    if User.query.filter(db.func.lower(User.login_id) == login_id.lower(),
-                         User.id != current_user.id).first():
-        flash("That User ID is already taken.", "danger")
+    if (login_id == (current_user.login_id or "")
+            and email == (current_user.email or "").lower()):
+        flash("Nothing to change.", "info")
         return redirect(url_for("auth.profile"))
-    if User.query.filter(User.email == email, User.id != current_user.id).first():
-        flash("That email is already in use.", "danger")
+    # The User ID and email are how this login is signed in to and found:
+    # a stolen session must not be able to move them without the password.
+    if not current_user.check_password(request.form.get("current_password", "")):
+        flash("Enter your current password to change your User ID or email.", "danger")
         return redirect(url_for("auth.profile"))
+    problem = acs.identity_problem(current_user, login_id, email)
+    if problem:
+        flash(problem, "danger")
+        return redirect(url_for("auth.profile"))
+    acs.move_invitations(current_user.email, email)
     current_user.login_id = login_id
     current_user.email = email
     db.session.commit()
@@ -166,8 +217,10 @@ def change_password():
         if not current_user.check_password(current_pw):
             flash("Current password is incorrect.", "danger")
             return redirect(url_for("auth.change_password"))
-        if len(new_pw) < 4:
-            flash("New password must be at least 4 characters.", "danger")
+        from shared.account_security import password_problem
+        problem = password_problem(new_pw)
+        if problem:
+            flash(problem, "danger")
             return redirect(url_for("auth.change_password"))
         if new_pw != confirm_pw:
             flash("New passwords do not match.", "danger")
@@ -184,11 +237,13 @@ def change_password():
 @auth_bp.route("/users")
 @login_required
 def user_list():
-    if not _can_manage_users():
+    if not _can_manage_users("view"):
         return redirect(url_for("dashboard"))
     users = User.employees().order_by(User.full_name).all()
     roles = Role.query.all()
-    return render_template("auth/user_list.html", users=users, roles=roles)
+    from shared.tenancy import logins_managed_elsewhere
+    return render_template("auth/user_list.html", users=users, roles=roles,
+                           shared_logins=logins_managed_elsewhere(users))
 
 
 # HR does not mint logins. A person becomes a user of this company by being
@@ -263,7 +318,7 @@ def _unassigned_members():
 @login_required
 def member_assign():
     """Assign an existing company member their employee details."""
-    if not _can_manage_users():
+    if not _can_manage_users("create"):
         return redirect(url_for("dashboard"))
     from shared.models.company import CompanyMembership
     from shared.tenancy import current_company_id, get_member
@@ -303,11 +358,15 @@ def member_assign():
                   "danger")
             return _page()
 
+        manager_id, problem = _manager_choice(u.id, u.manager_id)
+        if problem:
+            flash(problem, "danger")
+            return _page()
         m.employee_code = emp_code
         u.designation = request.form.get("designation", "").strip()
         u.department = request.form.get("department", "").strip()
         u.phone = request.form.get("phone", "").strip() or u.phone
-        u.manager_id = request.form.get("manager_id", type=int) or None
+        u.manager_id = manager_id
         if not u.employee_code:
             # Legacy global column, still read by payroll and attendance. It
             # is globally unique, so only write it when nobody else holds
@@ -335,7 +394,7 @@ def member_assign():
 @auth_bp.route("/users/<int:uid>/edit", methods=["GET", "POST"])
 @login_required
 def user_edit(uid):
-    if not _can_manage_users():
+    if not _can_manage_users("edit"):
         return redirect(url_for("dashboard"))
     u = get_member(uid) or abort(404)
     if u.is_admin() and not current_user.is_admin():
@@ -353,13 +412,37 @@ def user_edit(uid):
             flash("Email is required.", "danger")
             return render_template("auth/user_form.html", roles=roles,
                                    managers=managers, user=u,
-                                   membership=membership)
+                                   membership=membership,
+                           login_refusal=login_change_refusal(u))
         if User.query.filter(User.email == new_email,
                              User.id != u.id).first():
             flash("That email is already in use.", "danger")
             return render_template("auth/user_form.html", roles=roles,
                                    managers=managers, user=u,
-                                   membership=membership)
+                                   membership=membership,
+                           login_refusal=login_change_refusal(u))
+        # The email, password and on/off switch are the person's login in
+        # every company they belong to — changed here only for a login that
+        # reaches nothing else (see login_change_refusal).
+        wants_active = request.form.get("is_active") == "1"
+        login_changes = (new_email != (u.email or "").lower()
+                         or bool(request.form.get("password", ""))
+                         or wants_active != bool(u.is_active))
+        refusal = login_change_refusal(u) if login_changes else None
+        if refusal:
+            flash(refusal + " Their email, password and sign-in are left as they were.",
+                  "danger")
+            return redirect(url_for("auth.user_edit", uid=uid))
+        manager_id, problem = _manager_choice(u.id, u.manager_id)
+        if problem:
+            flash(problem, "danger")
+            return redirect(url_for("auth.user_edit", uid=uid))
+        if new_email != (u.email or "").lower():
+            # Invitations waiting for this person follow them to the new
+            # address (as on the self-service pages): left on the old one,
+            # whoever takes that address next could accept them.
+            from shared import account_security as acs
+            acs.move_invitations(u.email, new_email)
         u.email = new_email
         u.full_name = request.form.get("full_name", u.full_name).strip()
         new_role_id = int(request.form.get("role_id", u.role_id))
@@ -384,7 +467,7 @@ def user_edit(uid):
             membership.role_id = new_role_id
         else:
             u.role_id = new_role_id
-        u.manager_id = request.form.get("manager_id", type=int) or None
+        u.manager_id = manager_id
         u.designation = request.form.get("designation", "").strip()
         u.department = request.form.get("department", "").strip()
         u.phone = request.form.get("phone", "").strip()
@@ -398,27 +481,30 @@ def user_edit(uid):
                 flash("The last working day cannot be before the joining date.", "danger")
                 return redirect(url_for("auth.user_edit", uid=uid))
             membership.date_of_leaving = left or None
-        u.is_active = request.form.get("is_active") == "1"
+        u.is_active = wants_active
         password = request.form.get("password", "")
         if password:
-            if len(password) < 4:
-                flash("Password must be at least 4 characters.", "danger")
+            from shared.account_security import password_problem
+            if password_problem(password):
+                flash(password_problem(password), "danger")
                 return render_template("auth/user_form.html", roles=roles,
                                        managers=managers, user=u,
-                                       membership=membership)
+                                       membership=membership,
+                           login_refusal=login_change_refusal(u))
             u.set_password(password)
         db.session.commit()
         flash(f"User {u.full_name} updated.", "success")
         return redirect(url_for("auth.user_list"))
     return render_template("auth/user_form.html", roles=roles,
                            managers=managers, user=u,
-                           membership=membership)
+                           membership=membership,
+                           login_refusal=login_change_refusal(u))
 
 
 @auth_bp.route("/users/<int:uid>/delete", methods=["POST"])
 @login_required
 def user_delete(uid):
-    if not _can_manage_users():
+    if not _can_manage_users("delete"):
         return redirect(url_for("dashboard"))
     u = get_member(uid) or abort(404)
     if u.id == current_user.id:
@@ -426,6 +512,11 @@ def user_delete(uid):
         return redirect(url_for("auth.user_list"))
     if u.is_admin():
         flash("Cannot delete admin users.", "danger")
+        return redirect(url_for("auth.user_list"))
+    refusal = login_change_refusal(u)
+    if refusal:
+        flash(refusal + " To stop them working here, remove them from this "
+              "company in Settings → Members.", "danger")
         return redirect(url_for("auth.user_list"))
     u.is_active = False
     db.session.commit()
@@ -438,11 +529,16 @@ def user_delete(uid):
 def user_hr_rights(uid):
     """HR-scoped rights: HR managers may grant/restrict HR sections only.
     Rights for other modules are assigned exclusively by admin in Settings."""
-    if not _can_manage_users():
+    if not _can_manage_users("edit"):
         return redirect(url_for("dashboard"))
     u = get_member(uid) or abort(404)
     if u.is_admin():
         flash("Admin accounts are managed from ERP hub Settings.", "danger")
+        return redirect(url_for("auth.user_list"))
+    if u.id == current_user.id:
+        # An HR manager whose rights an admin had narrowed could open this
+        # page on themselves and tick everything back on.
+        flash("You cannot change your own HR rights — ask an admin.", "danger")
         return redirect(url_for("auth.user_list"))
     from shared.permissions import MODULES, ACTIONS
     from shared.models.base import UserPermission
@@ -475,9 +571,14 @@ def user_reset_password(uid):
     if not _require_admin():
         return redirect(url_for("dashboard"))
     u = get_member(uid) or abort(404)
+    refusal = login_change_refusal(u)
+    if refusal:
+        flash(refusal, "danger")
+        return redirect(url_for("auth.user_list"))
     new_pw = request.form.get("new_password", "")
-    if len(new_pw) < 4:
-        flash("Password must be at least 4 characters.", "danger")
+    from shared.account_security import password_problem
+    if password_problem(new_pw):
+        flash(password_problem(new_pw), "danger")
         return redirect(url_for("auth.user_list"))
     u.set_password(new_pw)
     db.session.commit()

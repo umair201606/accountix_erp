@@ -3,7 +3,13 @@
 {% block page_title %}Batch Import Products{% endblock %}
 {% block extra_css %}
 <style>
-  .be-wrap{overflow-x:auto}
+  .be-wrap{overflow-x:auto;max-width:100%;-webkit-overflow-scrolling:touch}
+  .be-note{font-size:13px;padding:8px 12px;border-radius:5px;margin-bottom:10px;border:1px solid var(--border);overflow-wrap:anywhere}
+  .be-note.err{border-color:var(--danger);color:var(--danger)}
+  .be-note.ok{border-color:var(--success);color:var(--success)}
+  .be-rowerr{font-size:11px;color:var(--danger);margin-top:3px;line-height:1.35;min-width:160px;white-space:normal}
+  .be-date{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px;font-size:13px}
+  .be-date input{padding:5px 8px;border:1px solid var(--border);border-radius:3px;font-family:inherit;max-width:100%}
   .be-tbl{width:100%;border-collapse:collapse;font-size:13px}
   .be-tbl th{background:var(--bg-top);padding:8px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--muted);border-bottom:2px solid var(--border);white-space:nowrap}
   .be-tbl td{padding:4px;border-bottom:1px solid var(--border-soft);vertical-align:top}
@@ -30,8 +36,16 @@
   <div class="card-b">
     <p class="be-summary">Review the products below before saving. Editable — change values or delete rows as needed. A ledger account is auto-created for each product.</p>
 
+    {% if created %}<div class="be-note ok">{{ created }} product(s) saved. The rows below were not — fix them and press Save All again.</div>{% endif %}
+    {% if flagged %}<div class="be-note err">{{ flagged }} row(s) need attention — the reason is under each one. Rows that still have a problem are kept here when you save; the rest are created.</div>{% endif %}
+    {% if date_error %}<div class="be-note err">{{ date_error }}</div>{% endif %}
+
     <form id="batchForm" method="POST" action="{{ url_for('inv_products.batch_editor') }}">
       <input type="hidden" name="data" id="dataInput" value="">
+      <label class="be-date">Opening stock dated
+        <input type="date" name="opening_date" value="{{ opening_date }}">
+        <span style="color:var(--muted);font-size:12px;">Stock in the rows is valued at its cost price and posted Dr Inventory / Cr Opening Balance Equity on this date — date it before your first purchase or sale.</span>
+      </label>
       <div class="be-wrap">
         <table class="be-tbl" id="beTbl">
           <thead>
@@ -55,14 +69,14 @@
             <tr>
               <td style="text-align:center;color:var(--light);font-size:11px;" class="be-idx">{{ loop.index }}</td>
               <td><input type="text" class="be-inp be-sku" value="{{ r.sku }}" style="text-transform:uppercase"><div class="be-msg"></div></td>
-              <td><input type="text" class="be-inp be-name" value="{{ r.name }}"><div class="be-msg"></div></td>
+              <td><input type="text" class="be-inp be-name" value="{{ r.name }}"><div class="be-msg"></div>{% if r.row_errors %}<div class="be-rowerr">{% if r.row_line %}Row {{ r.row_line }}: {% endif %}{{ r.row_errors|join(' ') }}</div>{% endif %}</td>
               <td><input type="text" class="be-inp be-desc" value="{{ r.description }}"></td>
               <td><input type="text" class="be-inp be-cat" value="{{ r.category_name }}" placeholder="Cat. name"></td>
               <td><input type="text" class="be-inp be-uprice" value="{{ r.unit_price }}"></td>
               <td><input type="text" class="be-inp be-cprice" value="{{ r.cost_price }}"></td>
               <td><input type="text" class="be-inp be-reorder" value="{{ r.reorder_level }}"></td>
               <td><input type="text" class="be-inp be-stock" value="{{ r.current_stock }}"></td>
-              <td><select class="be-sel be-unit">{% for u in units %}<option value="{{ u.abbreviation }}" {% if r.unit == u.abbreviation %}selected{% endif %}>{{ u.abbreviation }}</option>{% endfor %}</select></td>
+              <td><select class="be-sel be-unit">{% for u in units %}<option value="{{ u.abbreviation }}" {% if r.unit == u.abbreviation %}selected{% endif %}>{{ u.abbreviation }}</option>{% endfor %}{% if r.unit and r.unit not in units|map(attribute='abbreviation')|list %}<option value="{{ r.unit }}" selected>{{ r.unit }} (not set up)</option>{% endif %}</select></td>
               <td><input type="text" class="be-inp be-hscode" value="{{ r.hs_code }}" placeholder="HS code"></td>
               <td><button type="button" class="be-del" onclick="delRow(this)" title="Remove">&times;</button></td>
             </tr>

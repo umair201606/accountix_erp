@@ -24,14 +24,35 @@ def _require_admin():
     return True
 
 
+def _visible_ids():
+    """None for an admin (the whole company); for a manager, the ids of
+    their direct reports here. Managers used to run every report over the
+    whole company — every employee's PF and loan balance, every leave
+    reason — when they manage a team."""
+    if current_user.is_admin():
+        return None
+    return {u.id for u in current_user.reports_of()}
+
+
 def _get_scope_users(scope, user_id=None, department=None):
     if scope == "individual" and user_id:
-        return [get_member(user_id)]
+        u = get_member(user_id)
+        users = [u] if u is not None else []
     elif scope == "department" and department:
-        return User.employees().filter(User.department == department,
-                                       User.is_active.is_(True)).all()
+        # Department is per company (on the membership User.employees joins).
+        from shared.models.company import CompanyMembership
+        users = User.employees().filter(CompanyMembership.department == department,
+                                        User.is_active.is_(True)).all()
     else:
-        return User.employees().filter(User.is_active.is_(True)).all()
+        users = User.employees().filter(User.is_active.is_(True)).all()
+    visible = _visible_ids()
+    return users if visible is None else [u for u in users if u.id in visible]
+
+
+# Report columns that read another section's data need that section's view
+# right (HR staff only; an admin has every right).
+COLUMN_RIGHTS = {"pf_balance": "pf", "loan_balance": "loans",
+                 "leaves": "leaves", "sick_days": "leaves"}
 
 
 @reports_bp.route("/")
@@ -39,7 +60,7 @@ def _get_scope_users(scope, user_id=None, department=None):
 def index():
     if not _require_admin():
         return render_template("dashboard/index.html")
-    employees = User.employees().filter(User.is_active.is_(True)).all()
+    employees = _get_scope_users("company")
     return render_template("reports/index.html", employees=employees,
                            today=date.today())
 
@@ -107,11 +128,18 @@ def query():
     date_from = datetime.strptime(data["date_from"], "%Y-%m-%d").date() if data.get("date_from") else None
     date_to = datetime.strptime(data["date_to"], "%Y-%m-%d").date() if data.get("date_to") else None
     columns = data.get("columns", ["employee", "total_hours", "leaves", "sick_days"])
-    users = _get_scope_users(scope, user_id, department)
-    if scope == "individual" and current_user.is_manager() and user_id:
-        emp = get_member(user_id)
-        if emp and emp.manager_id != current_user.id and not current_user.is_admin():
+    for c in columns:
+        section = COLUMN_RIGHTS.get(c)
+        if section and not current_user.can(section, "view"):
+            return jsonify({"error": f"You do not have the {section.upper() if section == 'pf' else section.title()} "
+                                     f"view right needed for that column."}), 403
+    if scope == "individual" and user_id:
+        if get_member(user_id) is None:
+            return jsonify({"error": "That person is not a member of this company."}), 404
+        visible = _visible_ids()
+        if visible is not None and user_id not in visible:
             return jsonify({"error": "Not authorized for this employee"}), 403
+    users = _get_scope_users(scope, user_id, department)
     results = []
     for u in users:
         row = {"employee": u.full_name, "department": u.department, "id": u.id}
@@ -219,12 +247,18 @@ def export_excel():
 def export_attendance():
     if not _require_admin():
         return jsonify({"error": "Access denied"}), 403
+    if not current_user.can("attendance", "view"):
+        return jsonify({"error": "You do not have the Attendance view right."}), 403
     month = request.args.get("month", datetime.now().month, type=int)
     year = request.args.get("year", datetime.now().year, type=int)
-    records = db.session.query(Attendance, User).join(User).filter(
+    q = db.session.query(Attendance, User).join(User).filter(
         extract("month", Attendance.date) == month,
         extract("year", Attendance.date) == year,
-    ).order_by(Attendance.date).all()
+    )
+    visible = _visible_ids()
+    if visible is not None:
+        q = q.filter(Attendance.user_id.in_(visible or [0]))
+    records = q.order_by(Attendance.date).all()
     rows = [[att.date, usr.full_name, usr.department or "",
              att.clock_in.strftime("%H:%M") if att.clock_in else "",
              att.clock_out.strftime("%H:%M") if att.clock_out else "",
@@ -245,10 +279,16 @@ def export_attendance():
 def export_leaves():
     if not _require_admin():
         return jsonify({"error": "Access denied"}), 403
+    if not current_user.can("leaves", "view"):
+        return jsonify({"error": "You do not have the Leaves view right."}), 403
     year = request.args.get("year", datetime.now().year, type=int)
-    records = db.session.query(LeaveRequest, User, LeaveType).join(User).join(LeaveType).filter(
+    q = db.session.query(LeaveRequest, User, LeaveType).join(User).join(LeaveType).filter(
         extract("year", LeaveRequest.start_date) == year
-    ).order_by(LeaveRequest.start_date).all()
+    )
+    visible = _visible_ids()
+    if visible is not None:
+        q = q.filter(LeaveRequest.user_id.in_(visible or [0]))
+    records = q.order_by(LeaveRequest.start_date).all()
     rows = [[usr.full_name, lt.name, lr.start_date, lr.end_date,
              float(lr.total_days or 0), (lr.status or "").title(), lr.reason or ""]
             for lr, usr, lt in records]

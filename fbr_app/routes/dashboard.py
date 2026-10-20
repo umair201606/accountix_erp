@@ -16,7 +16,7 @@ fbr_dashboard_bp = Blueprint("fbr_dashboard", __name__, url_prefix="/fbr",
 @fbr_dashboard_bp.route("/")
 @login_required
 def dashboard():
-    if not current_user.is_admin() and not current_user.has_fbr_access:
+    if not current_user.module_access("fbr"):
         flash("Access denied.", "error")
         return redirect(url_for("dashboard.hub"))
 
@@ -37,7 +37,7 @@ def dashboard():
 @fbr_dashboard_bp.route("/submit/<int:invoice_id>", methods=["POST"])
 @login_required
 def submit_invoice(invoice_id):
-    if not current_user.is_admin() and not current_user.has_fbr_access:
+    if not current_user.module_access("fbr"):
         return jsonify({"ok": False, "error": "Access denied"}), 403
 
     config = FBRConfig.get()
@@ -91,7 +91,7 @@ def submit_invoice(invoice_id):
 @fbr_dashboard_bp.route("/validate/<int:invoice_id>", methods=["POST"])
 @login_required
 def validate_invoice(invoice_id):
-    if not current_user.is_admin() and not current_user.has_fbr_access:
+    if not current_user.module_access("fbr"):
         return jsonify({"ok": False, "error": "Access denied"}), 403
 
     config = FBRConfig.get()
@@ -118,15 +118,30 @@ def validate_invoice(invoice_id):
 @fbr_dashboard_bp.route("/retry/<int:record_id>", methods=["POST"])
 @login_required
 def retry_submission(record_id):
-    if not current_user.is_admin() and not current_user.has_fbr_access:
+    if not current_user.module_access("fbr"):
         return jsonify({"ok": False, "error": "Access denied"}), 403
 
     config = FBRConfig.get()
     if not config.is_active or not config.access_token:
         return jsonify({"ok": False, "error": "FBR not configured"}), 400
 
+    record = scoped_get_404(FBRInvoiceRecord, record_id)
+    # Same guard as Send: the invoice locked through the call, so two
+    # retries (or a retry and a Send) cannot both report it.
+    invoice = scoped_get_404(InvInvoice, record.inv_invoice_id, for_update=True)
+    db.session.refresh(record)
+    if record.status == "success" or FBRInvoiceRecord.query.filter_by(
+            inv_invoice_id=invoice.id, status="success").first():
+        return jsonify({"ok": False, "error": "Invoice already submitted successfully to FBR"}), 400
+    if invoice.voucher_status != "approved":
+        return jsonify({"ok": False, "error": "Only approved invoices can be submitted to FBR"}), 400
+    try:
+        payload = build_fbr_invoice(invoice.id)
+    except Exception as e:
+        return jsonify({"ok": False, "error": f"Failed to build payload: {str(e)}"}), 500
+
     client = FBRApiClient()
-    record, ok, data = client.retry_submission(record_id, current_user.id)
+    record, ok, data = client.retry_submission(record, payload, current_user.id)
 
     if ok:
         return jsonify({
@@ -145,7 +160,7 @@ def retry_submission(record_id):
 @fbr_dashboard_bp.route("/record/<int:record_id>")
 @login_required
 def view_record(record_id):
-    if not current_user.is_admin() and not current_user.has_fbr_access:
+    if not current_user.module_access("fbr"):
         return jsonify({"ok": False, "error": "Access denied"}), 403
     record = scoped_get_404(FBRInvoiceRecord, record_id)
     return jsonify({
@@ -167,7 +182,7 @@ def view_record(record_id):
 @fbr_dashboard_bp.route("/status/<int:invoice_id>")
 @login_required
 def check_status(invoice_id):
-    if not current_user.is_admin() and not current_user.has_fbr_access:
+    if not current_user.module_access("fbr"):
         return jsonify({"ok": False, "error": "Access denied"}), 403
     record = FBRInvoiceRecord.latest_for_invoice(invoice_id)
     if not record:

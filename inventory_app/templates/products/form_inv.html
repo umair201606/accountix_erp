@@ -12,12 +12,13 @@
 </style>
 {% endblock %}
 {% block content %}
+{% set f = draft or product %}
 <div class="card" style="max-width:700px;">
   <form method="POST" class="form">
     <div class="form-row">
       <div class="form-group">
         <label>SKU *</label>
-        <input type="text" name="sku" id="sku" class="form-control focus-ring dup-inp" required value="{{ product.sku if product else '' }}">
+        <input type="text" name="sku" id="sku" class="form-control focus-ring dup-inp" required value="{{ f.sku or '' if f else '' }}">
         <div class="dup-check" id="skuCheck"></div>
       </div>
       <div class="form-group">
@@ -25,7 +26,7 @@
         <div style="display:flex;gap:6px;">
           <select name="unit" class="form-control focus-ring" style="flex:1;">
             {% for u in units %}
-            <option value="{{ u.abbreviation }}" {% if product and product.unit == u.abbreviation %}selected{% endif %}>{{ u.name }} ({{ u.abbreviation }})</option>
+            <option value="{{ u.abbreviation }}" {% if f and f.unit == u.abbreviation %}selected{% endif %}>{{ u.name }} ({{ u.abbreviation }})</option>
             {% endfor %}
           </select>
           <button type="button" class="btn btn-outline btn-sm" onclick="openUnitModal()" style="white-space:nowrap;" title="Add new unit">+ Unit</button>
@@ -34,13 +35,13 @@
     </div>
     <div class="form-group">
       <label>Name *</label>
-      <input type="text" name="name" id="name" class="form-control focus-ring dup-inp" required value="{{ product.name if product else '' }}">
+      <input type="text" name="name" id="name" class="form-control focus-ring dup-inp" required value="{{ f.name or '' if f else '' }}">
       <small style="display:block;margin-top:4px;color:var(--accent);font-weight:500;">&#9432; This name will appear in ledgers — a 4th-level ledger account is created automatically under Inventory.</small>
       <div class="dup-check" id="nameCheck"></div>
     </div>
     <div class="form-group">
       <label>Description</label>
-      <textarea name="description" class="form-control focus-ring" rows="3">{{ product.description if product else '' }}</textarea>
+      <textarea name="description" class="form-control focus-ring" rows="3">{{ f.description or '' if f else '' }}</textarea>
     </div>
     <div class="form-row">
       <div class="form-group">
@@ -48,52 +49,52 @@
         <select name="category_id" class="form-control focus-ring">
           <option value="">None</option>
           {% for c in categories %}
-          <option value="{{ c.id }}" {% if product and product.category_id == c.id %}selected{% endif %}>{{ c.name }}</option>
+          <option value="{{ c.id }}" {% if f and f.category_id|string == c.id|string %}selected{% endif %}>{{ c.name }}</option>
           {% endfor %}
         </select>
       </div>
       <div class="form-group">
         <label>HS Code</label>
-        <input type="text" name="hs_code" class="form-control focus-ring" value="{{ product.hs_code if product else '' }}" placeholder="e.g. 8541.4000">
+        <input type="text" name="hs_code" class="form-control focus-ring" value="{{ f.hs_code or '' if f else '' }}" placeholder="e.g. 8541.4000">
         <small style="display:block;margin-top:4px;color:var(--muted);">Harmonised System tariff code — sent to FBR Digital Invoicing.</small>
       </div>
       <div class="form-group">
         <label>Unit Weight</label>
-        <input type="number" name="weight" step="any" min="0" class="form-control focus-ring" value="{{ product.weight if product else '' }}" placeholder="0.00">
+        <input type="number" name="weight" step="any" min="0" class="form-control focus-ring" value="{{ f.weight if f and f.weight not in (none, '') else '' }}" placeholder="0.00">
         <small style="display:block;margin-top:4px;color:var(--muted);">Weight of one unit. Used to split charges set to &ldquo;By weight&rdquo; — lines with no weight fall back to value.</small>
       </div>
     </div>
     <div class="form-row">
       <div class="form-group">
         <label>Unit Price</label>
-        <input type="number" step="0.01" name="unit_price" class="form-control focus-ring" value="{{ product.unit_price if product else '0' }}">
+        <input type="number" step="0.01" name="unit_price" class="form-control focus-ring" value="{{ f.unit_price if f and f.unit_price not in (none, '') else '0' }}">
       </div>
       <div class="form-group">
         <label>Cost Price</label>
-        <input type="number" step="0.01" name="cost_price" class="form-control focus-ring" value="{{ product.cost_price if product else '0' }}"{% if cost_locked %} readonly title="Kept at the current valuation cost by the stock ledger"{% endif %}>
+        <input type="number" step="0.01" name="cost_price" class="form-control focus-ring" value="{{ f.cost_price if f and f.cost_price not in (none, '') else '0' }}"{% if cost_locked %} readonly title="Kept at the current valuation cost by the stock ledger"{% endif %}>
       </div>
       <div class="form-group">
         <label>Reorder Level</label>
-        <input type="number" name="reorder_level" class="form-control focus-ring" value="{{ product.reorder_level if product else '0' }}">
+        <input type="number" name="reorder_level" class="form-control focus-ring" value="{{ f.reorder_level if f and f.reorder_level not in (none, '') else '0' }}">
       </div>
     </div>
     {% if not product %}
     <div class="form-row">
       <div class="form-group">
         <label>Opening Stock</label>
-        <input type="number" step="any" min="0" name="current_stock" class="form-control focus-ring" value="0">
+        <input type="number" step="any" min="0" name="current_stock" class="form-control focus-ring" value="{{ draft.current_stock if draft and draft.current_stock else 0 }}">
         <small style="color:var(--muted);">Valued at the Cost Price above and posted Dr Inventory / Cr Opening Balance Equity.</small>
       </div>
       <div class="form-group">
         <label>Opening date</label>
-        <input type="date" name="opening_date" class="form-control focus-ring">
+        <input type="date" name="opening_date" class="form-control focus-ring" value="{{ draft.opening_date if draft else '' }}">
         <small style="color:var(--muted);">Blank = today. Date it before your first purchase or sale.</small>
       </div>
     </div>
     {% endif %}
     {% if product %}
     <div class="form-group">
-      <label><input type="checkbox" name="is_active" {% if product.is_active %}checked{% endif %}> Active</label>
+      <label><input type="checkbox" name="is_active" {% if f.is_active %}checked{% endif %}> Active</label>
     </div>
     {% endif %}
     <div class="form-actions">

@@ -33,15 +33,18 @@
                         {% else %}
                         <span class="badge badge-default">Inactive</span>
                         {% endif %}
+                        {% if u.id in shared_logins %}
+                        <div style="font-size:11px;color:var(--muted);margin-top:2px;" title="This login is also used elsewhere, so only its owner can change its password or turn it off.">Own login</div>
+                        {% endif %}
                     </td>
                     <td>
                         <div style="display:flex;gap:4px;flex-wrap:wrap;">
                             <a href="{{ url_for('auth.user_edit', uid=u.id) }}" class="btn btn-sm btn-outline">Edit</a>
                             <a href="{{ url_for('auth.user_hr_rights', uid=u.id) }}" class="btn btn-sm btn-outline">HR Rights</a>
-                            {% if current_user.is_admin() %}
+                            {% if current_user.is_admin() and u.id not in shared_logins %}
                             <button class="btn btn-sm btn-outline" onclick="resetPw({{ u.id }}, {{ (u.full_name)|tojson|forceescape }})">Reset PW</button>
                             {% endif %}
-                            {% if u.is_active and not u.is_admin() and u.id != current_user.id %}
+                            {% if u.is_active and not u.is_admin() and u.id != current_user.id and u.id not in shared_logins %}
                             <form method="POST" action="{{ url_for('auth.user_delete', uid=u.id) }}" style="display:inline;" onsubmit="return confirm('Deactivate ' + {{ (u.full_name)|tojson|forceescape }} + '?')">
                                 <button class="btn btn-sm btn-danger">Deactivate</button>
                             </form>
@@ -64,7 +67,7 @@
         <form method="POST" id="pw-form">
             <p style="font-size:13px;color:var(--muted);margin-bottom:12px;">New password for <strong id="pw-user-name"></strong></p>
             <div class="form-group">
-                <input type="password" name="new_password" class="form-control" placeholder="New password" required minlength="4">
+                <input type="password" name="new_password" class="form-control" placeholder="New password" required minlength="8">
             </div>
             <button type="submit" class="btn btn-primary btn-block">Set Password</button>
         </form>

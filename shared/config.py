@@ -46,6 +46,20 @@ class Config:
         SQLALCHEMY_ENGINE_OPTIONS = {"connect_args": {"timeout": 30}}
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     WTF_CSRF_ENABLED = False
+    # Form tokens are off (above), so the cookies themselves must refuse to
+    # travel with a request another website starts: SameSite=Lax keeps them
+    # off cross-site POSTs (Firefox and Safari only do that when the
+    # attribute is set explicitly), and shared/csrf_guard.py refuses any
+    # write whose Origin / Referer names another site. HttpOnly keeps them
+    # out of page scripts; Secure on Vercel, which only serves HTTPS (local
+    # dev is plain http, where a Secure cookie would never come back).
+    _https = bool(os.environ.get("VERCEL"))
+    SESSION_COOKIE_SAMESITE = "Lax"
+    SESSION_COOKIE_HTTPONLY = True
+    SESSION_COOKIE_SECURE = _https
+    REMEMBER_COOKIE_SAMESITE = "Lax"
+    REMEMBER_COOKIE_HTTPONLY = True
+    REMEMBER_COOKIE_SECURE = _https
     MAX_CONTENT_LENGTH = 16 * 1024 * 1024
     UPLOAD_FOLDER = os.path.join(os.path.dirname(os.path.dirname(__file__)), "uploads")
 

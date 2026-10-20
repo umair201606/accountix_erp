@@ -246,7 +246,7 @@ def test_alembic_is_at_head_after_boot(w):
     from alembic.script import ScriptDirectory
     head = ScriptDirectory.from_config(db_migrate.alembic_config()).get_current_head()
     with flask_app.app_context():
-        assert db_migrate.current(db.engine) == head == "0013_edit_version"
+        assert db_migrate.current(db.engine) == head == "0015_membership_employment"
 
 
 def test_money_revision_converts_a_double_precision_column(w):
@@ -274,7 +274,7 @@ def test_money_revision_converts_a_double_precision_column(w):
             )).scalar()
         assert dtype == "numeric"
         assert raw == "0.300000"
-        assert db_migrate.current(db.engine) == "0013_edit_version"
+        assert db_migrate.current(db.engine) == "0015_membership_employment"
         # Running again is a no-op.
         db_migrate.upgrade(db.engine)
 
@@ -301,7 +301,7 @@ def test_invoice_date_revision_converts_a_legacy_date_column(w):
                 "('invoice_date', 'due_date')")).fetchall())
         assert types == {"invoice_date": "timestamp without time zone",
                          "due_date": "timestamp without time zone"}
-        assert db_migrate.current(db.engine) == "0013_edit_version"
+        assert db_migrate.current(db.engine) == "0015_membership_employment"
 
 
 def test_return_date_check_accepts_date_and_datetime():

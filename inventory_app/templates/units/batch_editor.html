@@ -3,7 +3,11 @@
 {% block page_title %}Batch Import Units{% endblock %}
 {% block extra_css %}
 <style>
-  .be-wrap{overflow-x:auto}
+  .be-wrap{overflow-x:auto;max-width:100%;-webkit-overflow-scrolling:touch}
+  .be-note{font-size:13px;padding:8px 12px;border-radius:5px;margin-bottom:10px;border:1px solid var(--border);overflow-wrap:anywhere}
+  .be-note.err{border-color:var(--danger);color:var(--danger)}
+  .be-note.ok{border-color:var(--success);color:var(--success)}
+  .be-rowerr{font-size:11px;color:var(--danger);margin-top:3px;line-height:1.35;min-width:160px;white-space:normal}
   .be-tbl{width:100%;border-collapse:collapse;font-size:13px}
   .be-tbl th{background:var(--bg-top);padding:8px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--muted);border-bottom:2px solid var(--border)}
   .be-tbl td{padding:4px;border-bottom:1px solid var(--border-soft);vertical-align:top}
@@ -28,6 +32,9 @@
   <div class="card-b">
     <p class="be-summary">Review the units below before saving. Editable — change names, abbreviations, or delete rows as needed.</p>
 
+    {% if created %}<div class="be-note ok">{{ created }} unit(s) saved. The rows below were not — fix them and press Save All again.</div>{% endif %}
+    {% if flagged %}<div class="be-note err">{{ flagged }} row(s) need attention — the reason is under each one. Rows that still have a problem are kept here when you save; the rest are created.</div>{% endif %}
+
     <form id="batchForm" method="POST" action="{{ url_for('inv_units.batch_editor') }}">
       <input type="hidden" name="data" id="dataInput" value="">
       <div class="be-wrap">
@@ -39,7 +46,7 @@
             {% for r in rows %}
             <tr>
               <td style="text-align:center;color:var(--light);font-size:11px;" class="be-idx">{{ loop.index }}</td>
-              <td><input type="text" class="be-inp be-name" value="{{ r.name }}"><div class="be-msg"></div></td>
+              <td><input type="text" class="be-inp be-name" value="{{ r.name }}"><div class="be-msg"></div>{% if r.row_errors %}<div class="be-rowerr">{% if r.row_line %}Row {{ r.row_line }}: {% endif %}{{ r.row_errors|join(' ') }}</div>{% endif %}</td>
               <td><input type="text" class="be-inp be-abbr" value="{{ r.abbreviation }}" maxlength="20"><div class="be-msg"></div></td>
               <td><input type="text" class="be-inp be-expl" value="{{ r.explanation }}"></td>
               <td><button type="button" class="be-del" onclick="delRow(this)" title="Remove">&times;</button></td>

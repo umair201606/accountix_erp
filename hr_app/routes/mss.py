@@ -125,8 +125,18 @@ def approve_timesheet(aid):
 @login_required
 def approve_loan(lid):
     loan = scoped_get_404(LoanAdvanceRequest, lid, for_update=True)
-    if loan.user.manager_id != current_user.id and not current_user.is_admin():
-        return _answer(False, "Not authorized", 403)
+    # A manager decides only for their own direct reports in THIS company,
+    # holding the manager role here and the Loans approve right. Before,
+    # matching the global manager_id was enough: anyone some other company
+    # had named as the borrower's manager — an employee here — could
+    # approve a loan the payroll then paid out and recovered.
+    if not current_user.is_admin():
+        if (not current_user.is_manager()
+                or loan.user_id not in {u.id for u in current_user.reports_of()}):
+            return _answer(False, "Not authorized", 403)
+        if not current_user.can("loans", "approve"):
+            return _answer(False, "You do not have the Loans approve right. "
+                                  "Ask an admin in Settings.", 403)
     action = request.form.get("action")
     if action not in ("approve", "reject"):
         return _answer(False, "Unknown action.", 400)
@@ -251,6 +261,11 @@ def evaluate(uid):
         # ".basic_salary" on it raised and every evaluation of an employee
         # with a salary package was a 500. Look the profile up in this company.
         profile = PayrollProfile.query.filter_by(user_id=emp.id).first()
+        if new_basic and new_basic > 0 and not current_user.can("payroll", "edit"):
+            # A salary revision changes what payroll pays from its date.
+            flash("You do not have the Payroll edit right needed to revise a salary. "
+                  "Ask an admin in Settings.", "danger")
+            return redirect(url_for("mss.index"))
         if new_basic and new_basic > 0:
             old_basic = float(profile.basic_salary or 0) if profile else 0
             db.session.add(SalaryRevision(

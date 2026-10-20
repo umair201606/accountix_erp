@@ -38,7 +38,8 @@ from shared.models.invoice_template import (
     sample_context, _STRING_OPTIONS, DISPLAY_CHOICES)
 from shared.models.ledger import ChartOfAccount
 from shared.permissions import MODULES, ACTIONS
-from shared.tenancy import current_company_id, scoped_get, scoped_get_404
+from shared.tenancy import (current_company_id, login_change_refusal,
+                            scoped_get, scoped_get_404)
 
 settings_bp = Blueprint("settings", __name__, url_prefix="/settings")
 
@@ -218,33 +219,44 @@ def index():
 @settings_bp.route("/account", methods=["POST"])
 @login_required
 def save_account():
+    from shared import account_security as acs
     full_name = request.form.get("full_name", "").strip()
-    email = request.form.get("email", "").strip().lower()
-    login_id = request.form.get("login_id", "").strip()
+    email = request.form.get("email", "").strip().lower() or current_user.email
+    login_id = request.form.get("login_id", "").strip() or (current_user.login_id or "")
     new_pw = request.form.get("new_password", "")
     confirm = request.form.get("confirm_password", "")
     back = redirect(url_for("settings.index", tab="account"))
 
-    if full_name:
-        current_user.full_name = full_name
-    if email and email != current_user.email:
-        if User.query.filter(User.email == email, User.id != current_user.id).first():
-            flash("That email is already in use.", "error")
+    identity_changes = (email != (current_user.email or "").lower()
+                        or login_id != (current_user.login_id or ""))
+    if identity_changes or new_pw or confirm:
+        # How this login is signed in to: a stolen session must not be
+        # able to move it (or lock the owner out) without the password.
+        if not current_user.check_password(request.form.get("current_password", "")):
+            flash("Enter your current password to change your User ID, email "
+                  "or password.", "error")
             return back
-        current_user.email = email
-    if login_id and login_id != current_user.login_id:
-        if User.query.filter(db.func.lower(User.login_id) == login_id.lower(),
-                             User.id != current_user.id).first():
-            flash("That User ID is already taken.", "error")
+    if identity_changes:
+        problem = acs.identity_problem(current_user, login_id or email, email)
+        if problem:
+            flash(problem, "error")
             return back
-        current_user.login_id = login_id
     if new_pw or confirm:
-        if len(new_pw) < 4:
-            flash("Password must be at least 4 characters.", "error")
+        problem = acs.password_problem(new_pw)
+        if problem:
+            flash(problem, "error")
             return back
         if new_pw != confirm:
             flash("Passwords do not match — enter the new password twice.", "error")
             return back
+    if full_name:
+        current_user.full_name = full_name
+    if email != (current_user.email or "").lower():
+        acs.move_invitations(current_user.email, email)
+        current_user.email = email
+    if login_id and login_id != (current_user.login_id or ""):
+        current_user.login_id = login_id
+    if new_pw:
         current_user.set_password(new_pw)
     db.session.commit()
     flash("Account updated.", "success")
@@ -865,16 +877,27 @@ def user_rights(uid):
         new_pw = request.form.get("new_password", "")
         confirm = request.form.get("confirm_password", "")
         if new_pw or confirm:
-            if len(new_pw) < 4:
-                flash("Password must be at least 4 characters.", "error")
+            refusal = login_change_refusal(u)
+            if refusal:
+                flash(refusal, "error")
+                return redirect(url_for("settings.user_rights", uid=uid))
+            from shared.account_security import password_problem
+            problem = password_problem(new_pw)
+            if problem:
+                flash(problem, "error")
                 return redirect(url_for("settings.user_rights", uid=uid))
             if new_pw != confirm:
                 flash("Passwords do not match — enter the new password twice.", "error")
                 return redirect(url_for("settings.user_rights", uid=uid))
             u.set_password(new_pw)
 
-        for module_key, _label, flag_attr, _sections in MODULES:
-            setattr(u, flag_attr, request.form.get(f"module_{module_key}") == "on")
+        # Module access is set for THIS company: the flags on the user row
+        # are shared by every company the person works in, so switching a
+        # module off here used to switch it off there too.
+        membership = u.membership_in(current_company_id())
+        membership.set_module_flags({
+            module_key: request.form.get(f"module_{module_key}") == "on"
+            for module_key, _label, _flag, _sections in MODULES})
 
         # Rewrite this user's rows from the submitted grid so stored state
         # always matches exactly what the admin sees on screen. Company-scoped
@@ -893,8 +916,12 @@ def user_rights(uid):
         return redirect(url_for("settings.index", tab="rights"))
 
     perms = {p.resource: p for p in UserPermission.query.filter_by(user_id=u.id).all()}
+    cid = current_company_id()
     return render_template("settings/user_rights.html", u=u, modules=MODULES,
                            actions=ACTIONS, perms=perms,
+                           flags={key: u.module_flag(key) for key, *_ in MODULES},
+                           role=u.role_in(cid),
+                           login_refusal=login_change_refusal(u),
                            is_configured=bool(perms), module_key="settings")
 
 
@@ -922,6 +949,12 @@ def toggle_active(uid):
     u = _managed_user_or_404(uid)
     if u.id == current_user.id:
         flash("You cannot deactivate your own account.", "error")
+        return redirect(url_for("settings.index", tab="rights"))
+    refusal = login_change_refusal(u)
+    if refusal:
+        # Deactivating the login would lock them out of every company.
+        flash(refusal + " To stop them working here, remove them from this "
+              "company under Members.", "error")
         return redirect(url_for("settings.index", tab="rights"))
     u.is_active = not u.is_active
     db.session.commit()

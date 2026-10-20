@@ -3,8 +3,9 @@
 {% block content %}
 <div class="page-header">
     <h1>Team Calendar</h1>
-    <button class="btn btn-primary" id="show-event-form">+ New Event</button>
+    {% if can_post %}<button class="btn btn-primary" id="show-event-form">+ New Event</button>{% endif %}
 </div>
+{% if can_post %}
 <div id="event-form" class="card hidden mb-20" style="max-width:500px;">
     <form method="POST" action="{{ url_for('workplace.create_event') }}">
         <div class="form-group"><label>Title</label><input type="text" name="title" class="form-control" required></div>
@@ -27,6 +28,7 @@
         <button type="submit" class="btn btn-primary">Create Event</button>
     </form>
 </div>
+{% endif %}
 <div class="card">
     <div class="table-wrap">
         <table>

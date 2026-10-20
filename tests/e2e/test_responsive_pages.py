@@ -28,6 +28,10 @@ PAGES = [
     "/compensation/loans", "/pf/", "/accounting/bank-reconciliation",
     "/compensation/",
     "/invoicing/tracking/", "/invoicing/tracking/sales", "/invoicing/tracking/purchases",
+    "/inventory/customers/batch", "/inventory/suppliers/batch",
+    "/inventory/products/batch", "/inventory/units/batch",
+    "/workplace/", "/workplace/events", "/workplace/kanban", "/reports/", "/auth/profile",
+    "/accounting/",
 ]
 
 # Elements wider than the screen that are NOT inside a scroll container.

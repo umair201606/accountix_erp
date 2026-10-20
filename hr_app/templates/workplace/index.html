@@ -14,10 +14,11 @@
 <div class="card mb-20">
     <div class="card-header flex-between">
         <span>Latest Announcements</span>
-        {% if current_user.has_permission('workplace', 'write') %}
+        {% if can_post %}
         <button class="btn btn-sm btn-primary" id="show-ann-form">+ New</button>
         {% endif %}
     </div>
+    {% if can_post %}
     <div id="ann-form" class="hidden" style="margin-bottom:14px;padding:14px;background:var(--paper);border:1px solid var(--line);border-radius:3px;">
         <form method="POST" action="{{ url_for('workplace.create_announcement') }}">
             <div class="form-group"><input type="text" name="title" class="form-control" placeholder="Title" required></div>
@@ -32,6 +33,7 @@
             <button type="submit" class="btn btn-primary btn-sm">Publish</button>
         </form>
     </div>
+    {% endif %}
     {% for a in announcements[:5] %}
     <div style="padding:10px 0;border-bottom:1px solid var(--line);">
         <div class="flex-between">

@@ -64,15 +64,22 @@ def overlapping(user_id, start, end):
         LeaveRequest.start_date <= end, LeaveRequest.end_date >= start).first()
 
 
-def approver_for(user):
-    """Who decides this user's leave inside the ACTIVE company.
+def approver_for(user, right=None):
+    """Who decides this user's leave (or timesheet) inside the ACTIVE company.
 
-    ``manager_id`` lives on the global users table, so the manager may not
-    be a member of this company; then (or with no manager at all) a company
-    admin decides. A request with no approval row was invisible to every
+    ``user.manager_id`` is this company's choice (kept on the membership);
+    a manager who is not an active member here — or no manager at all —
+    leaves it to a company admin. A request with no approval row was invisible to every
     approver and stayed pending for ever. None = nobody else can decide
-    (the applicant is the company's only admin)."""
-    from shared.models.base import Role
+    (the applicant is the company's only admin).
+
+    The manager must hold the manager or admin role HERE: someone who is a
+    plain employee in this company could not open the approvals page, so
+    the request waited on them for ever, and a manager_id written by
+    another company decided this company's requests. ``right`` — a
+    (section, action) such as ("leaves", "approve") — also skips a manager
+    an admin has taken that right from."""
+    from shared.models.base import Role, User
     from shared.models.company import CompanyMembership
     from shared.tenancy import current_company_id
     cid = current_company_id()
@@ -80,9 +87,14 @@ def approver_for(user):
         return None
     active = CompanyMembership.query.filter_by(company_id=cid,
                                                status=CompanyMembership.ACTIVE)
+    lead_roles = [r.id for r in Role.query.filter(
+        Role.name.in_((Role.ADMIN, Role.MANAGER))).all()]
     if user.manager_id and user.manager_id != user.id and \
-            active.filter_by(user_id=user.manager_id).first():
-        return user.manager_id
+            active.filter(CompanyMembership.user_id == user.manager_id,
+                          CompanyMembership.role_id.in_(lead_roles)).first():
+        manager = User.query.get(user.manager_id)
+        if right is None or (manager is not None and manager.can(*right)):
+            return user.manager_id
     admin = Role.query.filter_by(name=Role.ADMIN).first()
     if admin is None:
         return None

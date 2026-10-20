@@ -147,12 +147,25 @@ document.getElementById('run-report')?.addEventListener('click', async function(
         const d = await r.json();
         lastResults = d.results || [];
         renderTable(lastResults, columns);
+        if (d.error) {
+            const p = document.createElement('p');
+            p.style.cssText = 'padding:20px;color:var(--danger, #b91c1c);text-align:center;';
+            p.textContent = d.error;
+            document.getElementById('report-results').replaceChildren(p);
+        }
         document.getElementById('result-count').textContent = `${lastResults.length} row(s)`;
         document.getElementById('export-excel').classList.remove('hidden');
     } catch(e) { alert('Error: ' + e.message); }
     this.disabled = false;
     this.innerHTML = '&#9654; Generate Report';
 });
+
+// Names and departments are typed by people (anyone can set their own
+// display name): text, never markup.
+function esc(s) {
+    return String(s).replace(/[&<>"']/g, c => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+}
 
 function renderTable(rows, columns) {
     const container = document.getElementById('report-results');
@@ -162,11 +175,11 @@ function renderTable(rows, columns) {
     }
     const labels = {employee:'Employee', department:'Department', total_hours:'Total Hours', overtime:'Overtime', leaves:'Leaves', sick_days:'Sick Days', late_days:'Late Days', present_days:'Days Present', pf_balance:'PF Balance', loan_balance:'Loan Balance'};
     let html = '<table><thead><tr>';
-    columns.forEach(c => { html += `<th>${labels[c] || c}</th>`; });
+    columns.forEach(c => { html += `<th>${esc(labels[c] || c)}</th>`; });
     html += '</tr></thead><tbody>';
     rows.forEach(r => {
         html += '<tr>';
-        columns.forEach(c => { html += `<td>${r[c] !== undefined && r[c] !== null ? r[c] : '-'}</td>`; });
+        columns.forEach(c => { html += `<td>${r[c] !== undefined && r[c] !== null ? esc(r[c]) : '-'}</td>`; });
         html += '</tr>';
     });
     html += '</tbody></table>';

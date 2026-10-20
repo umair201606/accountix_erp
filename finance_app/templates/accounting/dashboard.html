@@ -24,14 +24,14 @@
 </div>
 
 <div class="acct-types">
-  {% for vt in ['CPV','CRV','BPV','BRV','JV'] %}
-  <a href="{{ url_for('accounting.voucher_form') }}?type={{ vt }}" class="acct-type">
+  {% for vt in ['CPV','CRV','BPV','BRV','JV'] if vt in viewable or vt in creatable %}
+  {% if vt in creatable %}<a href="{{ url_for('accounting.voucher_form') }}?type={{ vt }}" class="acct-type">{% else %}<div class="acct-type">{% endif %}
     <span class="acct-type-code">{{ vt }}</span>
     <span class="acct-type-name">
       {% if vt == 'CPV' %}Cash payment{% elif vt == 'CRV' %}Cash receipt{% elif vt == 'BPV' %}Bank payment{% elif vt == 'BRV' %}Bank receipt{% else %}Journal voucher{% endif %}
     </span>
-    <span class="acct-type-count">{{ stats.by_type.get(vt,0) }} entries</span>
-  </a>
+    {% if vt in viewable %}<span class="acct-type-count">{{ stats.by_type.get(vt,0) }} entries</span>{% endif %}
+  {% if vt in creatable %}</a>{% else %}</div>{% endif %}
   {% endfor %}
 </div>
 

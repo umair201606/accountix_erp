@@ -195,9 +195,15 @@ def break_end():
 def live_status():
     if not current_user.is_admin() and not current_user.is_manager():
         return jsonify({"error": "Access denied"}), 403
+    if not current_user.can("attendance", "view"):
+        return jsonify({"error": "You do not have the Attendance view right."}), 403
     today = local_today()
     from ..models.user import User
-    users = User.employees().filter(User.is_active.is_(True)).all()
+    if current_user.is_admin():
+        users = User.employees().filter(User.is_active.is_(True)).all()
+    else:
+        # A manager sees their own team, not everyone in the company.
+        users = [u for u in current_user.reports_of() if u.is_active]
     statuses = []
     for u in users:
         att = Attendance.query.filter_by(user_id=u.id, date=today).first()
@@ -243,6 +249,8 @@ def _reply(ok, msg, status=200):
 def correct():
     if not current_user.is_admin() and not current_user.is_manager():
         return _reply(False, "Access denied", 403)
+    if not current_user.can("attendance", "edit"):
+        return _reply(False, "You do not have the Attendance edit right. Ask an admin in Settings.", 403)
     # Correctable business fields only — never ids, ownership or dates.
     CORRECTABLE_FIELDS = {"clock_in", "clock_out", "status"}
     att_id = request.form.get("attendance_id", type=int)

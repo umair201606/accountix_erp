@@ -28,9 +28,11 @@
     </div>
     {% endfor %}
 </div>
+{% if selected_board in manageable %}
 <div style="margin-top:10px;">
     <button class="btn btn-sm btn-outline" id="add-task-btn">+ Add Task</button>
 </div>
+{% endif %}
 {% endif %}
 {% endblock %}
 
@@ -65,16 +67,24 @@ async function deleteTask(taskId) {
     loadTasks();
 }
 
+// Task titles and names are typed by people: text, never markup (a title
+// like <img onerror=...> used to run in every viewer's browser).
+function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+}
+
 function createCard(t) {
     const card = document.createElement('div');
     card.className = 'kanban-card';
-    card.draggable = true;
+    card.draggable = !!t.can_move;
     card.dataset.taskId = t.id;
-    card.innerHTML = `<div class="task-title">${t.title}</div>
-        <div class="task-meta">${t.assignee || 'Unassigned'}${t.due_date ? ' &middot; Due: ' + t.due_date : ''}</div>
-        <div style="margin-top:6px;display:flex;gap:4px;">
-            <button class="btn-link" onclick="deleteTask(${t.id})" title="Delete">&#10005;</button>
-        </div>`;
+    card.innerHTML = `<div class="task-title">${esc(t.title)}</div>
+        <div class="task-meta">${esc(t.assignee || 'Unassigned')}${t.due_date ? ' &middot; Due: ' + esc(t.due_date) : ''}</div>
+        ${t.can_delete ? `<div style="margin-top:6px;display:flex;gap:4px;">
+            <button class="btn-link" onclick="event.stopPropagation(); deleteTask(${Number(t.id)})" title="Delete">&#10005;</button>
+        </div>` : ''}`;
+    if (!t.can_move) return card;
     card.addEventListener('dragstart', (e) => e.dataTransfer.setData('text/plain', t.id));
     card.addEventListener('click', async () => {
         const next = {todo:'in_progress', in_progress:'done', done:'todo'};

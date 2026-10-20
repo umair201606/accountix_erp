@@ -55,18 +55,31 @@ def upload():
         flash("Open a company before uploading files.", "danger")
         return redirect(url_for("digital_files.index"))
     import uuid
+    from shared.tenancy import scoped_get
     unique = f"{uuid.uuid4().hex}.{ext}"
+    # A category id from another company (or none at all) was stored as typed.
+    category_id = request.form.get("category_id", type=int)
+    if category_id and scoped_get(FileCategory, category_id) is None:
+        category_id = None
+    try:
+        expiry = (datetime.strptime(request.form["expiry_date"], "%Y-%m-%d").date()
+                  if request.form.get("expiry_date") else None)
+    except ValueError:
+        flash("Enter the expiry date as YYYY-MM-DD.", "danger")
+        return redirect(url_for("digital_files.index"))
     data = f.read()
     df = DigitalFile(
+        # Always the uploader's own file: nobody files documents into
+        # another person's record from here.
         user_id=current_user.id,
-        category_id=request.form.get("category_id", type=int),
-        title=request.form.get("title", f.filename),
+        category_id=category_id,
+        title=request.form.get("title") or f.filename,
         filename=unique,
         original_name=f.filename,
         file_size=len(data),
         mime_type=f.content_type,
         notes=request.form.get("notes", ""),
-        expiry_date=datetime.strptime(request.form["expiry_date"], "%Y-%m-%d").date() if request.form.get("expiry_date") else None,
+        expiry_date=expiry,
     )
     db.session.add(df)
     file_store.save(_file_key(df), data, f.content_type)
@@ -95,7 +108,8 @@ def download(fid):
 def delete(fid):
     f = scoped_get_404(DigitalFile, fid)
     if f.user_id != current_user.id and not current_user.is_admin():
-        return jsonify({"error": "Access denied"}), 403
+        flash("You can delete only your own documents.", "danger")
+        return redirect(url_for("digital_files.index"))
     file_store.delete(_file_key(f), company_id=f.company_id)
     db.session.delete(f)
     db.session.commit()

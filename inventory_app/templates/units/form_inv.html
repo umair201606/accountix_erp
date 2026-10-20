@@ -19,7 +19,7 @@
       <div class="field-wrap">
         <label>Name *</label>
         <input type="text" name="name" id="fieldName" class="form-control focus-ring" required
-               value="{{ unit.name if unit else name }}" data-exclude="{{ unit.id if unit else '' }}">
+               value="{{ name if name is defined else unit.name }}" data-exclude="{{ unit.id if unit else '' }}">
         <div class="field-err" id="nameErr"></div>
         <div class="field-ok" id="nameOk">Name is available</div>
       </div>
@@ -28,7 +28,7 @@
       <div class="field-wrap">
         <label>Abbreviation *</label>
         <input type="text" name="abbreviation" id="fieldAbbr" class="form-control focus-ring" required
-               value="{{ unit.abbreviation if unit else abbreviation }}" maxlength="20"
+               value="{{ abbreviation if abbreviation is defined else unit.abbreviation }}" maxlength="20"
                placeholder="e.g. kg, pcs, m" data-exclude="{{ unit.id if unit else '' }}">
         <div class="field-err" id="abbrErr"></div>
         <div class="field-ok" id="abbrOk">Abbreviation is available</div>
@@ -37,7 +37,7 @@
     <div class="form-group">
       <label>Explanation</label>
       <textarea name="explanation" class="form-control focus-ring" rows="3"
-                placeholder="Optional description of the unit">{{ unit.explanation if unit else explanation }}</textarea>
+                placeholder="Optional description of the unit">{{ (explanation if explanation is defined else unit.explanation) or '' }}</textarea>
     </div>
     {% if unit %}
     <div class="form-group">

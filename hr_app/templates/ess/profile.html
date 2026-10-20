@@ -49,6 +49,10 @@
                 <input type="email" name="email" class="form-control" required value="{{ user.email }}">
             </div>
         </div>
+        <div class="form-group" style="margin-top:12px;max-width:360px;">
+            <label style="font-weight:600;font-size:13px;">Current password <span style="font-weight:400;color:var(--muted);">(needed to change your User ID or email)</span></label>
+            <input type="password" name="current_password" class="form-control" autocomplete="current-password">
+        </div>
         <div style="display:flex;gap:10px;align-items:center;margin-top:14px;">
             <button type="submit" class="btn btn-primary">Save Account Settings</button>
             <a href="{{ url_for('auth.change_password') }}" class="btn btn-outline">Change Password</a>

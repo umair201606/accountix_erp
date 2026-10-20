@@ -15,8 +15,9 @@ def login():
 @inv_auth_bp.route("/logout")
 @login_required
 def logout():
-    logout_user()
-    return redirect(url_for("auth.login"))
+    # One way out: auth.logout records it, clears the session and ignores
+    # links planted on other sites.
+    return redirect(url_for("auth.logout"))
 
 
 @inv_auth_bp.route("/")

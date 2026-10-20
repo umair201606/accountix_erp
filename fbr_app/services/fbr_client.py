@@ -7,6 +7,18 @@ from shared.models.fbr import FBRConfig, FBRInvoiceRecord
 from shared.tenancy import scoped_get_404
 
 
+def _body(r):
+    """FBR's JSON answer — or, when a gateway answers with an HTML error page,
+    its first lines as the error. ``r.json()`` raised on those, outside the
+    RequestException handler, so the route 500'd and kept no record."""
+    if not r.text:
+        return {}
+    try:
+        return r.json()
+    except ValueError:
+        return {"error": f"FBR answered {r.status_code}: {r.text[:300]}"}
+
+
 class FBRApiClient:
     TIMEOUT = 30
 
@@ -41,7 +53,7 @@ class FBRApiClient:
                 json=payload,
                 timeout=self.TIMEOUT,
             )
-            return r.ok, r.status_code, r.json() if r.text else {}
+            return r.ok, r.status_code, _body(r)
         except requests.RequestException as e:
             return False, 0, {"error": str(e)}
 
@@ -53,7 +65,7 @@ class FBRApiClient:
                 json=payload,
                 timeout=self.TIMEOUT,
             )
-            return r.ok, r.status_code, r.json() if r.text else {}
+            return r.ok, r.status_code, _body(r)
         except requests.RequestException as e:
             return False, 0, {"error": str(e)}
 
@@ -64,7 +76,7 @@ class FBRApiClient:
                 headers=self._headers(),
                 timeout=self.TIMEOUT,
             )
-            return r.ok, r.status_code, r.json() if r.text else {}
+            return r.ok, r.status_code, _body(r)
         except requests.RequestException as e:
             return False, 0, {"error": str(e)}
 
@@ -98,10 +110,14 @@ class FBRApiClient:
         db.session.commit()
         return record
 
-    def retry_submission(self, record_id, submitted_by):
-        record = scoped_get_404(FBRInvoiceRecord, record_id)
-        payload = json.loads(record.request_json) if record.request_json else {}
+    def retry_submission(self, record, payload, submitted_by):
+        """Send a failed record again with ``payload`` — the invoice as it
+        is NOW. The old version re-sent the request saved from the failed
+        attempt, so an invoice unapproved, corrected and re-approved since
+        reached FBR with figures the books no longer had. The caller locks
+        the invoice and checks it is approved and not yet reported."""
         ok, sc, data = self.submit_invoice(payload)
+        record.request_json = json.dumps(payload, indent=2, default=str)
         record.attempt_count = (record.attempt_count or 0) + 1
         record.response_json = json.dumps(data, indent=2, default=str)
         record.submitted_at = datetime.utcnow()

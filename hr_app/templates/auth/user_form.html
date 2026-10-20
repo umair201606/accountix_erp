@@ -14,7 +14,7 @@
             </div>
             <div class="form-group">
                 <label>Email *</label>
-                <input type="email" name="email" class="form-control" required value="{{ user.email if user else '' }}">
+                <input type="email" name="email" class="form-control" required value="{{ user.email if user else '' }}" {{ 'readonly' if login_refusal }}>
             </div>
         </div>
         <div class="form-group">
@@ -70,18 +70,24 @@
             </div>
         </div>
         {% endif %}
+        {% if login_refusal %}
+        {# The login is shared with another company: sent back unchanged. #}
+        {% if user.is_active %}<input type="hidden" name="is_active" value="1">{% endif %}
+        <p class="form-group" style="font-size:13px;color:var(--muted);">{{ login_refusal }} Their email, password and sign-in stay as they are.</p>
+        {% else %}
         <div class="form-group" style="display:flex;align-items:center;gap:10px;">
             <label style="margin:0;">Active</label>
             <input type="checkbox" name="is_active" value="1" {{ 'checked' if user.is_active }}>
         </div>
         <div class="form-group">
             <label>New Password <span style="font-weight:400;color:var(--muted);">(leave blank to keep current)</span></label>
-            <input type="password" name="password" class="form-control" minlength="4">
+            <input type="password" name="password" class="form-control" minlength="8">
         </div>
+        {% endif %}
         {% else %}
         <div class="form-group">
             <label>Password *</label>
-            <input type="password" name="password" class="form-control" required minlength="4">
+            <input type="password" name="password" class="form-control" required minlength="8">
         </div>
         {% endif %}
         <button type="submit" class="btn btn-primary">{{ 'Update' if user else 'Create' }} User</button>
