@@ -14,6 +14,7 @@ TEST_DATABASE_URL runs the file against Postgres (production is Neon).
 import io
 import os
 import tempfile
+import uuid
 
 import pytest
 
@@ -62,8 +63,12 @@ def w():
         user = (User.query.filter_by(is_super_admin=True).order_by(User.id).first()
                 or User.query.order_by(User.id).first())
         uid = user.id
-        cid = _new_company(uid, "storage-co-e2e")
-        other = _new_company(uid, "storage-other-e2e")
+        # The temp DB is shared with whatever else the pytest process loaded
+        # first, so a fixed slug collides when this file runs in a chunk after
+        # another module. A per-run suffix keeps the companies unique.
+        tag = uuid.uuid4().hex[:8]
+        cid = _new_company(uid, f"storage-co-e2e-{tag}")
+        other = _new_company(uid, f"storage-other-e2e-{tag}")
     _enter(c, uid, cid)
     return {"c": c, "uid": uid, "cid": cid, "other": other}
 

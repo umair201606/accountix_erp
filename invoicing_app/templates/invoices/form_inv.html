@@ -1960,7 +1960,7 @@ function recalc(){
   var effectiveSubtotal=subtotal+absorbTotal;
   // Per-line per-item charge shares (pro-rata by net value; residual onto last line)
   var totalNet=lineData.reduce(function(s,l){return s+l.net},0);
-  lineData.forEach(function(l){l.tr._chgBreakdown=[];l.chgShare=0;l.chgShareST=0});
+  lineData.forEach(function(l){l.tr._chgBreakdown=[];l.chgShare=0;l.chgShareST=0;l.taxAdd=0});
   var perItem=charges.filter(function(chg){return chg.scope==='individual'&&(parseFloat(chg.amount)||0)>0&&(chg.treatment||'bill')!=='expense'});
   // §6.2: each per-item charge splits by its own chosen method. Rounding
   // residuals are forced onto the last line so the invoice foots exactly (§13).
@@ -1985,7 +1985,8 @@ function recalc(){
       lineData.forEach(function(l,idx){
         var share=Math.round((parseFloat(man[idx])||0)*100)/100;
         manTotal+=share;
-        if(isBill){l.chgShare+=share;if(chg.st_taxable)l.chgShareST+=share}
+        if(isBill){l.chgShare+=share;if(chg.st_taxable){l.chgShareST+=share;l.taxAdd+=share}}
+        else{l.taxAdd+=share}
         l.tr._chgBreakdown.push({name:name,method:methodLabel+(isBill?'':' · absorbed'),
                                  share:share,muted:!isBill,manual:true,chg:chg,line:idx});
       });
@@ -2005,8 +2006,27 @@ function recalc(){
       }
       if(idx===n-1)share=Math.round((amt-allocated)*100)/100;
       else{share=(basis>0)?Math.round(amt*weight/basis*100)/100:Math.round(amt/n*100)/100;allocated+=share}
-      if(isBill){l.chgShare+=share;if(chg.st_taxable)l.chgShareST+=share}
+      if(isBill){l.chgShare+=share;if(chg.st_taxable){l.chgShareST+=share;l.taxAdd+=share}}
+      else{l.taxAdd+=share}
       l.tr._chgBreakdown.push({name:name,method:methodLabel+(isBill?'':' · absorbed'),share:share,muted:!isBill});
+    });
+  });
+  // §10 — a Combined billed charge flagged into the ST base, and every
+  // absorbed charge, belong in each line's tax base. They are one figure at
+  // document level; for per-line tax they ride pro-rata by net value with the
+  // rounding residual on the last line, exactly like a per-item by-value split.
+  charges.forEach(function(chg){
+    var amt=parseFloat(chg.amount)||0;if(!(amt>0))return;
+    if((chg.scope||'general')==='individual')return; // already split above
+    var tr=chg.treatment||'bill';
+    var enters=(tr==='absorb')||(tr==='bill'&&chg.st_taxable);
+    if(!enters)return;
+    var allocated=0,n=lineData.length;
+    lineData.forEach(function(l,idx){
+      var share;
+      if(idx===n-1)share=Math.round((amt-allocated)*100)/100;
+      else{share=(totalNet>0)?Math.round(amt*l.net/totalNet*100)/100:Math.round(amt/n*100)/100;allocated+=share}
+      l.taxAdd+=share;
     });
   });
   // Figure 3: charges that are Combined or expense-only are listed in the
@@ -2039,7 +2059,7 @@ function recalc(){
   // Sales tax
   var salesTax=0;
   if(t==='general'){var stPct=parseFloat(document.getElementById('globalSalesTaxPct').value)||0;salesTax=salesTaxBase*stPct/100}
-  else{lineData.forEach(function(l){var stp=parseFloat(l.tr.querySelector('[data-col="sales_tax_pct"]')?.value)||0;salesTax+=(l.net+l.chgShareST)*stp/100})}
+  else{lineData.forEach(function(l){var stp=parseFloat(l.tr.querySelector('[data-col="sales_tax_pct"]')?.value)||0;salesTax+=(l.net+l.taxAdd)*stp/100})}
   salesTax=Math.round(salesTax*100)/100;
   document.getElementById('summarySalesTax').textContent=fmt(salesTax);
   // Itemised charges below sales tax

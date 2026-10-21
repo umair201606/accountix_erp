@@ -22,14 +22,22 @@ The verification script lives in the session scratchpad (`verify_v3.py`). It is
 not in the repo because it seeds stock and posts real vouchers — worth
 promoting to `tests/` if you want it in CI.
 
-## Known gap (deliberate, needs your decision)
+## §12.2 per-line sub-accounts (implemented)
 
-Per-line revenue / tax **sub-account** posting (§12.2 Example B) is not
-implemented: the totals are right, but the journal still credits one revenue
-account and one output-tax account rather than splitting by item category and
-tax-rate code. It needs a product/category → revenue account mapping and a tax
-rate → sub-account mapping, neither of which exists yet. See §7 of
-`CHANGES_SUMMARY.md`.
+Settings → Invoicing carries the two maps: product category → revenue account,
+and sales-tax rate → Output Sales Tax sub-account. Approval posts a credit per
+mapped category and per mapped rate; with no mappings it still posts exactly
+one revenue credit and one output-tax credit.
+
+The tax split follows the tax each rate actually generated, including discounts,
+Combined billed charges flagged into the ST base and absorbed charges — Example
+B posts 335.15 / 501.17, not the value-weighted 346.06 / 490.26. The amount
+posted is still apportioned exactly, so the journal always foots to the invoice.
+
+Mappings are validated server-side: an account from another company, a header or
+inactive account, or the wrong type is refused. Covered by
+`tests/unit/test_invoice_splits.py` (22), `tests/e2e/test_invoice_subaccounts.py`
+(4, real routes) and `tests/e2e/test_invoice_line_tax.py` (2, browser).
 
 ## Housekeeping done
 

@@ -93,6 +93,27 @@ def _postable_accounts():
     ).order_by(ChartOfAccount.code).all()
 
 
+def _mapping_account(account_id, *types):
+    """A postable ledger of the right type inside THIS company, or None.
+
+    Settings is a write surface reached with ids from the browser: an id from
+    another company, a header account, an inactive one or a ledger of the wrong
+    type must not become a posting target. The pickers already filter, but the
+    server has to agree with them.
+    """
+    if not account_id:
+        return None
+    try:
+        account_id = int(account_id)
+    except (TypeError, ValueError):
+        return None
+    acct = scoped_get(ChartOfAccount, account_id)
+    if (acct is None or not acct.is_active
+            or acct.level < ChartOfAccount.POSTING_LEVEL):
+        return None
+    return acct if acct.type in types else None
+
+
 @settings_bp.route("/")
 @login_required
 def index():
@@ -587,20 +608,31 @@ def save_invoicing():
     # data: an unmapped category simply posts to the global revenue account.
     from shared.models.invoice_settings import (CategoryRevenueAccount,
                                                 TaxRateAccount)
+    from inventory_app.models.category import InvCategory
+    ignored = []
     for m in CategoryRevenueAccount.query.all():
         if request.form.get(f"cra_delete_{m.id}") == "on":
             db.session.delete(m)
             continue
         acct = request.form.get(f"cra_account_{m.id}", type=int)
-        if acct:
-            m.account_id = acct
+        if acct and acct != m.account_id:
+            valid = _mapping_account(acct, "revenue")
+            if valid:
+                m.account_id = valid.id
+            else:
+                ignored.append(f"category {m.category_id}")
 
     new_cat = request.form.get("cra_new_category", type=int)
     new_cat_acct = request.form.get("cra_new_account", type=int)
-    if new_cat and new_cat_acct and not CategoryRevenueAccount.query.filter_by(
-            category_id=new_cat).first():
-        db.session.add(CategoryRevenueAccount(category_id=new_cat,
-                                              account_id=new_cat_acct))
+    if new_cat and new_cat_acct:
+        category = scoped_get(InvCategory, new_cat)
+        account = _mapping_account(new_cat_acct, "revenue")
+        if (category and account and not CategoryRevenueAccount.query.filter_by(
+                category_id=new_cat).first()):
+            db.session.add(CategoryRevenueAccount(category_id=category.id,
+                                                  account_id=account.id))
+        elif not category or not account:
+            ignored.append("the new category")
 
     # §12.2 — sales-tax rate -> Output Sales Tax sub-account.
     for m in TaxRateAccount.query.all():
@@ -608,17 +640,29 @@ def save_invoicing():
             db.session.delete(m)
             continue
         acct = request.form.get(f"tra_account_{m.id}", type=int)
-        if acct:
-            m.account_id = acct
+        if acct and acct != m.account_id:
+            valid = _mapping_account(acct, "liability")
+            if valid:
+                m.account_id = valid.id
+            else:
+                ignored.append(f"rate {m.rate_pct}%")
 
     new_rate = request.form.get("tra_new_rate", type=float)
     new_rate_acct = request.form.get("tra_new_account", type=int)
-    if new_rate is not None and new_rate_acct and not TaxRateAccount.query.filter_by(
-            rate_pct=new_rate).first():
-        db.session.add(TaxRateAccount(rate_pct=new_rate,
-                                      account_id=new_rate_acct))
+    if new_rate is not None and new_rate_acct:
+        account = _mapping_account(new_rate_acct, "liability")
+        if (0 <= new_rate <= 100 and account
+                and not TaxRateAccount.query.filter_by(rate_pct=new_rate).first()):
+            db.session.add(TaxRateAccount(rate_pct=new_rate,
+                                          account_id=account.id))
+        elif not (0 <= new_rate <= 100) or not account:
+            ignored.append(f"the new rate {new_rate:g}%")
 
     db.session.commit()
+    if ignored:
+        flash("Some posting-account mappings were ignored — the ledger must be "
+              "an active postable revenue/liability account of this company: "
+              + ", ".join(ignored) + ".", "error")
     flash("Invoice settings updated.", "success")
     return redirect(url_for("settings.index", tab="invoicing"))
 

@@ -12,7 +12,9 @@ from flask import Flask
 
 from shared.extensions import db
 import shared.tenancy  # noqa: F401  (registers the scoping listener)
-from shared.invoice_totals import _allocate, revenue_splits, output_tax_splits
+from shared.invoice_totals import (_allocate, line_tax_amounts,
+                                   line_tax_bases, revenue_splits,
+                                   output_tax_splits)
 
 
 class TestAllocate:
@@ -55,6 +57,7 @@ def app():
 
     import shared.models.ledger  # noqa: F401  (chart_of_accounts: FK target)
     import shared.models.company  # noqa: F401  (companies + memberships: FK targets)
+    import shared.models.project_label  # noqa: F401  (invoice item FK target)
     import shared.models.invoice_settings  # noqa: F401
     import inventory_app.models.category  # noqa: F401
     import inventory_app.models.product  # noqa: F401
@@ -186,6 +189,78 @@ class TestRevenueSplits:
         assert sum(v for _, v in out) == 1000.0
 
 
+def _example_b_invoice(app):
+    """§12.2 Example B, with the persisted figures the route posts from.
+
+    Two discounted lines at different rates, one Combined billed charge in the
+    ST base, one Per-item billed charge in the ST base and one expense-only
+    charge. The tax bases are 1,861.94 and 2,948.06, so the two rates generated
+    335.15 and 501.17 — not a value-weighted 346.06 / 490.26.
+    """
+    from inventory_app.models.category import InvCategory
+    from inventory_app.models.customer import InvCustomer
+    from inventory_app.models.invoice import InvInvoice, InvInvoiceItem
+    from inventory_app.models.product import InvProduct
+    from inventory_app.models.additional_charge import AdditionalCharge
+    from shared.models.invoice_settings import TaxRateAccount
+
+    hardware = InvCategory(name="Hardware")
+    fittings = InvCategory(name="Fittings")
+    db.session.add_all([hardware, fittings])
+    db.session.flush()
+
+    a18 = _account("2-01-03-01-0018", "Output Tax 18%")
+    a17 = _account("2-01-03-01-0017", "Output Tax 17%")
+    freight = _account("4-03-01-01-0001", "Freight recovered")
+    labour = _account("4-03-02-01-0001", "Labour recovered")
+    unloading = _account("5-03-01-01-0001", "Unloading")
+    db.session.add_all([TaxRateAccount(rate_pct=18, account_id=a18.id),
+                        TaxRateAccount(rate_pct=17, account_id=a17.id)])
+
+    cust = InvCustomer(name="Example B")
+    db.session.add(cust)
+    db.session.flush()
+    inv = InvInvoice(invoice_number="SI-B", voucher_number="V-B",
+                     customer_id=cust.id, tax_mode="individual",
+                     subtotal=5000, total_discount=350,
+                     total_tax=836.32, total_amount=5646.32)
+    db.session.add(inv)
+    db.session.flush()
+
+    rows = [
+        (hardware, 2, 1000, 200, 1800, 18),
+        (fittings, 1, 3000, 150, 2850, 17),
+    ]
+    for i, (cat, qty, price, disc, net, rate) in enumerate(rows):
+        p = InvProduct(sku=f"B{i}", name=f"B{i}", category_id=cat.id,
+                       current_stock=0, cost_price=0)
+        db.session.add(p)
+        db.session.flush()
+        db.session.add(InvInvoiceItem(
+            invoice_id=inv.id, product_id=p.id, quantity=qty,
+            unit_price=price, discount_amount=disc,
+            total_before_discount=qty * price,
+            total_after_discount=net, sales_tax_pct=rate))
+    db.session.add_all([
+        AdditionalCharge(doc_type="SI", doc_id=inv.id,
+                         charge_account_id=freight.id, description="Freight",
+                         amount=100, scope="general", treatment="bill",
+                         st_taxable=True),
+        AdditionalCharge(doc_type="SI", doc_id=inv.id,
+                         charge_account_id=labour.id, description="Labour",
+                         amount=60, scope="individual",
+                         distribution="pro_rata_value", treatment="bill",
+                         st_taxable=True),
+        AdditionalCharge(doc_type="SI", doc_id=inv.id,
+                         charge_account_id=unloading.id,
+                         description="Unloading", amount=40,
+                         scope="general", treatment="expense",
+                         st_taxable=False),
+    ])
+    db.session.flush()
+    return inv, a18, a17
+
+
 class TestOutputTaxSplits:
     def test_with_nothing_mapped_it_stays_one_credit(self, app):
         inv = _invoice([(None, 600, 18), (None, 400, 18)])
@@ -239,3 +314,64 @@ class TestOutputTaxSplits:
         inv = _invoice([(None, 333.33, 18), (None, 333.33, 5)])
         out = output_tax_splits(inv, 76.67)
         assert sum(v for _, v in out) == 76.67
+
+    def test_example_b_splits_by_each_lines_own_tax(self, app):
+        """§12.2 Example B: charges in the tax base make the two rates generate
+        335.15 and 501.17. Weighting by pre-discount value times the rate would
+        instead give 346.10 / 490.22 — a different tax return."""
+        inv, a18, a17 = _example_b_invoice(app)
+        assert line_tax_bases(inv) == [1861.94, 2948.06]
+        assert line_tax_amounts(inv) == [335.15, 501.17]
+        out = dict(output_tax_splits(inv, 836.32))
+        assert out == {a18.id: 335.15, a17.id: 501.17}
+        assert round(sum(out.values()), 2) == 836.32
+
+    def test_absorbed_charges_enter_each_lines_base(self, app):
+        """An absorbed charge is already inside the goods value (§6.3), so it
+        must raise the line bases too — not just the document taxable value."""
+        from inventory_app.models.additional_charge import AdditionalCharge
+        acc = _account("5-03-02-01-0001", "Carriage inward")
+        inv = _invoice([(None, 600, 10), (None, 400, 10)])
+        db.session.add(AdditionalCharge(
+            doc_type="SI", doc_id=inv.id, charge_account_id=acc.id,
+            description="Freight", amount=100, scope="general",
+            treatment="absorb", st_taxable=False))
+        db.session.flush()
+
+        assert line_tax_bases(inv) == [660.0, 440.0]
+        assert line_tax_amounts(inv) == [66.0, 44.0]
+
+    def test_a_per_item_charge_uses_its_own_distribution(self, app):
+        """Quantity and weight splits move the tax base away from the value
+        split; the per-line tax must follow the method the user chose."""
+        from inventory_app.models.product import InvProduct
+        from inventory_app.models.customer import InvCustomer
+        from inventory_app.models.invoice import InvInvoice, InvInvoiceItem
+        from inventory_app.models.additional_charge import AdditionalCharge
+
+        acc = _account("5-03-03-01-0001", "Freight")
+        cust = InvCustomer(name="Distribution")
+        db.session.add(cust)
+        db.session.flush()
+        inv = InvInvoice(invoice_number="SI-D", voucher_number="V-D",
+                         customer_id=cust.id, tax_mode="individual")
+        db.session.add(inv)
+        db.session.flush()
+        for i, (qty, price, weight) in enumerate([(2, 1000, 5), (2, 500, 15)]):
+            p = InvProduct(sku=f"D{i}", name=f"D{i}", current_stock=0,
+                           cost_price=0, weight=weight)
+            db.session.add(p)
+            db.session.flush()
+            db.session.add(InvInvoiceItem(
+                invoice_id=inv.id, product_id=p.id, quantity=qty,
+                unit_price=price, total_before_discount=qty * price,
+                total_after_discount=qty * price, sales_tax_pct=10))
+        db.session.add(AdditionalCharge(
+            doc_type="SI", doc_id=inv.id, charge_account_id=acc.id,
+            description="Freight", amount=100, scope="individual",
+            distribution="by_weight", treatment="bill", st_taxable=True))
+        db.session.flush()
+
+        # 100 by weight (10:30) is 25 / 75; by value it would be 66.67 / 33.33.
+        assert line_tax_bases(inv) == [2025.0, 1075.0]
+        assert line_tax_amounts(inv) == [202.5, 107.5]

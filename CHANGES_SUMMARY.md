@@ -174,30 +174,37 @@ longer exist, and its account autocomplete only wrote the chosen ledger into a
 hidden input, never into `charges`. Both would have silently dropped every
 charge on save. Fixed.
 
-## 9. Not done — needs a decision
+## 9. §12.2 sub-accounts — done; remaining notes
 
-**Per-line revenue and tax sub-accounts (§12.2, Example B).** The document says
-Per-line mode "can post multiple lines against the same natural account type" —
-a different revenue account per item category, and a different Sales Tax Payable
-sub-account per rate code. The *totals* for Example B are correct (5,646.32),
-but the posting still credits one revenue account and one output-tax account.
+**Per-line revenue and tax sub-accounts (§12.2, Example B).** Implemented.
+Settings → Invoicing maps a product category to a revenue account and a sales
+tax rate to an Output Sales Tax sub-account. Approval credits each mapped
+category and each mapped rate; with no maps it still posts exactly one revenue
+credit and one output-tax credit.
 
-Delivering it needs a mapping that does not exist yet: product/category →
-revenue account, and tax rate → tax sub-account. That is a data-model decision
-(where the mapping lives, who maintains it), so it is flagged rather than
-guessed at.
+The tax split uses the tax each rate actually generated, not pre-discount value
+× rate. Discounts, Combined billed charges flagged into the ST base and absorbed
+charges all move the bases, so Example B posts 335.15 / 501.17 rather than
+346.06 / 490.26, and the two credits still add to the 836.32 posted. The posted
+amount is apportioned exactly, so the journal foots to the invoice.
+
+Mappings are checked server-side: another company's account, a header or
+inactive account, the wrong type, or a rate outside 0–100 is refused.
+
+**Covered by:** `tests/unit/test_invoice_splits.py` (22),
+`tests/e2e/test_invoice_subaccounts.py` (4, real routes and journal lines),
+`tests/e2e/test_invoice_line_tax.py` (2, browser form) and the existing
+`tests/e2e/test_posting_accounts_settings.py` UI checks.
 
 **Smaller open items, all flagged rather than faked:**
 
-- **"By weight" distribution (§6.2).** The option is offered and stored, but
-  falls back to pro-rata by value at calculation time — products carry no
-  weight field to divide by.
-- **"Manual per line" distribution (§5.1).** Stored, but the Add. charges cell
-  is still read-only; the document has it open a per-line breakdown *editor* in
-  this mode.
 - **The blank-vs-orders source choice (§4.1, Figure 2).** The figure opens the
   invoice with an explicit two-option radio; the implementation keeps a "From
   Orders" button on an otherwise blank invoice. Same two outcomes, different
   first step.
 - **Credit-note release (§4.4).** Un-posting restores order balances; posting a
   credit note against a posted invoice does not yet.
+
+By-weight and manual-per-line charge distribution are now implemented (products
+carry a weight, and the Add. charges cell opens the manual editor); the earlier
+entries here were stale and are covered by `tests/e2e/test_charge_distribution.py`.

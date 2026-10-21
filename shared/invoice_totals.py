@@ -9,6 +9,8 @@ Sales_Purchase_Orders_Invoices_ERP_UI_Standard_v3, §6.3 (charge treatments),
 §6.4 (per-charge tax-base switches) and §8 (further and withholding tax).
 """
 
+import json
+
 from inventory_app.models.additional_charge import AdditionalCharge
 
 
@@ -54,6 +56,20 @@ def _line_value(it):
     if v:
         return v
     return float(it.quantity or 0) * float(it.unit_price or 0)
+
+
+def _line_net(it):
+    """A line's post-discount goods value — the basis the form splits on."""
+    value = _line_value(it)
+    net = float(it.total_after_discount or 0)
+    if net or not value:
+        return round(net, 2)
+    discount = float(it.discount_amount or 0)
+    if not discount:
+        # Rows written before the amount column was populated may carry only
+        # the percentage; the form's own rule is amount first, then percent.
+        discount = value * float(it.discount_pct or 0) / 100
+    return round(max(0.0, value - discount), 2)
 
 
 def _allocate(total, buckets):
@@ -103,32 +119,147 @@ def revenue_splits(inv, amount):
     return _allocate(amount, ordered)
 
 
+def _manual_charge_shares(chg, count):
+    """A "Manual per line" split, verbatim, padded/trimmed to the line count.
+
+    §5.1 makes the typed amounts the allocation; no residual is forced onto the
+    last line. An unreadable or short list leaves the missing lines at zero,
+    exactly as the form reports it, rather than inventing a split.
+    """
+    try:
+        values = [round(float(v or 0), 2)
+                  for v in json.loads(chg.manual_allocations or "[]")]
+    except (TypeError, ValueError):
+        values = []
+    return (values + [0.0] * count)[:count]
+
+
+def _charge_line_shares(chg, items, nets):
+    """One charge's amount split across the document's lines (§6.2).
+
+    Derived methods put the rounding residual on the last line so the shares
+    foot to the charge; manual leaves the operator's figures untouched.
+    """
+    count = len(items)
+    amount = round(float(chg.amount or 0), 2)
+    if not count or amount <= 0:
+        return [0.0] * count
+    method = chg.distribution or "pro_rata_value"
+    if method == "manual":
+        return _manual_charge_shares(chg, count)
+    if method == "pro_rata_qty":
+        weights = [float(it.quantity or 0) for it in items]
+    elif method == "by_weight":
+        weights = [float(it.quantity or 0) *
+                   float(getattr(it.product, "weight", 0) or 0)
+                   for it in items]
+        if sum(weights) <= 0:
+            weights = nets
+    else:
+        weights = nets
+    shares = dict(_allocate(amount, list(enumerate(weights))))
+    return [shares.get(i, 0.0) for i in range(count)]
+
+
+def line_tax_bases(inv):
+    """Each sales-invoice line's sales-tax base, in line order (§10).
+
+    A line's base is its post-discount net plus every charge that belongs in
+    the tax base: its own Per-item shares, its slice of Combined billed
+    charges flagged into the base, and absorbed charges (which are already
+    part of the goods value). Expense-only charges never enter it. For the
+    derived splits the bases sum to the document's taxable value, so the line
+    taxes sum to its tax; a manual split leaves any unallocated gap unassigned,
+    exactly as the form reports it.
+    """
+    items = list(inv.items.all())
+    if not items:
+        return []
+    nets = [_line_net(it) for it in items]
+    bases = list(nets)
+    rows = AdditionalCharge.query.filter_by(doc_type="SI", doc_id=inv.id).all()
+    for chg in rows:
+        amount = round(float(chg.amount or 0), 2)
+        if amount <= 0:
+            continue
+        treatment = (chg.treatment
+                     if chg.treatment in ("bill", "absorb", "expense")
+                     else "bill")
+        if treatment == "expense":
+            continue
+        if (chg.scope or "general") == "individual":
+            shares = _charge_line_shares(chg, items, nets)
+        else:
+            # A Combined charge is one document-level figure; for per-line
+            # tax it rides pro-rata over the post-discount line values.
+            split = dict(_allocate(amount, list(enumerate(nets))))
+            shares = [split.get(i, 0.0) for i in range(len(items))]
+        enters_base = treatment == "absorb" or bool(chg.st_taxable)
+        if not enters_base:
+            continue
+        bases = [round(base + share, 2) for base, share in zip(bases, shares)]
+    return bases
+
+
+def line_tax_amounts(inv):
+    """Tax each line generated, in line order; [] in Combined mode.
+
+    The form sums these into ``total_tax``. Recomputing them here is what lets
+    a rate split follow the tax each rate actually produced even when discounts
+    and charges moved the bases away from the goods values.
+    """
+    if (inv.tax_mode or "general") == "general":
+        return []
+    items = list(inv.items.all())
+    bases = line_tax_bases(inv)
+    amounts = []
+    for it, base in zip(items, bases):
+        rate = float(it.sales_tax_pct or 0)
+        amounts.append(round(base * rate / 100, 2) if rate > 0 else 0.0)
+    return amounts
+
+
 def output_tax_splits(inv, amount):
     """``amount`` of output sales tax split by rate (§12.2).
 
     Returns ``[(account_id_or_None, amount)]``; ``None`` means the caller's
     global Output Sales Tax account.
 
-    Each rate's weight is its lines' taxable value times the rate, so the split
-    follows the tax each rate actually generated. It apportions the tax that was
-    already posted rather than recomputing it, so the journal cannot start
-    disagreeing with the invoice total over a rounding difference.
+    In Per-line mode each rate's weight is the tax its own lines generated
+    (``line_tax_amounts``), not a value-times-rate approximation: a discount or
+    a charge can shift the two rates apart, and the tax return must follow the
+    tax actually charged. The weights are then apportioned to the amount being
+    posted, so the journal still foots to the invoice total to the paisa.
     """
     from shared.models.invoice_settings import TaxRateAccount
     mapping = {round(float(m.rate_pct or 0), 4): m.account_id
                for m in TaxRateAccount.query.all()}
     per_line = (inv.tax_mode or "general") != "general"
+    items = list(inv.items.all())
     weights = {}
-    for it in inv.items.all():
-        rate = round(float(it.sales_tax_pct or 0), 4) if per_line \
-            else round(float(inv.global_sales_tax_pct or 0), 4)
-        if rate <= 0:
-            continue
-        account_id = mapping.get(rate)
-        weights[account_id] = weights.get(account_id, 0.0) + _line_value(it) * rate
+    if per_line:
+        taxes = line_tax_amounts(inv)
+        for it, tax in zip(items, taxes):
+            rate = round(float(it.sales_tax_pct or 0), 4)
+            if rate <= 0 or tax <= 0:
+                continue
+            account_id = mapping.get(rate)
+            weights[account_id] = weights.get(account_id, 0.0) + tax
+        if not weights or sum(weights.values()) <= 0:
+            # Older rows without line tax, or a zero base: fall back to the
+            # value-times-rate weights so a mapped rate still gets its share.
+            for it in items:
+                rate = round(float(it.sales_tax_pct or 0), 4)
+                if rate <= 0:
+                    continue
+                account_id = mapping.get(rate)
+                weights[account_id] = (weights.get(account_id, 0.0)
+                                       + _line_value(it) * rate)
+    else:
+        # Combined mode is one document-level rate and one aggregate credit.
+        rate = round(float(inv.global_sales_tax_pct or 0), 4)
+        weights = {mapping.get(rate): 1.0}
     if not weights:
-        # Combined mode over lines that carry no rate of their own, or a rate
-        # recorded only at document level: one bucket at the global rate.
         rate = round(float(inv.global_sales_tax_pct or 0), 4)
         weights = {mapping.get(rate): 1.0}
     ordered = sorted(weights.items(), key=lambda kv: (kv[0] is not None, kv[0] or 0))
