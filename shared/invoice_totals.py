@@ -14,17 +14,13 @@ import json
 from inventory_app.models.additional_charge import AdditionalCharge
 
 
-def charge_pools(doc_type, doc_id):
-    """Split a document's additional charges into the three v3 treatments.
+def charge_pools_from_rows(rows):
+    """Split already-loaded additional charges into the three v3 treatments.
 
-    ``bill`` is charged to the counterparty and raises the receivable/payable;
-    ``absorb`` is already inside the item values (revenue on sales, inventory
-    cost on purchases); ``expense`` is a cost we bear that is never invoiced.
-    Only billed charges can enter a tax base — the switches are forced off for
-    the other two on save, but rows written before that rule are re-filtered
-    here too.
+    Bulk print renders many invoices in one request; the caller loads all of
+    their charges at once and passes them here so each invoice does not run
+    its own query. ``charge_pools`` is the single-document wrapper.
     """
-    rows = AdditionalCharge.query.filter_by(doc_type=doc_type, doc_id=doc_id).all()
     pools = {"billed": 0.0, "absorb": 0.0, "expense": 0.0,
              "st_base": 0.0, "wht_base": 0.0,
              "billed_rows": [], "expense_rows": []}
@@ -48,6 +44,20 @@ def charge_pools(doc_type, doc_id):
     for k in ("billed", "absorb", "expense", "st_base", "wht_base"):
         pools[k] = round(pools[k], 2)
     return pools
+
+
+def charge_pools(doc_type, doc_id):
+    """Split a document's additional charges into the three v3 treatments.
+
+    ``bill`` is charged to the counterparty and raises the receivable/payable;
+    ``absorb`` is already inside the item values (revenue on sales, inventory
+    cost on purchases); ``expense`` is a cost we bear that is never invoiced.
+    Only billed charges can enter a tax base — the switches are forced off for
+    the other two on save, but rows written before that rule are re-filtered
+    here too.
+    """
+    rows = AdditionalCharge.query.filter_by(doc_type=doc_type, doc_id=doc_id).all()
+    return charge_pools_from_rows(rows)
 
 
 def _line_value(it):
@@ -161,8 +171,8 @@ def _charge_line_shares(chg, items, nets):
     return [shares.get(i, 0.0) for i in range(count)]
 
 
-def line_tax_bases(inv):
-    """Each sales-invoice line's sales-tax base, in line order (§10).
+def line_tax_bases(inv, items=None, charge_rows=None):
+    """Each invoice line's sales-tax base, in line order (§10).
 
     A line's base is its post-discount net plus every charge that belongs in
     the tax base: its own Per-item shares, its slice of Combined billed
@@ -171,14 +181,23 @@ def line_tax_bases(inv):
     derived splits the bases sum to the document's taxable value, so the line
     taxes sum to its tax; a manual split leaves any unallocated gap unassigned,
     exactly as the form reports it.
+
+    ``items`` and ``charge_rows`` let a batch caller pass rows it has already
+    loaded (the bulk workbook does this for hundreds of invoices at once).
     """
-    items = list(inv.items.all())
+    items = list(inv.items.all()) if items is None else list(items)
     if not items:
         return []
     nets = [_line_net(it) for it in items]
     bases = list(nets)
-    rows = AdditionalCharge.query.filter_by(doc_type="SI", doc_id=inv.id).all()
-    for chg in rows:
+    if charge_rows is None:
+        # Sales and purchase invoices both keep charges in AdditionalCharge;
+        # only the doc_type differs. Infer it so a caller that has not loaded
+        # the rows still reads the right document's charges.
+        doc_code = "PI" if hasattr(inv, "supplier_id") else "SI"
+        charge_rows = (AdditionalCharge.query
+                       .filter_by(doc_type=doc_code, doc_id=inv.id).all())
+    for chg in charge_rows:
         amount = round(float(chg.amount or 0), 2)
         if amount <= 0:
             continue
@@ -201,7 +220,7 @@ def line_tax_bases(inv):
     return bases
 
 
-def line_tax_amounts(inv):
+def line_tax_amounts(inv, items=None, charge_rows=None):
     """Tax each line generated, in line order; [] in Combined mode.
 
     The form sums these into ``total_tax``. Recomputing them here is what lets
@@ -210,13 +229,41 @@ def line_tax_amounts(inv):
     """
     if (inv.tax_mode or "general") == "general":
         return []
-    items = list(inv.items.all())
-    bases = line_tax_bases(inv)
+    items = list(inv.items.all()) if items is None else list(items)
+    bases = line_tax_bases(inv, items=items, charge_rows=charge_rows)
     amounts = []
     for it, base in zip(items, bases):
         rate = float(it.sales_tax_pct or 0)
         amounts.append(round(base * rate / 100, 2) if rate > 0 else 0.0)
     return amounts
+
+
+def line_taxes(inv, items=None, charge_rows=None):
+    """The tax each invoice line carries, footing to ``inv.total_tax``.
+
+    In Per-line mode the weights are the tax each rate produced; in Combined
+    mode they are the lines' taxable bases. Either way the stored document tax
+    is allocated across the lines exactly, so a workbook built from the lines
+    adds up to the invoice header (and to the ledger), paisa for paisa. Works
+    on sales and purchase lines; pass preloaded ``items``/``charge_rows`` to
+    keep a bulk workbook from querying per invoice.
+    """
+    items = list(inv.items.all()) if items is None else list(items)
+    if not items:
+        return []
+    total = round(float(inv.total_tax or 0), 2)
+    if total == 0:
+        return [0.0] * len(items)
+    bases = line_tax_bases(inv, items=items, charge_rows=charge_rows)
+    if (inv.tax_mode or "general") == "general":
+        weights = [max(base, 0.0) for base in bases]
+    else:
+        weights = [max(base * float(it.sales_tax_pct or 0) / 100, 0.0)
+                   for it, base in zip(items, bases)]
+    if sum(weights) <= 0:
+        weights = [1.0] * len(items)
+    split = dict(_allocate(total, list(enumerate(weights))))
+    return [split.get(i, 0.0) for i in range(len(items))]
 
 
 def output_tax_splits(inv, amount):
@@ -266,15 +313,19 @@ def output_tax_splits(inv, amount):
     return _allocate(amount, ordered)
 
 
-def sales_totals(inv):
+def sales_totals(inv, charge_rows=None):
     """The full §8 chain for a sales invoice.
 
     Absorbed charges are inside the goods value, so they enter every base.
     Further tax is a percentage of the sales-tax base only — never of the sales
     tax itself, and never of a charge left out of that base. Withholding is
     deducted at source and is never compounded onto either tax.
+
+    ``charge_rows`` lets a bulk renderer supply the invoice's already-loaded
+    additional charges; when omitted they are queried here as before.
     """
-    pools = charge_pools("SI", inv.id)
+    pools = (charge_pools_from_rows(charge_rows)
+             if charge_rows is not None else charge_pools("SI", inv.id))
     subtotal = round(float(inv.subtotal or 0), 2)
     discount = round(float(inv.total_discount or 0), 2)
     effective_subtotal = round(subtotal + pools["absorb"], 2)

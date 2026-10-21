@@ -25,10 +25,17 @@ body{font-family:Inter,'Segoe UI',system-ui,sans-serif;margin:0;padding:24px;bac
 .reg-bar{height:10px;border-radius:999px;background:var(--v2-sunk,#f1f5f9);overflow:hidden}
 .reg-bar > div{height:100%;width:0%;border-radius:999px;background:var(--v2-ink,#161616);transition:width .15s ease}
 .reg-pct{font-size:22px;font-weight:700;color:var(--v2-ink,#161616);margin:10px 0 16px;font-variant-numeric:tabular-nums}
+@media (max-width:860px){
+  body{padding:12px}
+  /* An invoice is always A4 (210mm). On a phone, scroll the sheet inside
+     its card instead of pushing the whole page 855px wide. */
+  .doc{padding:16px;max-width:100%;overflow-x:auto}
+  .doc + .doc{margin-top:16px}
+}
 @media print{
   body{padding:0;background:#fff}
   .toolbar,.reg-progress{display:none}
-  .doc{border:none;border-radius:0;padding:0;max-width:none}
+  .doc{border:none;border-radius:0;padding:0;max-width:none;overflow:visible}
   .doc + .doc{margin-top:0;page-break-before:always}
 }
 </style>
@@ -42,7 +49,7 @@ body{font-family:Inter,'Segoe UI',system-ui,sans-serif;margin:0;padding:24px;bac
   <div class="b" id="docActions" {% if not docs %}style="display:none"{% endif %}>
     <button class="bp" onclick="window.print()">Print All</button>
     {% set _qx = request.args.to_dict() %}{% set _ = _qx.update({'fmt': 'excel'}) %}
-    <a class="bx" href="{{ url_for('inv_registers.export') }}?{{ _qx|urlencode }}">Excel</a>
+    <a class="bx" href="{{ url_for('inv_registers.documents_export') }}?{{ _qx|urlencode }}">Excel</a>
     <a class="bx" href="{{ url_for('inv_registers.index') }}?{{ request.query_string.decode() }}">Back to Register</a>
   </div>
 </div>
@@ -91,19 +98,22 @@ body{font-family:Inter,'Segoe UI',system-ui,sans-serif;margin:0;padding:24px;bac
   var params=new URLSearchParams(window.location.search);
   controller=new AbortController();
   overlay.classList.add('open');setProgress(0,0);
-  var got=0,total=0;
+  var got=0,total=0,totalParam='';
   (async function(){
     try{
-      var offset=0, limit=5;
+      var offset=0, limit=20;
       while(true){
         if(cancelled)break;
         var url="{{ url_for('inv_registers.data') }}?full=1&"
-          +params.toString()+'&limit='+limit+'&offset='+offset;
+          +params.toString()+'&limit='+limit+'&offset='+offset+totalParam;
         var resp=await fetch(url,{signal:controller.signal,headers:{'Accept':'application/json'}});
         if(!resp.ok)throw new Error('Server returned '+resp.status);
         var data=await resp.json();
         if(offset===0){
           total=data.total||0;count.textContent=total;list.innerHTML='';
+          // Later chunks carry the total back so the server need not count
+          // the filtered set again for every batch.
+          totalParam='&total='+encodeURIComponent(total);
           if(!total)list.innerHTML='<div class="doc"><p style="text-align:center;color:var(--v2-muted,#7c7c7a)">No invoices found for this filter.</p></div>';
         }
         (data.docs||[]).forEach(function(html){

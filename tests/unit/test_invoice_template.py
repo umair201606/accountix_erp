@@ -514,3 +514,16 @@ def test_invoice_negatives_use_accounting_brackets():
     from shared.formatting import format_amount
     assert format_amount(-1234.5) == "(1,234.50)"
     assert "-" not in format_amount(-1234.5)
+
+
+def test_bulk_print_strips_only_the_repeated_sheet_assets():
+    """Bulk print keeps the A4 CSS and fit script once, not once per invoice."""
+    from shared.models.invoice_template import (
+        _SHEET_CSS, _SHEET_FIT_JS, strip_shared_sheet_assets)
+    body = "<style>.custom{color:red}</style><p>Invoice</p>" + _SHEET_CSS + _SHEET_FIT_JS
+    stripped = strip_shared_sheet_assets(body)
+    assert "<p>Invoice</p>" in stripped
+    assert ".custom{color:red}" in stripped
+    assert _SHEET_CSS not in stripped
+    assert _SHEET_FIT_JS not in stripped
+    assert strip_shared_sheet_assets("<p>hand written</p>") == "<p>hand written</p>"

@@ -390,6 +390,7 @@ RIGHTS = {
     "inv_registers.index": _register_doc,
     "inv_registers.data": _register_doc,
     "inv_registers.documents": _register_doc,
+    "inv_registers.documents_export": _register_doc,
     "inv_registers.export": _register_doc,
     # Invoice tracking: "view" reads, "edit" assigns (the routes say the same).
     **{f"inv_tracking.{ep}": ("payment_tracking", V) for ep in (

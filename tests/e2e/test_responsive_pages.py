@@ -32,6 +32,7 @@ PAGES = [
     "/inventory/products/batch", "/inventory/units/batch",
     "/workplace/", "/workplace/events", "/workplace/kanban", "/reports/", "/auth/profile",
     "/accounting/",
+    "/invoicing/registers/documents?doc=sales&mode=custom&from=2020-01-01&to=2030-01-01",
 ]
 
 # Elements wider than the screen that are NOT inside a scroll container.

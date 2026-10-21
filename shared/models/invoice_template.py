@@ -641,6 +641,20 @@ _SHEET_FIT_JS = """<script>
 # changes in a way already-saved templates need to pick up.
 SHEET_MARKER = "inv-sheet-v1"
 
+
+def strip_shared_sheet_assets(body_html):
+    """Remove the shared A4 stylesheet and fit script from a rendered body.
+
+    A bulk register prints hundreds of documents into one page. Every body
+    carries the same ~12 KB of CSS and fit script; repeating it 310 times
+    bloats the response and parses hundreds of identical <style> blocks. The
+    first document keeps the assets, later ones are stripped. Custom
+    templates that do not use the shared layout are untouched.
+    """
+    if not body_html:
+        return body_html
+    return body_html.replace(_SHEET_CSS, "").replace(_SHEET_FIT_JS, "")
+
 _PAGE_OPEN = _SHEET_CSS + _SHEET_FIT_JS + f'<div class="inv-sheet {SHEET_MARKER}">'
 # The number strip is a sibling of the content, filled in by the script above.
 _PAGE_CLOSE = '<div class="inv-pagenums" aria-hidden="true"></div></div>'

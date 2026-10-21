@@ -193,6 +193,39 @@ def _register_data(doc, status, from_date, to_date,
     return doc, title, columns, rows, totals, invoices, total_count
 
 
+def _full_invoices(doc, status, from_date, to_date, limit=None, offset=0,
+                   total=None):
+    """(total_count, invoices) for the bulk print/export path.
+
+    The full-document path needs the invoices themselves, not the register
+    rows or its sum cards. Querying only what it renders is what keeps a
+    310-invoice preview from recomputing the whole register on every chunk.
+    """
+    from sqlalchemy.orm import joinedload
+    if doc == "purchase":
+        query = _purchase_query(status)
+        query = apply_date_filter(query, InvPurchaseInvoice.invoice_date,
+                                  from_date, to_date)
+        if total is None:
+            total = query.count()
+        ordered = (query.options(joinedload(InvPurchaseInvoice.supplier))
+                   .order_by(InvPurchaseInvoice.invoice_date.asc(),
+                             InvPurchaseInvoice.id.asc()))
+    else:
+        doc = "sales"
+        query = _sales_query(status)
+        query = apply_date_filter(query, InvInvoice.invoice_date,
+                                  from_date, to_date)
+        if total is None:
+            total = query.count()
+        ordered = (query.options(joinedload(InvInvoice.customer))
+                   .order_by(InvInvoice.invoice_date.asc(),
+                             InvInvoice.id.asc()))
+    if limit is not None:
+        ordered = ordered.offset(offset).limit(limit)
+    return int(total or 0), ordered.all()
+
+
 @inv_reg_bp.route("/")
 @login_required
 def index():
@@ -230,11 +263,10 @@ def documents():
 
     Each invoice renders through the shared print renderer — the same HTML
     the invoice form prints — one per page. Print All uses the browser
-    (PDF via print-to-PDF); Excel comes from the register export carrying
-    the same filters.
+    (PDF via print-to-PDF); Excel downloads the invoices themselves
+    (headers, lines and charges), not the register summary.
     """
-    from shared.invoice_print import (render_purchase_print_html,
-                                      render_sales_print_html)
+    from shared.invoice_print import render_invoice_print_many
     doc = (request.args.get("doc") or "sales").strip().lower()
     status = (request.args.get("status") or "").strip().lower()
     if status not in ("approved", "unapproved"):
@@ -247,11 +279,8 @@ def documents():
     if request.args.get("view") == "1":
         # No-JS fallback: render every document server-side. Without it the
         # page fetches chunks from /data itself, so nothing is loaded here.
-        _d, _t, _c, _r, _tot, invoices, _n = _register_data(
-            doc, status, from_date, to_date)
-        render = (render_purchase_print_html if doc == "purchase"
-                  else render_sales_print_html)
-        docs = [render(inv) for inv in invoices]
+        _total, invoices = _full_invoices(doc, status, from_date, to_date)
+        docs = render_invoice_print_many(invoices, doc)
     label = fctx["label"]
     if status:
         label += f" · {status.title()}"
@@ -288,17 +317,25 @@ def data():
         offset = max(0, int(request.args.get("offset", 0)))
     except (TypeError, ValueError):
         offset = 0
+    # After the first chunk the browser sends back the total it was given;
+    # the chunk's own rows are still read from the database, so this only
+    # saves a count query per chunk on the 310-invoice bulk preview.
+    try:
+        known_total = max(0, int(request.args.get("total", "")))
+    except (TypeError, ValueError):
+        known_total = None
     from_date, to_date, _fctx = resolve_register_filter(request.args)
+    if full:
+        from shared.invoice_print import render_invoice_print_many
+        total, invoices = _full_invoices(
+            doc, status, from_date, to_date, limit=limit, offset=offset,
+            total=known_total)
+        docs = render_invoice_print_many(
+            invoices, doc, include_shared_assets=(offset == 0))
+        return jsonify({"total": total, "rows": len(invoices),
+                        "offset": offset, "limit": limit, "docs": docs})
     doc, title, columns, rows, totals, invoices, total = _register_data(
         doc, status, from_date, to_date, limit=limit, offset=offset)
-    if full:
-        from shared.invoice_print import (render_purchase_print_html,
-                                          render_sales_print_html)
-        render = (render_purchase_print_html if doc == "purchase"
-                  else render_sales_print_html)
-        docs = [render(inv) for inv in invoices]
-        return jsonify({"total": total, "rows": len(rows),
-                        "offset": offset, "limit": limit, "docs": docs})
     html = render_template("registers/_table_body.html", rows=rows,
                            totals=totals, columns=columns, view_endpoint=(
                                "inv_purchase_invoice.invoice_form"
@@ -342,3 +379,200 @@ def export():
                            row_kinds=kinds, mono_col=1,
                            filters=[f"{len(rows)} documents"],
                            file_period=fctx["label"])
+
+
+def _bulk_invoice_workbook(doc, invoices, period):
+    """Workbook of the invoices themselves: headers, lines and charges.
+
+    This is deliberately not the register export. The register page already
+    has that summary; the Bulk Invoices page's Excel button must carry the
+    documents being printed, so each invoice appears with its line items and
+    additional charges on separate filterable sheets.
+    """
+    from shared import report_export as rx
+    from shared.invoice_print import prefetch_invoice_print_data
+    from shared.invoice_totals import line_taxes
+    from shared.models.ledger import ChartOfAccount
+
+    sales = doc != "purchase"
+    party_attr = "customer" if sales else "supplier"
+    party_label = "Customer" if sales else "Supplier"
+    returned = _returned("SI" if sales else "PI", invoices)
+    item_map, product_map, charge_map = prefetch_invoice_print_data(invoices, doc)
+    if not sales and invoices:
+        # Prefetch loads sales charges only; purchase needs its own rows for
+        # the Charges sheet and for the per-line tax weights below.
+        from inventory_app.models.additional_charge import AdditionalCharge
+        for chg in (AdditionalCharge.query
+                    .filter(AdditionalCharge.doc_type == "PI",
+                            AdditionalCharge.doc_id.in_(
+                                [inv.id for inv in invoices]))
+                    .order_by(AdditionalCharge.doc_id.asc(),
+                              AdditionalCharge.id.asc())
+                    .all()):
+            charge_map.setdefault(chg.doc_id, []).append(chg)
+
+    if sales:
+        inv_headers = ["Date", "Invoice #", "Voucher #", party_label,
+                       "Status", "Due Date", "Subtotal", "Discount",
+                       "Charges", "Sales Tax", "Further Tax", "WHT", "Total",
+                       "Paid", "Returned", "Balance", "Notes"]
+        item_headers = ["Invoice #", "Voucher #", "Date", party_label,
+                        "Line", "SKU", "Description", "Qty", "Unit",
+                        "Unit Price", "Discount %", "Discount", "Delivery",
+                        "Installation", "Tax %", "Excl. Tax", "Sales Tax",
+                        "Incl. Tax", "Line Total"]
+    else:
+        inv_headers = ["Date", "Invoice #", "Voucher #", party_label,
+                       "Status", "Subtotal", "Discount", "Expenses", "Tax",
+                       "WHT", "Net Payable", "Paid", "Returned", "Balance",
+                       "Notes"]
+        item_headers = ["Invoice #", "Voucher #", "Date", party_label,
+                        "Line", "SKU", "Description", "Qty", "Unit",
+                        "Unit Price", "Discount %", "Discount", "Commission",
+                        "Freight", "Loading/Unloading", "Tax %", "Excl. Tax",
+                        "Tax", "Incl. Tax", "Line Total"]
+
+    inv_rows, item_rows = [], []
+    for inv in invoices:
+        party = getattr(inv, party_attr)
+        paid = float(inv.paid_amount or 0)
+        back = returned.get(inv.id, 0.0)
+        rows_added = 0
+        if sales:
+            total = float(inv.total_amount or 0)
+            inv_rows.append([
+                inv.invoice_date, inv.invoice_number, inv.voucher_number,
+                party.name if party else "", "Approved" if (
+                    inv.voucher_status or "") == "approved" else "Unapproved",
+                inv.due_date, round(float(inv.subtotal or 0), 2),
+                round(float(inv.total_discount or 0), 2),
+                round(float(inv.total_charges or 0), 2),
+                round(float(inv.total_tax or 0), 2),
+                round(float(inv.total_further_tax or 0), 2),
+                round(float(inv.total_withholding_tax or 0), 2),
+                round(total, 2), round(paid, 2), round(back, 2),
+                round(total - paid - back, 2), inv.notes or "",
+            ])
+        else:
+            net = (float(inv.net_payable) if inv.net_payable is not None
+                   else float(inv.total_amount or 0))
+            inv_rows.append([
+                inv.invoice_date, inv.invoice_number, inv.voucher_number,
+                party.name if party else "", "Approved" if (
+                    inv.status or "") == "approved" else "Unapproved",
+                round(float(inv.subtotal or 0), 2),
+                round(float(inv.total_discount or 0), 2),
+                round(float(inv.total_expenses or 0), 2),
+                round(float(inv.total_tax or 0), 2),
+                round(float(inv.total_withholding_tax or 0), 2),
+                round(net, 2), round(paid, 2), round(back, 2),
+                round(net - paid - back, 2), inv.notes or "",
+            ])
+        lines = item_map.get(inv.id, [])
+        line_tax = line_taxes(inv, items=lines,
+                              charge_rows=charge_map.get(inv.id, []))
+        combined_tax = (inv.tax_mode or "general") == "general"
+        for line_no, it in enumerate(lines, start=1):
+            product = product_map.get(it.product_id)
+            before = float(it.total_before_discount or 0)
+            discount = float(it.discount_amount or 0)
+            excl = round(before - discount, 2)
+            tax_pct = (float(inv.global_sales_tax_pct or 0) if combined_tax
+                       else float(it.sales_tax_pct or 0))
+            tax = (line_tax[line_no - 1] if line_no <= len(line_tax) else 0.0)
+            base = [inv.invoice_number, inv.voucher_number, inv.invoice_date,
+                    party.name if party else "", line_no,
+                    product.sku if product else "", it.description or "",
+                    float(it.quantity or 0), it.unit or "",
+                    round(float(it.unit_price or 0), 2),
+                    round(float(it.discount_pct or 0), 2), round(discount, 2)]
+            if sales:
+                base += [round(float(it.delivery or 0), 2),
+                         round(float(it.installation or 0), 2)]
+            else:
+                base += [round(float(it.commission or 0), 2),
+                         round(float(it.freight or 0), 2),
+                         round(float(it.loading_unloading or 0), 2)]
+            base += [round(tax_pct, 2), excl, tax, round(excl + tax, 2),
+                     round(before, 2)]
+            item_rows.append(base)
+            rows_added += 1
+        if not rows_added:
+            # An invoice with no lines still belongs in the workbook.
+            empty = [inv.invoice_number, inv.voucher_number, inv.invoice_date,
+                     party.name if party else "", 0, "", "", 0, "", 0, 0, 0]
+            empty += [0, 0] if sales else [0, 0, 0]
+            empty += [0, 0, 0, 0, 0]
+            item_rows.append(empty)
+
+    charge_rows = []
+    if invoices:
+        charges = []
+        for rows_for_invoice in charge_map.values():
+            charges.extend(rows_for_invoice)
+        charges.sort(key=lambda c: (c.doc_id, c.id))
+        account_ids = {c.charge_account_id for c in charges
+                       if c.charge_account_id}
+        accounts = {}
+        if account_ids:
+            accounts = {a.id: a.name for a in
+                        ChartOfAccount.query.filter(
+                            ChartOfAccount.id.in_(account_ids)).all()}
+        by_id = {inv.id: inv for inv in invoices}
+        for chg in charges:
+            inv = by_id.get(chg.doc_id)
+            if inv is None:
+                continue
+            party = getattr(inv, party_attr)
+            charge_rows.append([
+                inv.invoice_number, inv.voucher_number, inv.invoice_date,
+                party.name if party else "", chg.description or "",
+                accounts.get(chg.charge_account_id, ""),
+                round(float(chg.amount or 0), 2),
+                (chg.treatment or "bill").title(),
+                (chg.scope or "general").title(),
+                "Yes" if chg.st_taxable else "No",
+                "Yes" if chg.wht_taxable else "No",
+            ])
+
+    num_from, num_to = (6, 16) if sales else (5, 14)
+    total_vals = [
+        round(sum(float(r[i] or 0) for r in inv_rows), 2)
+        for i in range(num_from, num_to)
+    ]
+    inv_rows.append(["", "", "", "TOTAL"] + (
+        ["", ""] if sales else [""]) + total_vals + [""])
+    kinds = ["account"] * (len(inv_rows) - 1) + ["grand"]
+    extra_sheets = [
+        ("Items", item_headers, item_rows),
+        ("Charges", ["Invoice #", "Voucher #", "Date", party_label,
+                     "Description", "Account", "Amount", "Treatment", "Scope",
+                     "In sales-tax base", "In WHT base"], charge_rows),
+    ]
+    return rx.build_excel(
+        "Bulk Invoices", inv_headers, inv_rows, sheet_title="Invoices",
+        period=period, filters=[f"{len(invoices)} invoices"], row_kinds=kinds,
+        extra_sheets=extra_sheets)
+
+
+@inv_reg_bp.route("/documents/export")
+@login_required
+def documents_export():
+    """Excel of the bulk-print selection: invoice headers, lines, charges."""
+    from shared import report_export as rx
+    fmt = (request.args.get("fmt") or "excel").strip().lower()
+    if fmt not in ("excel", "xlsx"):
+        abort(404)
+    doc = (request.args.get("doc") or "sales").strip().lower()
+    status = (request.args.get("status") or "").strip().lower()
+    if status not in ("approved", "unapproved"):
+        status = ""
+    from_date, to_date, fctx = resolve_register_filter(request.args)
+    doc = doc if doc == "purchase" else "sales"
+    _total, invoices = _full_invoices(doc, status, from_date, to_date)
+    subtitle = fctx["label"]
+    if status:
+        subtitle += f" · {status.title()}"
+    buf = _bulk_invoice_workbook(doc, invoices, subtitle)
+    return rx.send_export(buf, "xlsx", "Bulk Invoices", period=subtitle)

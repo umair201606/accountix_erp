@@ -22,6 +22,7 @@ from shared.models.invoice_template import (
     build_totals_table,
     items_table_metrics,
     render_invoice_template,
+    strip_shared_sheet_assets,
 )
 from shared.tenancy import scoped_get
 
@@ -33,33 +34,32 @@ def _e(value):
     return _escape(str(value), quote=True)
 
 
+def _template_for(rs, doc_type):
+    """The print template a company has chosen, resolved once per request."""
+    tid = (rs.purchase_template_id if doc_type == "purchase"
+           else rs.sales_template_id)
+    obj = scoped_get(InvoiceTemplate, tid) if tid else None
+    if not obj:
+        obj = InvoiceTemplate.get_default(doc_type)
+    return obj
+
+
 def _sales_template_obj(invoice):
     rs = ReportSettings.get()
-    obj = None
-    tid = rs.sales_template_id
-    if tid:
-        obj = scoped_get(InvoiceTemplate, tid)
-    if not obj:
-        obj = InvoiceTemplate.get_default("sales")
-    return rs, obj
+    return rs, _template_for(rs, "sales")
 
 
 def _purchase_template_obj(invoice):
     rs = ReportSettings.get()
-    obj = None
-    tid = rs.purchase_template_id
-    if tid:
-        obj = scoped_get(InvoiceTemplate, tid)
-    if not obj:
-        obj = InvoiceTemplate.get_default("purchase")
-    return rs, obj
+    return rs, _template_for(rs, "purchase")
 
 
-def _fallback_html(kind, invoice, party_name):
+def _fallback_html(kind, invoice, party_name, items=None):
     """Compact generic invoice when no print template is configured."""
     company = CompanyInfo.get()
     rows = ""
-    for i, it in enumerate(invoice.items.all(), start=1):
+    for i, it in enumerate(items if items is not None else invoice.items.all(),
+                           start=1):
         amount = (it.total_after_discount or it.total_before_discount
                   or (it.quantity or 0) * (it.unit_price or 0))
         rows += (f"<tr><td>{i}</td><td>{_e(it.description)}</td>"
@@ -93,14 +93,23 @@ def _fallback_html(kind, invoice, party_name):
     )
 
 
-def render_sales_print_html(invoice):
-    """Full print HTML for one sales invoice (same as the form's print)."""
-    rs, invoice_template_obj = _sales_template_obj(invoice)
+def render_sales_print_html(invoice, items=None, settings=None, template=None,
+                            product_map=None, charge_rows=None):
+    """Full print HTML for one sales invoice (same as the form's print).
+
+    The optional arguments let the bulk renderer hand in an invoice whose
+    items, products, charges and template settings were loaded in one batch.
+    Called on its own, every argument defaults to the single-document query.
+    """
+    if settings is None:
+        rs, invoice_template_obj = _sales_template_obj(invoice)
+    else:
+        rs, invoice_template_obj = settings, template
     company = CompanyInfo.get()
     if not invoice_template_obj:
         party = invoice.customer
         return _fallback_html("Sales Invoice", invoice,
-                              party.name if party else "")
+                              party.name if party else "", items=items)
     topts = invoice_template_obj.options
 
     # Decide per-section display based on invoice's mode
@@ -142,8 +151,10 @@ def render_sales_print_html(invoice):
     tot_line = 0.0
 
     items_rows = ""
-    for i, it in enumerate(invoice.items.all(), start=1):
-        product = it.product
+    for i, it in enumerate(items if items is not None else invoice.items.all(),
+                           start=1):
+        product = (product_map.get(it.product_id)
+                   if product_map is not None else it.product)
         da = it.discount_amount or 0
         tp = it.sales_tax_pct or 0
         line_total = it.total_before_discount or 0
@@ -279,7 +290,8 @@ def render_sales_print_html(invoice):
         "commission": _m(0),
         "freight": _m(0),
         "loading_unloading": _m(0),
-        "taxable_value": _m(_sales_totals(invoice)["sales_tax_base"]),
+        "taxable_value": _m(_sales_totals(
+            invoice, charge_rows=charge_rows)["sales_tax_base"]),
         "additional_charges": _m(invoice.total_charges),
         "further_tax": _m(invoice.total_further_tax),
         "withholding_tax": _m(invoice.total_withholding_tax),
@@ -306,14 +318,24 @@ def render_sales_print_html(invoice):
     return render_invoice_template(invoice_template_obj.body_html, ctx)
 
 
-def render_purchase_print_html(invoice):
-    """Full print HTML for one purchase invoice (same as the form's print)."""
-    rs, invoice_template_obj = _purchase_template_obj(invoice)
+def render_purchase_print_html(invoice, items=None, settings=None, template=None,
+                               product_map=None, charge_rows=None):
+    """Full print HTML for one purchase invoice (same as the form's print).
+
+    The optional arguments mirror ``render_sales_print_html`` so the bulk
+    renderer can supply a batch-loaded invoice; ``charge_rows`` is accepted
+    for signature symmetry and unused (purchase print does not build the
+    sales-tax pools).
+    """
+    if settings is None:
+        rs, invoice_template_obj = _purchase_template_obj(invoice)
+    else:
+        rs, invoice_template_obj = settings, template
     company = CompanyInfo.get()
     if not invoice_template_obj:
         party = invoice.supplier
         return _fallback_html("Purchase Invoice", invoice,
-                              party.name if party else "")
+                              party.name if party else "", items=items)
     topts = invoice_template_obj.options
 
     if invoice.discount_mode == "individual":
@@ -355,7 +377,10 @@ def render_purchase_print_html(invoice):
     tot_line = 0.0
 
     items_rows = ""
-    for i, it in enumerate(invoice.items.all(), start=1):
+    for i, it in enumerate(items if items is not None else invoice.items.all(),
+                           start=1):
+        product = (product_map.get(it.product_id)
+                   if product_map is not None else it.product)
         da = it.discount_amount or 0
         tp = it.sales_tax_pct or 0
         line_total = it.total_before_discount or 0
@@ -375,7 +400,7 @@ def render_purchase_print_html(invoice):
 
         cells = (
             f"<td style='{tdc}'>{i}</td>"
-            f"<td style='{tds}'>{_e(it.product.sku) if it.product else ''}</td>"
+            f"<td style='{tds}'>{_e(product.sku) if product else ''}</td>"
             f"<td class='inv-desc' style='{tds}white-space:normal;'>{_e(it.description)}</td>"
             f"<td style='{tdc}'>{it.quantity}</td>"
             f"<td style='{tdc}'>{_e(it.unit)}</td>"
@@ -515,3 +540,89 @@ def render_purchase_print_html(invoice):
         + (invoice.total_tax or 0) - (invoice.total_withholding_tax or 0))
     ctx["grand_total"] = _m(net)
     return render_invoice_template(invoice_template_obj.body_html, ctx)
+
+
+# ── Bulk print: one pass over the whole chunk ──────────────────────────────
+
+def prefetch_invoice_print_data(invoices, doc_type):
+    """Load the items, products and charges a chunk of invoices prints.
+
+    Returns ``(item_map, product_map, charge_map)`` keyed by invoice /
+    product id. Dynamic ``invoice.items`` and lazy ``item.product`` would
+    otherwise run one query per invoice and per line: 189 queries for twenty
+    invoices became six here.
+
+    The maps are also used by the bulk Excel export, so its line rows come
+    from the same load as the print preview.
+    """
+    from inventory_app.models.additional_charge import AdditionalCharge
+    from inventory_app.models.invoice import InvInvoiceItem
+    from inventory_app.models.product import InvProduct
+    from inventory_app.models.purchase_invoice import InvPurchaseInvoiceItem
+
+    invoices = list(invoices)
+    ids = [inv.id for inv in invoices]
+    if not ids:
+        return {}, {}, {}
+
+    doc_type = "purchase" if doc_type == "purchase" else "sales"
+    item_model = (InvPurchaseInvoiceItem if doc_type == "purchase"
+                  else InvInvoiceItem)
+    item_rows = (item_model.query
+                 .filter(item_model.invoice_id.in_(ids))
+                 .order_by(item_model.invoice_id.asc(),
+                           item_model.id.asc())
+                 .all())
+    item_map = {}
+    product_ids = set()
+    for it in item_rows:
+        item_map.setdefault(it.invoice_id, []).append(it)
+        if it.product_id:
+            product_ids.add(it.product_id)
+    product_map = {}
+    if product_ids:
+        products = InvProduct.query.filter(InvProduct.id.in_(product_ids)).all()
+        product_map = {p.id: p for p in products}
+
+    charge_map = {}
+    if doc_type == "sales":
+        charge_rows = (AdditionalCharge.query
+                       .filter(AdditionalCharge.doc_type == "SI",
+                               AdditionalCharge.doc_id.in_(ids))
+                       .order_by(AdditionalCharge.id.asc())
+                       .all())
+        for chg in charge_rows:
+            charge_map.setdefault(chg.doc_id, []).append(chg)
+    return item_map, product_map, charge_map
+
+
+def render_invoice_print_many(invoices, doc_type, include_shared_assets=True):
+    """Print HTML for a chunk of invoices, resolving shared data once.
+
+    Same output as calling ``render_sales_print_html`` /
+    ``render_purchase_print_html`` per invoice, without the per-invoice
+    settings, template, line, product and charge queries.
+
+    ``include_shared_assets`` keeps the A4 stylesheet and fit script on the
+    first document only. Later chunks are inserted after that first document,
+    so repeating the same 12 KB (and hundreds of <style> blocks) buys nothing.
+    """
+    invoices = list(invoices)
+    if not invoices:
+        return []
+    doc_type = "purchase" if doc_type == "purchase" else "sales"
+    rs = ReportSettings.get()
+    template = _template_for(rs, doc_type)
+    item_map, product_map, charge_map = prefetch_invoice_print_data(
+        invoices, doc_type)
+    render = (render_purchase_print_html if doc_type == "purchase"
+              else render_sales_print_html)
+    out = []
+    for index, inv in enumerate(invoices):
+        html = render(inv, items=item_map.get(inv.id, []), settings=rs,
+                      template=template, product_map=product_map,
+                      charge_rows=charge_map.get(inv.id, []))
+        if index or not include_shared_assets:
+            html = strip_shared_sheet_assets(html)
+        out.append(html)
+    return out
