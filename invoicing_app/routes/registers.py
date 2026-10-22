@@ -275,17 +275,24 @@ def documents():
     doc = doc if doc == "purchase" else "sales"
     title = ("Purchase Invoice Register" if doc == "purchase"
              else "Sales Invoice Register")
-    docs = None
-    if request.args.get("view") == "1":
-        # No-JS fallback: render every document server-side. Without it the
-        # page fetches chunks from /data itself, so nothing is loaded here.
-        _total, invoices = _full_invoices(doc, status, from_date, to_date)
+    full_render = request.args.get("view") == "1"
+    if full_render:
+        # No-JS fallback: render every document server-side.
+        total, invoices = _full_invoices(doc, status, from_date, to_date)
+        docs = render_invoice_print_many(invoices, doc)
+    else:
+        # Paint the first pages with the page itself. The browser then only
+        # fetches what is left, so opening a long preview does not wait for a
+        # second serverless request before showing anything.
+        total, invoices = _full_invoices(
+            doc, status, from_date, to_date, limit=20, offset=0)
         docs = render_invoice_print_many(invoices, doc)
     label = fctx["label"]
     if status:
         label += f" · {status.title()}"
     return render_template(
-        "registers/documents.html", docs=docs, label=label,
+        "registers/documents.html", docs=docs, total=total,
+        loaded_count=len(docs), full_render=full_render, label=label,
         title=title, f=fctx,
     )
 
@@ -310,9 +317,9 @@ def data():
     full = request.args.get("full") == "1"
     try:
         limit = max(1, min(int(request.args.get("limit", 200)),
-                           20 if full else 500))
+                           100 if full else 500))
     except (TypeError, ValueError):
-        limit = 20 if full else 200
+        limit = 100 if full else 200
     try:
         offset = max(0, int(request.args.get("offset", 0)))
     except (TypeError, ValueError):

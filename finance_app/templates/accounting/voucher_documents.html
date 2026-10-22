@@ -9,19 +9,31 @@
 <link rel="stylesheet" href="{{ url_for('static', filename='css/ui.css') }}">
 <style>
 {% include 'accounting/_voucher_doc_style.html' %}
-.toolbar{max-width:750px;margin:0 auto 20px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.toolbar{max-width:750px;margin:0 auto 20px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;position:relative;z-index:5001}
 .toolbar .t{font-size:14px;font-weight:600;color:var(--v2-ink,#161616)}
 .toolbar .s{font-size:12px;color:var(--v2-muted,#7c7c7a)}
 .toolbar .b{display:flex;gap:8px;flex-wrap:wrap}
+.bp:disabled{opacity:.45;cursor:not-allowed}
 .doc + .doc{margin-top:28px}
-.reg-progress{position:fixed;inset:0;z-index:5000;background:rgba(15,23,42,.45);display:none;align-items:center;justify-content:center;padding:20px}
-.reg-progress.open{display:flex}
-.reg-progress-card{background:var(--v2-surface,#fff);border-radius:14px;padding:26px 28px;width:min(92vw,380px);box-shadow:0 20px 60px rgba(0,0,0,.3);text-align:center}
-.reg-progress-card h3{margin:0 0 4px;color:var(--v2-ink,#161616);font-size:15px}
-.reg-progress-card p{margin:0 0 16px;color:var(--v2-muted,#7c7c7a);font-size:12.5px}
-.reg-bar{height:10px;border-radius:999px;background:var(--v2-sunk,#f1f5f9);overflow:hidden}
+@media screen{
+  .doc{content-visibility:auto;contain-intrinsic-size:auto 1200px}
+}
+.reg-progress{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);z-index:5000;display:none;width:min(92vw,460px);background:var(--v2-surface,#fff);border:1px solid var(--v2-line-2,#dcdcda);border-radius:14px;padding:14px 16px;box-shadow:0 16px 44px rgba(0,0,0,.22)}
+.reg-progress.open{display:block}
+.reg-progress-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+.reg-progress-card h3{margin:0 0 3px;color:var(--v2-ink,#161616);font-size:14px}
+.reg-progress-card p{margin:0;color:var(--v2-muted,#7c7c7a);font-size:12px;line-height:1.4}
+.reg-pct{font-size:18px;font-weight:700;color:var(--v2-ink,#161616);font-variant-numeric:tabular-nums}
+.reg-bar{height:8px;border-radius:999px;background:var(--v2-sunk,#f1f5f9);overflow:hidden;margin:10px 0 0}
 .reg-bar > div{height:100%;width:0%;border-radius:999px;background:var(--v2-ink,#161616);transition:width .15s ease}
-.reg-pct{font-size:22px;font-weight:700;color:var(--v2-ink,#161616);margin:10px 0 16px;font-variant-numeric:tabular-nums}
+.reg-progress-foot{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:10px;flex-wrap:wrap}
+.reg-progress-foot .bx{padding:6px 12px;font-size:12px}
+.reg-progress-foot .s{font-size:11.5px;color:var(--v2-muted,#7c7c7a)}
+body[data-docs="loading"] #docList{padding-bottom:150px}
+@media (max-width:860px){
+  body{padding:12px}
+  .reg-progress{bottom:10px;width:calc(100vw - 24px)}
+}
 @media print{
   .toolbar,.reg-progress{display:none}
   body{background:#fff}
@@ -34,9 +46,11 @@
   <div>
     <div class="t">Bulk Vouchers (<span id="docCount">{{ docs|length if docs else 0 }}</span>)</div>
     <div class="s">{{ label }}</div>
+    <div class="s" id="docStatus" aria-live="polite"></div>
   </div>
-  <div class="b" id="docActions" {% if not docs %}style="display:none"{% endif %}>
-    <button class="bp" onclick="window.print()">Print All</button>
+  <div class="b" id="docActions">
+    <button type="button" class="bp" id="printAllBtn" onclick="window.print()"
+      {% if not docs %}disabled title="Wait until the vouchers have loaded"{% endif %}>Print All</button>
     {% set _qx = request.args.to_dict() %}{% set _ = _qx.update({'fmt': 'excel'}) %}
     <a class="bx" href="{{ url_for('accounting.voucher_register_export') }}?{{ _qx|urlencode }}">Excel</a>
     <a class="bc" href="{{ url_for('accounting.voucher_register') }}?{{ request.query_string.decode() }}">Back to Register</a>
@@ -58,11 +72,18 @@
 
 <div class="reg-progress{% if not docs %} open{% endif %}" id="regProgress" role="status" aria-live="polite">
   <div class="reg-progress-card">
-    <h3>Loading vouchers…</h3>
-    <p id="regProgressNote">Preparing full voucher pages</p>
+    <div class="reg-progress-head">
+      <div>
+        <h3>Loading vouchers…</h3>
+        <p id="regProgressNote">Preparing full voucher pages</p>
+      </div>
+      <div class="reg-pct" id="regPct">0%</div>
+    </div>
     <div class="reg-bar"><div id="regBarFill"></div></div>
-    <div class="reg-pct" id="regPct">0%</div>
-    <button type="button" class="bx" id="regCancel">Cancel</button>
+    <div class="reg-progress-foot">
+      <button type="button" class="bx" id="regCancel">Cancel loading</button>
+      <span class="s">Back and Excel stay available.</span>
+    </div>
   </div>
 </div>
 
@@ -72,56 +93,84 @@
       fill=document.getElementById('regBarFill'),
       pct=document.getElementById('regPct'),
       note=document.getElementById('regProgressNote'),
+      status=document.getElementById('docStatus'),
       list=document.getElementById('docList'),
-      actions=document.getElementById('docActions'),
       count=document.getElementById('docCount'),
+      printBtn=document.getElementById('printAllBtn'),
       controller=null, cancelled=false;
+  var FIRST_LIMIT=20, CHUNK_LIMIT=100;
   function setProgress(done,total){
-    var p=total>0?Math.min(100,Math.round(done/total*100)):100;
+    var p=total>0?Math.min(100,Math.round(done/total*100)):0;
     fill.style.width=p+'%';pct.textContent=p+'%';
     note.textContent='Loading vouchers… '+done+' of '+total;
   }
+  function setPrintState(loaded){
+    printBtn.disabled=loaded<=0;
+    printBtn.title=loaded<=0?'No vouchers loaded yet'
+      :(cancelled?'Print the vouchers loaded so far':'Print all loaded vouchers');
+  }
+  function appendDocs(docs){
+    if(!docs||!docs.length)return;
+    var frag=document.createDocumentFragment();
+    docs.forEach(function(html){
+      var w=document.createElement('div');w.className='doc';w.innerHTML=html;
+      frag.appendChild(w);
+    });
+    list.appendChild(frag);
+  }
   document.getElementById('regCancel').addEventListener('click',function(){
+    if(cancelled)return;
     cancelled=true;
+    note.textContent='Stopping…';
     if(controller){try{controller.abort();}catch(e){}}
   });
   {% if docs %}
   return; // server-rendered fallback (view=1, no JS needed)
   {% endif %}
   var params=new URLSearchParams(window.location.search);
+  ['total','limit','offset','full'].forEach(function(k){params.delete(k);});
   controller=new AbortController();
-  controller=new AbortController();
-  overlay.classList.add('open');setProgress(0,0);
-  var got=0,total=0;
+  document.body.setAttribute('data-docs','loading');
+  overlay.classList.add('open');setProgress(0,0);setPrintState(0);
+  var got=0,total=0,totalParam='',hadError=false;
   (async function(){
     try{
-      var offset=0, limit=5;
+      var offset=0, limit=FIRST_LIMIT;
       while(true){
         if(cancelled)break;
         var url="{{ url_for('accounting.voucher_register_data') }}?full=1&"
-          +params.toString()+'&limit='+limit+'&offset='+offset;
+          +params.toString()+'&limit='+limit+'&offset='+offset+totalParam;
         var resp=await fetch(url,{signal:controller.signal,headers:{'Accept':'application/json'}});
         if(!resp.ok)throw new Error('Server returned '+resp.status);
         var data=await resp.json();
         if(offset===0){
           total=data.total||0;count.textContent=total;list.innerHTML='';
+          totalParam='&total='+encodeURIComponent(total);
           if(!total)list.innerHTML='<div class="pa"><p style="text-align:center;color:var(--v2-muted,#7c7c7a)">No vouchers found for this filter.</p></div>';
         }
-        (data.docs||[]).forEach(function(html){
-          var w=document.createElement('div');w.className='doc';w.innerHTML=html;list.appendChild(w);
-        });
+        appendDocs(data.docs||[]);
         got+=data.rows||0;setProgress(got,total);
-        if((data.rows||0)<limit||got>=total)break;
+        if(!total||(data.rows||0)<limit||got>=total)break;
         offset+=limit;
+        limit=CHUNK_LIMIT;
       }
     }catch(e){
-      if(!cancelled){
-        list.innerHTML='<div class="pa"><p style="text-align:center;color:var(--danger,#b91c1c)">Could not load vouchers. Please go back and try again.</p></div>';
+      if(!cancelled)hadError=true;
+    }finally{
+      overlay.classList.remove('open');controller=null;
+      if(!hadError&&total>0&&got>=total){
+        document.body.setAttribute('data-docs','done');status.textContent='';
+      }else if(cancelled){
+        document.body.setAttribute('data-docs','cancelled');
+        status.textContent='Loading stopped. '+got+' of '+total+' vouchers loaded.';
+      }else if(hadError){
+        document.body.setAttribute('data-docs','error');
+        status.textContent='Could not load all vouchers. '+got+' of '+total+' loaded.';
+      }else{
+        document.body.setAttribute('data-docs','done');status.textContent='';
       }
+      setPrintState(got);
     }
-    overlay.classList.remove('open');controller=null;
-    document.body.setAttribute('data-docs','done');
-    if(!cancelled&&total>0)actions.style.display='';
   })();
 })();
 </script>

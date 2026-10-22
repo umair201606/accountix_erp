@@ -99,3 +99,41 @@ def test_unapproved_filter_includes_null_status(company):
     assert {i.invoice_number for i in _sales_query("approved")} == {"SI0"}
     assert {i.invoice_number for i in _purchase_query("unapproved")} == {"PI1", "PI2"}
     assert _sales_query("").count() == 3
+
+
+def test_full_invoices_page_in_date_then_id_order(company):
+    """The bulk preview reads 20 first, then 100 at a time; the pages must
+    join without gaps or repeats and the count must survive between them."""
+    from shared.extensions import db
+    from inventory_app.models.customer import InvCustomer
+    from inventory_app.models.invoice import InvInvoice
+    from invoicing_app.routes.registers import _full_invoices
+    db.create_all()
+    cust = InvCustomer(name="Chunk Co")
+    db.session.add(cust)
+    db.session.flush()
+    for n in range(130):
+        db.session.add(InvInvoice(
+            invoice_number=f"CH{n:03d}", voucher_number=f"CV{n:03d}",
+            customer_id=cust.id, invoice_date=date(2026, 6, 15),
+            total_amount=n))
+    db.session.commit()
+
+    total, first = _full_invoices(
+        "sales", "", date(2026, 6, 1), date(2026, 6, 30), limit=20, offset=0)
+    assert total == 130 and len(first) == 20
+
+    # The page already knows the count and passes it back for later chunks.
+    total2, middle = _full_invoices(
+        "sales", "", date(2026, 6, 1), date(2026, 6, 30), limit=100,
+        offset=20, total=total)
+    assert total2 == 130 and len(middle) == 100
+
+    _total3, last = _full_invoices(
+        "sales", "", date(2026, 6, 1), date(2026, 6, 30), limit=100,
+        offset=120, total=total)
+    assert len(last) == 10
+    page_ids = [i.id for i in first + middle + last]
+    assert page_ids == sorted(page_ids)
+    assert len(set(page_ids)) == 130
+    assert [i.invoice_number for i in middle[:2]] == ["CH020", "CH021"]

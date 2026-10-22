@@ -674,15 +674,16 @@ def _voucher_register_query(vtype, status, from_date, to_date):
 
 
 def _voucher_register_rows(vtype, status, from_date, to_date,
-                           limit=None, offset=0):
+                           limit=None, offset=0, total=None):
     """(rows, total_debit, total_credit, total_count) for the register.
 
     Totals and the count always cover the whole filtered set; ``rows`` is
-    the requested chunk (or everything when ``limit`` is None).
+    the requested chunk (or everything when ``limit`` is None). ``total``
+    lets a bulk-print follow-up chunk reuse the count from its first request.
     """
     from sqlalchemy import func
     base = _voucher_register_query(vtype, status, from_date, to_date)
-    total_count = base.count()
+    total_count = total if total is not None else base.count()
     # Totals over exactly the rows the register lists — the same filtered
     # query, not a re-statement of its filters that can drift from it.
     sdr, scr = (db.session.query(
@@ -783,24 +784,43 @@ def voucher_register_data():
     full = request.args.get("full") == "1"
     try:
         limit = max(1, min(int(request.args.get("limit", 200)),
-                           20 if full else 500))
+                           100 if full else 500))
     except (TypeError, ValueError):
-        limit = 20 if full else 200
+        limit = 100 if full else 200
     try:
         offset = max(0, int(request.args.get("offset", 0)))
     except (TypeError, ValueError):
         offset = 0
+    try:
+        known_total = max(0, int(request.args.get("total", "")))
+    except (TypeError, ValueError):
+        known_total = None
     from shared.registers import resolve_register_filter
     from_date, to_date, _fctx = resolve_register_filter(request.args)
     rows, total_dr, total_cr, total = _voucher_register_rows(
-        vtype, status, from_date, to_date, limit=limit, offset=offset)
+        vtype, status, from_date, to_date, limit=limit, offset=offset,
+        total=known_total)
     if full:
+        # Load the chunk's vouchers and their lines in two queries, not two
+        # per voucher: a 100-voucher print request used to make 200 round
+        # trips before rendering a single page.
+        ids = [r["id"] for r in rows]
+        voucher_map, line_map = {}, {}
+        if ids:
+            for v in AccountingVoucher.query.filter(
+                    AccountingVoucher.id.in_(ids)).all():
+                voucher_map[v.id] = v
+            for ln in AccountingVoucherLine.query.filter(
+                    AccountingVoucherLine.voucher_id.in_(ids)).order_by(
+                        AccountingVoucherLine.voucher_id.asc(),
+                        AccountingVoucherLine.line_no.asc()).all():
+                line_map.setdefault(ln.voucher_id, []).append(ln)
         docs = []
         for r in rows:
-            v = scoped_get(AccountingVoucher, r["id"])
+            v = voucher_map.get(r["id"])
             if v is None:
                 continue
-            lines = v.lines.order_by(AccountingVoucherLine.line_no).all()
+            lines = line_map.get(v.id, [])
             docs.append(render_template(
                 "accounting/_voucher_doc.html", voucher=v, lines=lines,
                 total_debit=sum(float(l.debit or 0) for l in lines),

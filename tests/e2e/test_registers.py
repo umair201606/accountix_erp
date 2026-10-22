@@ -1,11 +1,81 @@
 """E2E: bulk invoice + voucher registers — lazy view, filter, export, print."""
 import io
+import json
 import os
+import re
 
 import openpyxl
 
 BASE_URL = "http://127.0.0.1:" + os.environ.get("E2E_PORT", "5050")
 XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+
+def _delayed_register_fetch(page):
+    """Hold the bulk-document chunk request long enough to test Cancel.
+
+    The page paints its first twenty invoices itself, then asks for the rest;
+    the delay lets the test press Cancel while that request is still open,
+    exactly like a slow serverless response on the deployed app.
+    """
+    page.add_init_script("""
+      (function(){
+        var orig = window.fetch;
+        window.fetch = function(url, opts){
+          if (String(url).indexOf('/invoicing/registers/data') !== -1) {
+            return new Promise(function(resolve, reject){
+              var timer = setTimeout(function(){
+                orig.call(window, url, opts).then(resolve, reject);
+              }, 3000);
+              if (opts && opts.signal) {
+                opts.signal.addEventListener('abort', function(){
+                  clearTimeout(timer);
+                  reject(new DOMException('Aborted', 'AbortError'));
+                });
+              }
+            });
+          }
+          return orig.apply(this, arguments);
+        };
+      })();
+    """)
+
+
+def _create_draft_invoices(page, count):
+    """Create unapproved invoices through the real save endpoint.
+
+    They exist only for the length of one test: a bulk preview needs more
+    than the twenty pages the first response carries, and creating them
+    through the route keeps numbering and tenancy the same as production.
+    """
+    customers = page.request.get(
+        f"{BASE_URL}/inventory/invoices/api/customers?q=Solar").json()
+    assert customers, "the seeded Solar customer is missing"
+    customer_id = customers[0]["id"]
+    ids = []
+    for _ in range(count):
+        payload = {
+            "invoice_number": "(auto)", "customer_id": customer_id,
+            "invoice_date": "2026-06-15", "due_date": "2026-07-15",
+            "discount_mode": "general", "charges_mode": "general",
+            "tax_mode": "general", "items": [],
+            "subtotal": 0, "total_discount": 0, "total_charges": 0,
+            "total_tax": 0, "total_further_tax": 0,
+            "total_withholding_tax": 0, "total_amount": 0,
+            "action": "save",
+        }
+        resp = page.request.post(
+            f"{BASE_URL}/inventory/invoices/save", data=json.dumps(payload),
+            headers={"Content-Type": "application/json"})
+        assert resp.ok, resp.text()
+        ids.append(resp.json()["id"])
+    return ids
+
+
+def _delete_invoices(page, ids):
+    for invoice_id in ids:
+        resp = page.request.post(
+            f"{BASE_URL}/inventory/invoices/delete/{invoice_id}")
+        assert resp.ok, resp.text()
 
 
 def _create_taxed_draft(page):
@@ -190,19 +260,95 @@ class TestInvoiceRegister:
         finally:
             wb.close()
 
-    def test_bulk_documents_fetch_twenty_per_request(self, admin_page):
-        chunk_urls = []
+    def test_bulk_documents_preload_chunks_and_survives_cancel(
+            self, admin_page):
+        """First twenty pages ship in the HTML; the rest arrive 100 at a
+        time; Cancel leaves the toolbar usable and whatever already loaded
+        printable. The old page fetched 20 at a time behind a full-screen
+        overlay, and cancelling left Print All / Back unreachable."""
+        url = (f"{BASE_URL}/invoicing/registers/documents?doc=sales"
+               "&mode=custom&from=2020-01-01&to=2030-01-01")
+        ids = _create_draft_invoices(admin_page, 25)
+        try:
+            # --- first response already carries the first twenty pages ----
+            resp = admin_page.request.get(url)
+            assert resp.status == 200
+            html = resp.text()
+            total = int(re.search(r'id="docCount">(\d+)<', html).group(1))
+            assert total > 20, "need more than one response of documents"
+            assert 'data-docs="loading"' in html
+            assert html.count('<div class="doc">') == 20
+            # A browser without JavaScript still gets a way to every page.
+            assert "Open every invoice" in html
+            assert "view=1" in html
 
-        def _collect(req):
-            if "/invoicing/registers/data?full=1" in req.url:
-                chunk_urls.append(req.url)
+            # --- the rest arrives in hundred-page chunks -------------------
+            chunk_urls = []
 
-        admin_page.on("request", _collect)
-        admin_page.goto(
-            f"{BASE_URL}/invoicing/registers/documents?doc=sales&mode=custom&from=2020-01-01&to=2030-01-01")
-        admin_page.wait_for_selector("body[data-docs='done']", timeout=60000)
-        assert chunk_urls
-        assert all("limit=20" in url for url in chunk_urls)
+            def _collect(req):
+                if "/invoicing/registers/data?full=1" in req.url:
+                    chunk_urls.append(req.url)
+
+            admin_page.on("request", _collect)
+            _delayed_register_fetch(admin_page)
+            admin_page.goto(url)
+            admin_page.wait_for_selector("body[data-docs='loading']")
+            assert admin_page.locator("#docList .doc").count() == 20
+            assert admin_page.locator("#regProgress.open").is_visible()
+            assert not admin_page.locator("#printAllBtn").is_enabled()
+            # The progress card sits at the bottom; it must not cover the
+            # Back / Excel / Print actions while a slow chunk is loading.
+            back = admin_page.locator(
+                "#docActions a:has-text('Back to Register')")
+            assert back.is_visible()
+            assert admin_page.evaluate("""() => {
+                const a = [...document.querySelectorAll('#docActions a')]
+                  .find(x => x.textContent.includes('Back'));
+                const r = a.getBoundingClientRect();
+                const hit = document.elementFromPoint(
+                  r.left + r.width / 2, r.top + r.height / 2);
+                return hit === a || a.contains(hit);
+            }""")
+            admin_page.wait_for_selector("body[data-docs='done']", timeout=60000)
+            assert admin_page.locator("#docList .doc").count() == total
+            assert admin_page.locator("#printAllBtn").is_enabled()
+            assert chunk_urls, "the remaining documents were never requested"
+            assert all("limit=100" in u for u in chunk_urls)
+            assert all("offset=20" in u for u in chunk_urls)
+            assert all("total=" in u for u in chunk_urls)
+
+            # --- cancel mid-load keeps the first twenty and the toolbar ----
+            admin_page.goto(url)
+            admin_page.wait_for_selector("body[data-docs='loading']")
+            admin_page.click("#regCancel")
+            admin_page.wait_for_selector("body[data-docs='cancelled']")
+            assert ("Loading stopped. 20 of %d invoices loaded." % total
+                    in admin_page.locator("#docStatus").inner_text())
+            assert admin_page.locator("#docList .doc").count() == 20
+            assert not admin_page.locator("#regProgress").is_visible()
+            assert admin_page.locator("#printAllBtn").is_enabled()
+            admin_page.click("#docActions a:has-text('Back to Register')")
+            admin_page.wait_for_url("**/invoicing/registers/**")
+
+            # --- no-JS fallback renders every page in the HTML -------------
+            full = admin_page.request.get(url + "&view=1").text()
+            assert 'data-docs="done"' in full
+            assert int(re.search(r'id="docCount">(\d+)<',
+                                 full).group(1)) == total
+            assert full.count('<div class="doc">') == total
+        finally:
+            _delete_invoices(admin_page, ids)
+
+    def test_bulk_data_clamps_a_chunk_to_hundred(self, admin_page):
+        base = (f"{BASE_URL}/invoicing/registers/data?full=1&doc=sales"
+                "&mode=custom&from=2020-01-01&to=2030-01-01")
+        resp = admin_page.request.get(base + "&limit=500&offset=999999")
+        assert resp.status == 200
+        assert resp.json()["limit"] == 100
+        # The browser hands the count back after the first response, so a
+        # long preview does not count the same filtered set on every chunk.
+        resp = admin_page.request.get(base + "&limit=1&offset=0&total=987")
+        assert resp.json()["total"] == 987
 
 
 class TestVoucherRegister:
@@ -269,9 +415,32 @@ class TestVoucherRegister:
         assert csv_resp.headers["content-type"].startswith("text/csv")
 
     def test_bulk_documents_load_full_vouchers(self, admin_page):
+        chunk_urls = []
+
+        def _collect(req):
+            if "/accounting/registers/vouchers/data?full=1" in req.url:
+                chunk_urls.append(req.url)
+
+        admin_page.on("request", _collect)
         admin_page.goto(
             f"{BASE_URL}/accounting/registers/vouchers/documents?mode=custom&from=2020-01-01&to=2030-01-01")
         admin_page.wait_for_load_state("networkidle")
         admin_page.wait_for_selector("body[data-docs='done']", timeout=60000)
         body = admin_page.locator("body").inner_text()
         assert "Bulk Vouchers" in body
+        # The first request is small so something paints quickly; every
+        # later one asks for a hundred vouchers, not twenty.
+        if chunk_urls:
+            assert "limit=20" in chunk_urls[0]
+            assert all("limit=100" in u for u in chunk_urls[1:])
+            total = int(admin_page.locator("#docCount").inner_text())
+            assert admin_page.locator("#docList .doc").count() == total
+
+    def test_bulk_voucher_data_clamps_and_reuses_total(self, admin_page):
+        base = (f"{BASE_URL}/accounting/registers/vouchers/data?full=1"
+                "&mode=custom&from=2020-01-01&to=2030-01-01")
+        resp = admin_page.request.get(base + "&limit=500&offset=999999")
+        assert resp.status == 200
+        assert resp.json()["limit"] == 100
+        resp = admin_page.request.get(base + "&limit=1&offset=0&total=654")
+        assert resp.json()["total"] == 654

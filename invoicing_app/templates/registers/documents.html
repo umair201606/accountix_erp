@@ -9,28 +9,43 @@
 <link rel="stylesheet" href="{{ url_for('static', filename='css/ui.css') }}">
 <style>
 body{font-family:Inter,'Segoe UI',system-ui,sans-serif;margin:0;padding:24px;background:var(--v2-ground,#f5f5f5);font-size:13px;color:var(--v2-body,#4a4a48)}
-.toolbar{max-width:800px;margin:0 auto 20px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.toolbar{max-width:800px;margin:0 auto 20px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;position:relative;z-index:5001}
 .toolbar .t{font-size:14px;font-weight:600;color:var(--v2-ink,#161616)}
 .toolbar .s{font-size:12px;color:var(--v2-muted,#7c7c7a)}
 .toolbar .b{display:flex;gap:8px;flex-wrap:wrap}
 .bp{padding:8px 22px;background:var(--v2-ink,#161616);color:var(--v2-ground,#f5f5f5);border:1px solid var(--v2-ink,#161616);border-radius:8px;font-size:13px;font-weight:500;cursor:pointer;font-family:inherit}
+.bp:disabled{opacity:.45;cursor:not-allowed}
 .bx{padding:8px 22px;background:var(--v2-surface,#fff);color:var(--v2-ink,#161616);border:1px solid var(--v2-line-2,#dcdcda);border-radius:8px;font-size:13px;font-weight:500;cursor:pointer;text-decoration:none;display:inline-block;font-family:inherit}
 .doc{background:var(--v2-surface,#fff);border:1px solid var(--v2-line,#e8e8e6);border-radius:12px;padding:28px 36px;max-width:800px;margin:0 auto}
 .doc + .doc{margin-top:28px}
-.reg-progress{position:fixed;inset:0;z-index:5000;background:rgba(15,23,42,.45);display:none;align-items:center;justify-content:center;padding:20px}
-.reg-progress.open{display:flex}
-.reg-progress-card{background:var(--v2-surface,#fff);border-radius:14px;padding:26px 28px;width:min(92vw,380px);box-shadow:0 20px 60px rgba(0,0,0,.3);text-align:center}
-.reg-progress-card h3{margin:0 0 4px;color:var(--v2-ink,#161616);font-size:15px}
-.reg-progress-card p{margin:0 0 16px;color:var(--v2-muted,#7c7c7a);font-size:12.5px}
-.reg-bar{height:10px;border-radius:999px;background:var(--v2-sunk,#f1f5f9);overflow:hidden}
+/* Skip layout/paint for the hundreds of sheets below the fold. Only the
+   visible invoices are laid out until the user scrolls to them; printing
+   still lays every page out because this rule is screen-only. */
+@media screen{
+  .doc{content-visibility:auto;contain-intrinsic-size:auto 1200px}
+}
+/* A small, non-blocking progress card. It deliberately does not cover the
+   toolbar (the old full-screen overlay could leave the actions unreachable
+   after Cancel). */
+.reg-progress{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);z-index:5000;display:none;width:min(92vw,460px);background:var(--v2-surface,#fff);border:1px solid var(--v2-line-2,#dcdcda);border-radius:14px;padding:14px 16px;box-shadow:0 16px 44px rgba(0,0,0,.22)}
+.reg-progress.open{display:block}
+.reg-progress-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+.reg-progress-card h3{margin:0 0 3px;color:var(--v2-ink,#161616);font-size:14px}
+.reg-progress-card p{margin:0;color:var(--v2-muted,#7c7c7a);font-size:12px;line-height:1.4}
+.reg-pct{font-size:18px;font-weight:700;color:var(--v2-ink,#161616);font-variant-numeric:tabular-nums}
+.reg-bar{height:8px;border-radius:999px;background:var(--v2-sunk,#f1f5f9);overflow:hidden;margin:10px 0 0}
 .reg-bar > div{height:100%;width:0%;border-radius:999px;background:var(--v2-ink,#161616);transition:width .15s ease}
-.reg-pct{font-size:22px;font-weight:700;color:var(--v2-ink,#161616);margin:10px 0 16px;font-variant-numeric:tabular-nums}
+.reg-progress-foot{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:10px;flex-wrap:wrap}
+.reg-progress-foot .bx{padding:6px 12px;font-size:12px}
+.reg-progress-foot .s{font-size:11.5px;color:var(--v2-muted,#7c7c7a)}
+body[data-docs="loading"] #docList{padding-bottom:150px}
 @media (max-width:860px){
   body{padding:12px}
   /* An invoice is always A4 (210mm). On a phone, scroll the sheet inside
      its card instead of pushing the whole page 855px wide. */
   .doc{padding:16px;max-width:100%;overflow-x:auto}
   .doc + .doc{margin-top:16px}
+  .reg-progress{bottom:10px;width:calc(100vw - 24px)}
 }
 @media print{
   body{padding:0;background:#fff}
@@ -40,36 +55,55 @@ body{font-family:Inter,'Segoe UI',system-ui,sans-serif;margin:0;padding:24px;bac
 }
 </style>
 </head>
-<body>
+<body data-docs="{% if loaded_count >= total %}done{% else %}loading{% endif %}">
+{% if not full_render and loaded_count < total %}
+<noscript>
+  <style>.reg-progress{display:none}</style>
+  <p class="s" style="max-width:800px;margin:0 auto 16px;text-align:center">
+    JavaScript is off, so only the first {{ loaded_count }} of {{ total }}
+    invoices are shown.
+    <a href="{{ url_for('inv_registers.documents') }}?{{ request.query_string.decode() }}&amp;view=1">Open every invoice</a>
+  </p>
+</noscript>
+{% endif %}
 <div class="toolbar">
   <div>
-    <div class="t">{{ title }} (<span id="docCount">{{ docs|length if docs else 0 }}</span>)</div>
+    <div class="t">{{ title }} (<span id="docCount">{{ total }}</span>)</div>
     <div class="s">{{ label }}</div>
+    <div class="s" id="docStatus" aria-live="polite"></div>
   </div>
-  <div class="b" id="docActions" {% if not docs %}style="display:none"{% endif %}>
-    <button class="bp" onclick="window.print()">Print All</button>
+  <div class="b" id="docActions">
+    <button type="button" class="bp" id="printAllBtn" onclick="window.print()"
+      {% if loaded_count <= 0 or loaded_count < total %}disabled title="Wait until the invoices have loaded"{% endif %}>Print All</button>
     {% set _qx = request.args.to_dict() %}{% set _ = _qx.update({'fmt': 'excel'}) %}
     <a class="bx" href="{{ url_for('inv_registers.documents_export') }}?{{ _qx|urlencode }}">Excel</a>
     <a class="bx" href="{{ url_for('inv_registers.index') }}?{{ request.query_string.decode() }}">Back to Register</a>
   </div>
 </div>
 <div id="docList">
-{% if docs %}
+{% if total == 0 %}
+<div class="doc"><p style="text-align:center;color:var(--v2-muted,#7c7c7a)">No invoices found for this filter.</p></div>
+{% else %}
 {% for html in docs %}
 <div class="doc">{{ html|safe }}</div>
-{% else %}
-<div class="doc"><p style="text-align:center;color:var(--v2-muted,#7c7c7a)">No invoices found for this filter.</p></div>
 {% endfor %}
 {% endif %}
 </div>
 
-<div class="reg-progress{% if not docs %} open{% endif %}" id="regProgress" role="status" aria-live="polite">
+<div class="reg-progress{% if loaded_count < total %} open{% endif %}" id="regProgress" role="status" aria-live="polite">
   <div class="reg-progress-card">
-    <h3>Loading invoices…</h3>
-    <p id="regProgressNote">Preparing full invoice pages</p>
+    <div class="reg-progress-head">
+      <div>
+        <h3>Loading invoices…</h3>
+        <p id="regProgressNote">Preparing full invoice pages</p>
+      </div>
+      <div class="reg-pct" id="regPct">0%</div>
+    </div>
     <div class="reg-bar"><div id="regBarFill"></div></div>
-    <div class="reg-pct" id="regPct">0%</div>
-    <button type="button" class="bx" id="regCancel">Cancel</button>
+    <div class="reg-progress-foot">
+      <button type="button" class="bx" id="regCancel">Cancel loading</button>
+      <span class="s">Back and Excel stay available.</span>
+    </div>
   </div>
 </div>
 
@@ -79,29 +113,60 @@ body{font-family:Inter,'Segoe UI',system-ui,sans-serif;margin:0;padding:24px;bac
       fill=document.getElementById('regBarFill'),
       pct=document.getElementById('regPct'),
       note=document.getElementById('regProgressNote'),
+      status=document.getElementById('docStatus'),
       list=document.getElementById('docList'),
-      actions=document.getElementById('docActions'),
-      count=document.getElementById('docCount'),
+      printBtn=document.getElementById('printAllBtn'),
       controller=null, cancelled=false;
+  // The page carries the first twenty pages already; the rest travels in
+  // hundred-page batches so a 310-invoice preview is three requests, not 16.
+  var CHUNK_LIMIT=100;
+  var preloaded={{ loaded_count|int }}, total={{ total|int }}, got=preloaded;
   function setProgress(done,total){
-    var p=total>0?Math.min(100,Math.round(done/total*100)):100;
+    var p=total>0?Math.min(100,Math.round(done/total*100)):0;
     fill.style.width=p+'%';pct.textContent=p+'%';
     note.textContent='Loading invoices… '+done+' of '+total;
   }
+  function setPrintState(loaded){
+    printBtn.disabled=loaded<=0;
+    printBtn.title=loaded<=0?'No invoices loaded yet'
+      :(cancelled?'Print the invoices loaded so far':'Print all loaded invoices');
+  }
+  function appendDocs(docs){
+    if(!docs||!docs.length)return;
+    var frag=document.createDocumentFragment();
+    docs.forEach(function(html){
+      var w=document.createElement('div');w.className='doc';w.innerHTML=html;
+      frag.appendChild(w);
+    });
+    list.appendChild(frag);
+  }
   document.getElementById('regCancel').addEventListener('click',function(){
+    if(cancelled)return;
     cancelled=true;
+    note.textContent='Stopping…';
     if(controller){try{controller.abort();}catch(e){}}
   });
-  {% if docs %}
-  return; // server-rendered fallback (view=1, no JS needed)
+  {% if full_render %}
+  return; // no-JS fallback (view=1): every page is already in the HTML
   {% endif %}
+  if(got>=total){
+    document.body.setAttribute('data-docs','done');
+    setPrintState(got);
+    return;
+  }
   var params=new URLSearchParams(window.location.search);
+  // The chunk loop owns these; a stale copy on the page URL must not
+  // override the limit/offset or freeze the total.
+  ['total','limit','offset','full'].forEach(function(k){params.delete(k);});
   controller=new AbortController();
-  overlay.classList.add('open');setProgress(0,0);
-  var got=0,total=0,totalParam='';
+  document.body.setAttribute('data-docs','loading');
+  overlay.classList.add('open');setProgress(got,total);setPrintState(0);
+  // Carry the total back so the server need not count the filtered set again
+  // for every batch.
+  var totalParam='&total='+encodeURIComponent(total),hadError=false;
   (async function(){
     try{
-      var offset=0, limit=20;
+      var offset=got, limit=got>0?CHUNK_LIMIT:20;
       while(true){
         if(cancelled)break;
         var url="{{ url_for('inv_registers.data') }}?full=1&"
@@ -109,28 +174,29 @@ body{font-family:Inter,'Segoe UI',system-ui,sans-serif;margin:0;padding:24px;bac
         var resp=await fetch(url,{signal:controller.signal,headers:{'Accept':'application/json'}});
         if(!resp.ok)throw new Error('Server returned '+resp.status);
         var data=await resp.json();
-        if(offset===0){
-          total=data.total||0;count.textContent=total;list.innerHTML='';
-          // Later chunks carry the total back so the server need not count
-          // the filtered set again for every batch.
-          totalParam='&total='+encodeURIComponent(total);
-          if(!total)list.innerHTML='<div class="doc"><p style="text-align:center;color:var(--v2-muted,#7c7c7a)">No invoices found for this filter.</p></div>';
-        }
-        (data.docs||[]).forEach(function(html){
-          var w=document.createElement('div');w.className='doc';w.innerHTML=html;list.appendChild(w);
-        });
+        appendDocs(data.docs||[]);
         got+=data.rows||0;setProgress(got,total);
-        if((data.rows||0)<limit||got>=total)break;
+        if(!total||(data.rows||0)<limit||got>=total)break;
         offset+=limit;
+        limit=CHUNK_LIMIT;
       }
     }catch(e){
-      if(!cancelled){
-        list.innerHTML='<div class="doc"><p style="text-align:center;color:var(--danger,#b91c1c)">Could not load invoices. Please go back and try again.</p></div>';
+      if(!cancelled)hadError=true;
+    }finally{
+      overlay.classList.remove('open');controller=null;
+      if(!hadError&&total>0&&got>=total){
+        document.body.setAttribute('data-docs','done');status.textContent='';
+      }else if(cancelled){
+        document.body.setAttribute('data-docs','cancelled');
+        status.textContent='Loading stopped. '+got+' of '+total+' invoices loaded.';
+      }else if(hadError){
+        document.body.setAttribute('data-docs','error');
+        status.textContent='Could not load all invoices. '+got+' of '+total+' loaded.';
+      }else{
+        document.body.setAttribute('data-docs','done');status.textContent='';
       }
+      setPrintState(got);
     }
-    overlay.classList.remove('open');controller=null;
-    document.body.setAttribute('data-docs','done');
-    if(!cancelled&&total>0)actions.style.display='';
   })();
 })();
 </script>
